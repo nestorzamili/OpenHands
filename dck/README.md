@@ -47,6 +47,19 @@ docker exec postgres psql -U nestor -d samunudb -c "CREATE DATABASE dck_automati
 export AUTOMATION_DB_URL="postgresql+asyncpg://nestor:<pass>@postgres:5432/dck_automation"
 ```
 
+The automation backend does not auto-migrate PostgreSQL (only SQLite).
+Apply the schema once per fresh database (idempotent, re-runnable):
+
+```bash
+./tools/migrate-automation-db.sh
+```
+
+Then start the stack from the `dck/` directory:
+
+```bash
+docker compose up -d
+```
+
 - **Portal (internal only, auto-authenticated, no key prompt)**: [http://localhost:8000/canvas](http://localhost:8000/canvas)
 - **Skills Management**: [http://localhost:8000/canvas/skills](http://localhost:8000/canvas/skills)
 - **API Key**: Found in `dck/config/agent-canvas/api-key.txt` (only needed if you ever expose a public port)

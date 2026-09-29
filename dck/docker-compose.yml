@@ -1,6 +1,6 @@
 services:
   openhands:
-    image: ghcr.io/openhands/agent-canvas:latest
+    image: dck-agentic:dev
     container_name: openhands-canvas
     restart: unless-stopped
     privileged: true

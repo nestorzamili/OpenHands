@@ -86,8 +86,9 @@ New behavior:
 - Entrypoint + both dev launchers exit non-zero with a actionable message when `AUTOMATION_DB_URL` is empty (expected format `postgresql+asyncpg://user:pass@host:5432/dck_automation`).
 - `dck/docker-compose.yml` must supply `AUTOMATION_DB_URL` pointing at a dedicated database (e.g. `dck_automation`, created once with the admin role) reachable via the shared `proxy` network (service hostname, not `localhost`, from inside the container). Local `npm run dev` uses the host-reachable equivalent (`localhost:5432`).
 - Verify `asyncpg` driver availability in the automation image on first run; do not assume.
-- Delete legacy SQLite files at implementation time: `~/.openhands/automation/automations.db`, `.tmp/automation/`, (already removed with the old layout). No migration (unused).
+- Delete legacy SQLite files at implementation time: `~/.openhands/automation/automations.db`, `.tmp/automation/`, plus the old `dck-agentic/openhands/config/` tree (removed with the layout consolidation). No migration (unused).
 - Explicit non-goal: agent-server's own conversation/event store defaults belong to `software-agent-sdk` and are not changed here.
+- Fresh PostgreSQL databases need the automation schema applied once: the backend auto-migrates SQLite only. Run `dck/tools/migrate-automation-db.sh` with `AUTOMATION_DB_URL` set (idempotent; installs `pg8000` in the target container, runs the bundled alembic `head`). Verified against `openhands-automation==1.15.1`.
 
 ## 5. Branding (minimal)
 

@@ -50,3 +50,6 @@ build-fresh/
 # DCK deployment runtime (secrets + state, recreated by compose)
 dck/config/
 dck/**/.env
+
+# DCK workspace is tracked content (negates the agent-server workspace/ rule above)
+!dck/workspace/

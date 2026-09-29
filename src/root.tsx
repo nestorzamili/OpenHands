@@ -226,7 +226,7 @@ export const links: LinksFunction = () => [
 ];
 
 export const meta: MetaFunction = () => [
-  { title: "OpenHands" },
+  { title: "DCK Agentic" },
   { name: "description", content: "Let's Start Building!" },
 ];
 

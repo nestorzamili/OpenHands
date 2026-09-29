@@ -134,9 +134,9 @@ config:
   # Internal ports used by the entrypoint's process manager.
   agentServerPort: 18000
   automationPort: 18001
-  # Optional Postgres connection string for the automation backend.
-  # When empty, the entrypoint falls back to SQLite on the PVC.
-  # automationDbUrl: "postgresql+asyncpg://user:pass@host/db"
+  # Required Postgres connection string for the automation backend.
+  # The entrypoint fails fast when empty (no SQLite fallback).
+  # automationDbUrl: "postgresql+asyncpg://user:pass@host/dck_automation"
   automationDbUrl: ""
   # Extra environment variables to pass through to the container.
   # Each entry is `{ name: ..., value: ... }` or `{ name: ..., valueFrom: ... }`.

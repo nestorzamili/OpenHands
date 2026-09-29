@@ -1044,8 +1044,7 @@ function startAutomationBackend(config) {
             }
           : {}),
         AUTOMATION_AGENT_SERVER_API_KEY: config.sessionApiKey,
-        // ~/.openhands/automation/automations.db — matches docker/entrypoint.sh.
-        AUTOMATION_DB_URL: `sqlite+aiosqlite:///${join(dirname(config.stateDir), SHARED_DEFAULTS.paths.automationDb)}`,
+        AUTOMATION_DB_URL: requireAutomationDbUrl(),
         // The automation backend uses this as its publicly-reachable base
         // URL: it's appended to callback URLs and injected into each
         // sandbox as `AUTOMATION_API_URL` (consumed by setup.sh for
@@ -1188,6 +1187,21 @@ export function getAgentHostAlias(env = process.env) {
   return env.OH_CONVERSATION_RUNTIME === "docker"
     ? "host.docker.internal"
     : "localhost";
+}
+
+export function requireAutomationDbUrl(env = process.env) {
+  const value = env.AUTOMATION_DB_URL?.trim();
+  if (!value) {
+    throw new Error(
+      'AUTOMATION_DB_URL is not set. This stack requires PostgreSQL, e.g. AUTOMATION_DB_URL="postgresql+asyncpg://user:pass@localhost:5432/dck_automation".',
+    );
+  }
+  if (!value.startsWith("postgresql+asyncpg://")) {
+    throw new Error(
+      "AUTOMATION_DB_URL must use the postgresql+asyncpg:// driver.",
+    );
+  }
+  return value;
 }
 
 function buildViteFrontendEnv(config) {

@@ -21,9 +21,25 @@ jobs:
     # for setup plus reporting so GitHub does not terminate it mid-suite.
     timeout-minutes: 30
 
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: dck_automation
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d dck_automation"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     env:
       MOCK_LLM_REPORT_PATH: mock-llm-report.md
       MOCK_LLM_WORKFLOW_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      AUTOMATION_DB_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/dck_automation
 
     steps:
       - name: Check out repository

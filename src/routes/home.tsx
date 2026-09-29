@@ -1,4 +1,6 @@
 import { PrefetchPageLinks, useLocation } from "react-router";
+import { DckModulesSection } from "#/components/features/dck/dck-modules-section";
+import { DckRecentConversations } from "#/components/features/dck/dck-recent-conversations";
 import { HomeChatLauncher } from "#/components/features/home/home-chat-launcher";
 import { LlmNotConfiguredBanner } from "#/components/features/home/llm-not-configured-banner";
 import {
@@ -19,6 +21,11 @@ function HomeScreen() {
     >
       <div className="md:px-4 lg:px-0">
         <LlmNotConfiguredBanner />
+      </div>
+
+      <div className="flex w-full flex-col gap-6 pt-6">
+        <DckModulesSection />
+        <DckRecentConversations />
       </div>
 
       <HomeChatLauncher />

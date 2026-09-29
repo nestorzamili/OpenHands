@@ -330,15 +330,22 @@ export AUTOMATION_BASE_URL="${AUTOMATION_BASE_URL:-http://127.0.0.1:${PORT}}"
 export AUTOMATION_WORKSPACE_BASE="${AUTOMATION_WORKSPACE_BASE:-${OPENHANDS_DIR}/workspaces}"
 mkdir -p "$AUTOMATION_WORKSPACE_BASE"
 
-# Default to SQLite so the automation server works out of the box without
-# an external PostgreSQL instance. Users can override AUTOMATION_DB_URL to
-# point at a real Postgres for production deployments.
+# >>> docker-automation-db-policy
 if [ -z "${AUTOMATION_DB_URL:-}" ]; then
-  AUTOMATION_DB_FILE="${OPENHANDS_DIR}/${CONFIG_AUTOMATION_DB:-automation/automations.db}"
-  mkdir -p "$(dirname "$AUTOMATION_DB_FILE")"
-  export AUTOMATION_DB_URL="sqlite+aiosqlite:///${AUTOMATION_DB_FILE}"
-  log "Using SQLite database: $AUTOMATION_DB_URL"
+  log_error "AUTOMATION_DB_URL is not set. This image requires PostgreSQL."
+  log_error 'Example: export AUTOMATION_DB_URL="postgresql+asyncpg://user:pass@postgres:5432/dck_automation"'
+  exit 1
 fi
+case "$AUTOMATION_DB_URL" in
+  postgresql+asyncpg://*)
+    log "Using PostgreSQL automation database."
+    ;;
+  *)
+    log_error "AUTOMATION_DB_URL must use the postgresql+asyncpg:// driver (got a different scheme)."
+    exit 1
+    ;;
+esac
+# <<< docker-automation-db-policy
 
 # The automation server uses uvicorn. Set AUTOMATION_PORT via its CLI.
 if command -v uvicorn >/dev/null 2>&1; then

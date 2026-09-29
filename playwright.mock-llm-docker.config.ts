@@ -214,6 +214,7 @@ export default defineConfig({
         // folder browser can list/navigate it inside the container.
         `-v ${FOLDER_WORKSPACE_HOST_DIR}:${FOLDER_WORKSPACE_CONTAINER_DIR}`,
         `-e PORT=${INGRESS_PORT}`,
+        `-e AUTOMATION_DB_URL=${process.env.AUTOMATION_DB_URL ?? ""}`,
         `-e SESSION_API_KEY=${sessionApiKey}`,
         `-e OH_SESSION_API_KEYS_0=${sessionApiKey}`,
         `-e PUBLIC_MODE_PORT=${PUBLIC_MODE_PORT}`,

@@ -363,12 +363,26 @@ function startAgentServer(config) {
   );
 }
 
+export function requireAutomationDbUrl(env = process.env) {
+  const value = env.AUTOMATION_DB_URL?.trim();
+  if (!value) {
+    throw new Error(
+      'AUTOMATION_DB_URL is not set. This stack requires PostgreSQL, e.g. AUTOMATION_DB_URL="postgresql+asyncpg://user:pass@localhost:5432/dck_automation".',
+    );
+  }
+  if (!value.startsWith("postgresql+asyncpg://")) {
+    throw new Error(
+      "AUTOMATION_DB_URL must use the postgresql+asyncpg:// driver.",
+    );
+  }
+  return value;
+}
+
 function buildAutomationBackendEnv(config, env = process.env) {
-  // Both backends share the same session API key value.
   return {
     AUTOMATION_AGENT_SERVER_URL: getAgentServerBaseUrl(config),
     AUTOMATION_AGENT_SERVER_API_KEY: config.sessionApiKey,
-    AUTOMATION_DB_URL: `sqlite+aiosqlite:///${join(config.stateDir, "automations.db")}`,
+    AUTOMATION_DB_URL: requireAutomationDbUrl(env),
     AUTOMATION_BASE_URL: `http://localhost:${config.ingressPort}`,
     AUTOMATION_WORKSPACE_BASE: join(config.stateDir, "workspaces"),
     AUTOMATION_LOCAL_API_KEY: config.sessionApiKey,

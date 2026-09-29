@@ -48,9 +48,25 @@ jobs:
     # Give the 20-minute Playwright test budget enough room for setup and reporting.
     timeout-minutes: 25
 
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: dck_automation
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d dck_automation"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     env:
       MOCK_LLM_REPORT_PATH: mock-llm-docker-report.md
       MOCK_LLM_WORKFLOW_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      AUTOMATION_DB_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/dck_automation
 
     steps:
       # ── Resolve which commit to test ───────────────────────────────────

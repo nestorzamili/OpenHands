@@ -1581,7 +1581,7 @@
     "ca": "JSON no vàlid"
   },
   "HOME$WHAT_TO_WORK_ON": {
-    "en": "What do you want to work on?",
+    "en": "Welcome to DCK Agentic",
     "ja": "何に取り組みますか？",
     "zh-CN": "你想处理什么工作？",
     "zh-TW": "你想處理什麼工作？",
@@ -1598,7 +1598,7 @@
     "ca": "En què vols treballar?"
   },
   "HOME$ENGINEERING_TASKS_SUBHEADER": {
-    "en": "Investigate, implement, debug, test, review, or automate work across your codebase.",
+    "en": "Create, monitor, and continue work across your modules and conversations.",
     "ja": "コードベース全体で、調査、実装、デバッグ、テスト、レビュー、作業の自動化ができます。",
     "zh-CN": "在你的代码库中调查、实现、调试、测试、审查或自动化工作。",
     "zh-TW": "在你的程式碼庫中調查、實作、除錯、測試、審查或自動化工作。",

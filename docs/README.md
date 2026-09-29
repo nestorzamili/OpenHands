@@ -9,3 +9,4 @@ This directory contains the project documentation.
 - [Self-hosting guide](./SELF_HOSTING.md)
 - [Integrating DefenseClaw](./DefenseClaw.md): run the DefenseClaw security governance layer alongside the Agent Server.
 - [Testing matrix](./TESTING_MATRIX.md): release smoke-test coverage across installers, operating systems, and agents.
+- [DCK Agentic plan](./DCK_AGENTIC_PLAN.md): fork customization plan, module bases, and new flows.

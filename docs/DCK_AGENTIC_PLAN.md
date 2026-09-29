@@ -22,7 +22,7 @@ Status: **F1–F4 implemented on `dev`; F5 (MCP registration at runtime + secret
 | Area | Owner repo | Notes |
 |---|---|---|
 | Canvas UI, homepage, branding, fail-fast launcher messaging | This fork (`dev`) | `src/`, `scripts/`, `docker/`, `helm/`, `config/`, `docs/` |
-| Deployment compose, workspace content, DCK skills, per-app projects | `dck-agentic` | `openhands/docker-compose.yml`, `workspace/`, `.agents/skills/` |
+| Deployment compose, workspace content, DCK skills, per-app projects | `dck/` directory (this branch) | `dck/docker-compose.yml`, `dck/workspace/`, `dck/workspace/.agents/skills/` |
 | Agent Server conversation/event storage defaults | `software-agent-sdk` (upstream) | Out of scope here; this repo only passes env through and documents |
 | Postgres cluster itself | `surrounding/postgresql.yaml` | Existing `postgres:17` on external `proxy` network; operator-owned credentials |
 
@@ -61,7 +61,7 @@ Rules:
   - No per-project `db` container.
 - Port allocation: first free integer ≥ 3000. The agent must check both `grep -r` over `webgen/*/docker-compose.yml` and live `docker ps` published ports, then record the choice in `.dck.json`. Reserved and never assigned to apps: `8000/8002` (canvas), `5432/3306/6379` (infra).
 - Admin credentials are never committed. Templates carry placeholders; real values go into per-project `.env` (gitignored) and/or `/settings/secrets` (auto-attached as `LookupSecret` on conversation start).
-- The `web-generator` `SKILL.md` (lives in `dck-agentic`, currently the old React+Vite+FastAPI template) must be rewritten to this standard as a wrapper: reference built-in `frontend-design` (layout/styling), `docker` (containerization), and `vercel` (preview deploys when needed) instead of duplicating their guidance.
+- The `web-generator` `SKILL.md` (lives in `dck/workspace/.agents/skills`, rewritten from the old React+Vite+FastAPI template) must be rewritten to this standard as a wrapper: reference built-in `frontend-design` (layout/styling), `docker` (containerization), and `vercel` (preview deploys when needed) instead of duplicating their guidance.
 - Add a `dashboard-generator` skill only as extension-scaffolding guidance (manifest v1 + ESM bundle per `canvas-extension-api`); dashboards ship through `/apps`, not compose.
 
 ## 3b. Built-in reuse audit (do not rebuild)
@@ -84,9 +84,9 @@ Current SQLite defaults to remove (fail fast instead):
 New behavior:
 
 - Entrypoint + both dev launchers exit non-zero with a actionable message when `AUTOMATION_DB_URL` is empty (expected format `postgresql+asyncpg://user:pass@host:5432/dck_automation`).
-- `dck-agentic/openhands/docker-compose.yml` must supply `AUTOMATION_DB_URL` pointing at a dedicated database (e.g. `dck_automation`, created once with the admin role) reachable via the shared `proxy` network (service hostname, not `localhost`, from inside the container). Local `npm run dev` uses the host-reachable equivalent (`localhost:5432`).
+- `dck/docker-compose.yml` must supply `AUTOMATION_DB_URL` pointing at a dedicated database (e.g. `dck_automation`, created once with the admin role) reachable via the shared `proxy` network (service hostname, not `localhost`, from inside the container). Local `npm run dev` uses the host-reachable equivalent (`localhost:5432`).
 - Verify `asyncpg` driver availability in the automation image on first run; do not assume.
-- Delete legacy SQLite files at implementation time: `~/.openhands/automation/automations.db`, `.tmp/automation/`, `dck-agentic/openhands/config/automation/`. No migration (unused).
+- Delete legacy SQLite files at implementation time: `~/.openhands/automation/automations.db`, `.tmp/automation/`, (already removed with the old layout). No migration (unused).
 - Explicit non-goal: agent-server's own conversation/event store defaults belong to `software-agent-sdk` and are not changed here.
 
 ## 5. Branding (minimal)
@@ -148,7 +148,7 @@ Secrets convention: per-app `DATABASE_URL`/`REDIS_URL` and integration keys live
 - **F1 — Postgres-only fail-fast:** entrypoint, both dev launchers, helm values/docs, compose wiring, SQLite deletion, first-run `asyncpg` verification.
 - **F2 — Minimal branding:** title, favicon, home header copy + i18n regeneration + completeness check.
 - **F3 — Module registry + homepage cards:** `src/dck/modules.ts`, card grid, project lists via `useWorkspaceFiles`, deep links into conversations.
-- **F4 — Webgen standard + dashboards as extensions + automation templates:** DONE in `dck-agentic` (`web-generator` rewritten as `frontend-design`+`docker` wrapper with junk-free and secrets rules; `dashboard-generator` skill added; `social-research` rewrapped over `research-brief`/`news-digest`; `data-analytics` extended with MCP + scheduling notes). Deploy/rebuild and recurring jobs are created as custom automations through the built-in setup flow (the published catalog cannot be extended from this fork).
+- **F4 — Webgen standard + dashboards as extensions + automation templates:** DONE in `dck/workspace/.agents/skills` (`web-generator` rewritten as `frontend-design`+`docker` wrapper with junk-free and secrets rules; `dashboard-generator` skill added; `social-research` rewrapped over `research-brief`/`news-digest`; `data-analytics` extended with MCP + scheduling notes). Deploy/rebuild and recurring jobs are created as custom automations through the built-in setup flow (the published catalog cannot be extended from this fork).
 - **F5 — MCP + secrets + recent:** recent block DONE in F3. MCP servers are runtime registrations (see §10); secrets convention DONE (Secret Manager as source of truth, `.env` generated at deploy).
 
 ## 9. Verification per phase
@@ -161,7 +161,7 @@ Secrets convention: per-app `DATABASE_URL`/`REDIS_URL` and integration keys live
 
 ## 10. Access model (internal-only, no public mode)
 
-- `dck-agentic/openhands/docker-compose.yml` publishes only `127.0.0.1:8000:8000`; `PUBLIC_MODE_PORT`/`8002` are removed. External access, if ever needed, goes through the reverse proxy on the `proxy` network — never a second login port.
+- `dck/docker-compose.yml` publishes only `127.0.0.1:8000:8000`; `PUBLIC_MODE_PORT`/`8002` are removed. External access, if ever needed, goes through the reverse proxy on the `proxy` network — never a second login port.
 - `AGENT_CANVAS_ALLOW_LAN_SESSION_KEY=true` is set because the container itself listens on `::` (so the proxy network can reach it) while the host publish stays loopback-only — the exact condition the entrypoint warning asks the operator to confirm.
 - Login-page integration: `ApiKeyEntryScreen` (`src/components/features/backends/api-key-entry-screen.tsx`) renders only when the session key is missing — public-mode instance, stripped key on non-loopback exposure (`scripts/bind-host.mjs` policy), or a 401 from `/server_info`. With the compose above it never renders; the Stitch login design is kept purely as the fallback screen for those cases.
 - Secrets maximization: the built-in Secret Manager (`/settings/secrets`, server-side encrypted via `OH_SECRET_KEY`) is the single source of truth for all integration keys and per-app URLs. Every conversation receives all secrets automatically as server-resolved `LookupSecret` attachments (`POST /api/conversations` `request.secrets`; resolved by agent-server at spawn, never in the browser). Agents materialize gitignored `.env` files from them at deploy time and never log values. Name pattern `[a-zA-Z][a-zA-Z0-9_]{0,63}`. Tavily lives in the MCP server config; per-app `DATABASE_URL_*`/`REDIS_URL` live in the manager. No `.env` sync code exists or is needed.

@@ -46,3 +46,7 @@ build-fresh/
 # Per-arch runtime downloads for macOS universal builds (ELECTRON_ARCH=universal)
 /resources/bin-*/
 /resources/node-*/
+
+# DCK deployment runtime (secrets + state, recreated by compose)
+dck/config/
+dck/**/.env

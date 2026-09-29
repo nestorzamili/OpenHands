@@ -1,0 +1,32 @@
+services:
+  openhands:
+    image: ghcr.io/openhands/agent-canvas:latest
+    container_name: openhands-canvas
+    restart: unless-stopped
+    privileged: true
+    group_add:
+      - "956"
+    ports:
+      # Internal-only: loopback-bound, no public mode. External access (if any)
+      # goes through the reverse proxy on the `proxy` network, never directly.
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ./config:/home/openhands/.openhands
+      - ./workspace:/projects
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - AGENT_CANVAS_DISABLE_TELEMETRY=1
+      # The container listens on :: so the proxy network can reach it; the host
+      # publish above stays loopback-only, which is what makes auto-injected
+      # session auth acceptable here. No PUBLIC_MODE_PORT: no public login port.
+      - AGENT_CANVAS_ALLOW_LAN_SESSION_KEY=true
+      - AUTOMATION_DB_URL=${AUTOMATION_DB_URL:?Set AUTOMATION_DB_URL, e.g. postgresql+asyncpg://user:pass@postgres:5432/dck_automation}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - default
+      - proxy
+
+networks:
+  proxy:
+    external: true

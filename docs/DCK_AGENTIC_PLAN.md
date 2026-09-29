@@ -1,6 +1,6 @@
 # DCK Agentic — Customization Plan (fork `dev`)
 
-Status: **F1 (Postgres-only fail-fast) + F2 (minimal branding) + F3 (module registry + homepage cards + recent) implemented on `dev`; F4–F5 pending**. This doc is the build reference for turning this OpenHands Agent Canvas fork into the DCK Agentic core.
+Status: **F1–F4 implemented on `dev`; F5 (MCP registration at runtime + secrets rollout) and custom image publish pending**. This doc is the build reference for turning this OpenHands Agent Canvas fork into the DCK Agentic core.
 
 ## 0. Locked decisions
 
@@ -105,7 +105,14 @@ Keep the existing stack and add the DCK layer on top:
 - Add: per-module project list — `webgen` via `useWorkspaceFiles` (convention from §3, no new backend); `dashboards` via the built-in extensions runtime (`useCanvasExtensions` / `useCanvasExtensionsRuntime`, deep links to `/extensions/<name>/...`).
 - Add: recent block composed from existing sources — `usePaginatedConversations` (recent chats) + latest automation runs (recent jobs) + workspace mtimes (recently touched projects). No new heavy queries.
 
-Reused built-ins instead of new builds: `/automations*` routes for schedules/history, `/skills` + per-conversation skill picker, `/mcp` custom servers (Postgres read-only, web search), `/settings/secrets` for URLs/keys, Files + `/vscode` tabs for `.env`/code editing.
+Reused built-ins instead of new builds: `/automations*` routes for schedules/history, `/skills` + per-conversation skill picker, Files + `/vscode` tabs for `.env`/code editing.
+
+Custom MCP servers to register at runtime via `/mcp` → Add custom server (local backend; stdio probing is unavailable on cloud, which DCK does not use):
+
+- Postgres read-only: stdio command `npx -y @modelcontextprotocol/server-postgres@0.6.2`, connection URL stored in `/settings/secrets` and passed as the server's env/args, restricted to `SELECT`-only role where possible. Neither the 79-entry marketplace catalog nor the deprecated entries include self-hosted Postgres — custom is the only path.
+- Search: Tavily `npx -y tavily-mcp` with `TAVILY_API_KEY` (required by `research-brief`), optionally Brave Search as fallback. Both are installable-local catalog entries.
+
+Secrets convention: per-app `DATABASE_URL`/`REDIS_URL` and integration keys live in `/settings/secrets` (auto-attached as `LookupSecret` on conversation start) with gitignored per-project `.env` as the file-side copy. Templates (`.env.example`, skill docs) carry placeholders only, never real credentials.
 
 ## 7. New flows
 
@@ -141,8 +148,8 @@ Reused built-ins instead of new builds: `/automations*` routes for schedules/his
 - **F1 — Postgres-only fail-fast:** entrypoint, both dev launchers, helm values/docs, compose wiring, SQLite deletion, first-run `asyncpg` verification.
 - **F2 — Minimal branding:** title, favicon, home header copy + i18n regeneration + completeness check.
 - **F3 — Module registry + homepage cards:** `src/dck/modules.ts`, card grid, project lists via `useWorkspaceFiles`, deep links into conversations.
-- **F4 — Webgen standard + dashboards as extensions + automation templates:** rewrite `web-generator` skill in `dck-agentic` as wrapper over `frontend-design`+`docker`, ship dashboards as Canvas Extensions per `canvas-extension-api` (manifest v1 + ESM bundle, Sidecar only when needed), publish `deploy`/`rebuild`/recurring-report templates (research reuses `research-brief-writer`/`news-digest`).
-- **F5 — MCP + secrets + recent:** register custom Postgres read-only + Tavily/Brave MCP servers (needs `TAVILY_API_KEY`), document secrets convention, compose recent block.
+- **F4 — Webgen standard + dashboards as extensions + automation templates:** DONE in `dck-agentic` (`web-generator` rewritten as `frontend-design`+`docker` wrapper with junk-free and secrets rules; `dashboard-generator` skill added; `social-research` rewrapped over `research-brief`/`news-digest`; `data-analytics` extended with MCP + scheduling notes). Deploy/rebuild and recurring jobs are created as custom automations through the built-in setup flow (the published catalog cannot be extended from this fork).
+- **F5 — MCP + secrets + recent:** recent block DONE in F3. MCP servers are runtime registrations (see §10); secrets convention DONE (Secret Manager as source of truth, `.env` generated at deploy).
 
 ## 9. Verification per phase
 
@@ -151,3 +158,11 @@ Reused built-ins instead of new builds: `/automations*` routes for schedules/his
 - Boot checks: missing `AUTOMATION_DB_URL` exits non-zero with guidance; set URL boots against `dck_automation`.
 - E2E spot checks: scaffold → `docker compose ps` healthy → card lists app → continue-in-conversation lands in scoped dir → rebuild automation run appears in Automations UI.
 - Keep `dev`-only diff small and merge upstream selectively.
+
+## 10. Access model (internal-only, no public mode)
+
+- `dck-agentic/openhands/docker-compose.yml` publishes only `127.0.0.1:8000:8000`; `PUBLIC_MODE_PORT`/`8002` are removed. External access, if ever needed, goes through the reverse proxy on the `proxy` network — never a second login port.
+- `AGENT_CANVAS_ALLOW_LAN_SESSION_KEY=true` is set because the container itself listens on `::` (so the proxy network can reach it) while the host publish stays loopback-only — the exact condition the entrypoint warning asks the operator to confirm.
+- Login-page integration: `ApiKeyEntryScreen` (`src/components/features/backends/api-key-entry-screen.tsx`) renders only when the session key is missing — public-mode instance, stripped key on non-loopback exposure (`scripts/bind-host.mjs` policy), or a 401 from `/server_info`. With the compose above it never renders; the Stitch login design is kept purely as the fallback screen for those cases.
+- Secrets maximization: the built-in Secret Manager (`/settings/secrets`, server-side encrypted via `OH_SECRET_KEY`) is the single source of truth for all integration keys and per-app URLs. Every conversation receives all secrets automatically as server-resolved `LookupSecret` attachments (`POST /api/conversations` `request.secrets`; resolved by agent-server at spawn, never in the browser). Agents materialize gitignored `.env` files from them at deploy time and never log values. Name pattern `[a-zA-Z][a-zA-Z0-9_]{0,63}`. Tavily lives in the MCP server config; per-app `DATABASE_URL_*`/`REDIS_URL` live in the manager. No `.env` sync code exists or is needed.
+- Junk-free webgen: only `webgen/<app>/` source may touch the host volume; `.dockerignore` mandatory; no host toolchains; temp files die in containers; delete means `down -v --rmi local`; operator-level `image`/`builder prune` stays on a schedule. Enforced by the `web-generator` skill (§7 there) and `workspace/AGENTS.md`.

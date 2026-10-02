@@ -16,7 +16,8 @@ import { create } from "zustand";
  *      expects to reflect the latest version of the workspace.
  *
  * Consumers:
- *   - {@link useAutoRefreshFilesOnEdit} bumps this on each mutation event.
+ *   - {@link useAutoRefreshFilesOnEdit} bumps this (trailing-debounced) on
+ *     each mutation batch so a burst of edits reloads the preview once.
  *   - {@link useWorkspaceFileContent} reads the count via its query key so
  *     the hook refetches after each edit.
  *   - `FileContentViewer` / files-tab "open in new tab" link append the

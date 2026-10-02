@@ -22,5 +22,6 @@ Welcome to the internal **DCK Agentic** workspace. This repository is organized 
    - Host system services (PostgreSQL on port 5432, internal APIs) are reachable from within containers via `host.docker.internal:<port>`.
 3. **Quality & Verification**:
    - Verify every Docker stack with `docker compose up -d --build` followed by `docker compose ps` and endpoint health checks.
+   - For all user-facing `webgen/` output (UI, layout, copy, code), apply the vendored `antislop` skills in `.agents/skills/` and pass anti-slop's Delivery Gate (PASS/FAIL report) before reporting a scaffold or deploy as done. See the `web-generator` skill §0.
    - For data scripts: ensure scripts run cleanly and output visual artifacts directly into the appropriate folder.
    - For research & BI: structure reports cleanly using GitHub-flavored Markdown.

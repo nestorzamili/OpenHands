@@ -162,36 +162,99 @@ describe("useAutoRefreshFilesOnEdit", () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
-  it("bumps the workspace mutation counter on each mutating observation so iframes / images cache-bust", () => {
-    const client = new QueryClient();
+  it("bumps the workspace mutation counter (after the debounce window) so iframes / images cache-bust", () => {
+    // The counter bump is trailing-debounced: it is the `?v=<n>` cache-buster
+    // on the preview iframe, so bumping per edit reloads the preview on every
+    // file. Each mutation batch is still observed immediately, but the actual
+    // bump lands once the debounce timer fires.
+    vi.useFakeTimers();
+    try {
+      const client = new QueryClient();
 
-    renderHook(() => useAutoRefreshFilesOnEdit(), {
-      wrapper: makeWrapper(client),
-    });
+      renderHook(() => useAutoRefreshFilesOnEdit(), {
+        wrapper: makeWrapper(client),
+      });
 
-    expect(useWorkspaceMutationCounter.getState().count).toBe(0);
+      expect(useWorkspaceMutationCounter.getState().count).toBe(0);
 
-    act(() => {
-      useEventStore
-        .getState()
-        .addEvent(
-          makeObservationEvent("1", "FileEditorObservation", "str_replace"),
-        );
-    });
-    expect(useWorkspaceMutationCounter.getState().count).toBe(1);
+      act(() => {
+        useEventStore
+          .getState()
+          .addEvent(
+            makeObservationEvent("1", "FileEditorObservation", "str_replace"),
+          );
+      });
+      // Still 0 right after the edit — the bump is pending in the debounce.
+      expect(useWorkspaceMutationCounter.getState().count).toBe(0);
 
-    act(() => {
-      useEventStore
-        .getState()
-        .addEvent(
-          makeObservationEvent(
-            "2",
-            "StrReplaceEditorObservation",
-            "create",
-          ),
-        );
-    });
-    expect(useWorkspaceMutationCounter.getState().count).toBe(2);
+      act(() => {
+        vi.advanceTimersByTime(800);
+      });
+      expect(useWorkspaceMutationCounter.getState().count).toBe(1);
+
+      act(() => {
+        useEventStore
+          .getState()
+          .addEvent(
+            makeObservationEvent("2", "StrReplaceEditorObservation", "create"),
+          );
+      });
+      expect(useWorkspaceMutationCounter.getState().count).toBe(1);
+
+      act(() => {
+        vi.advanceTimersByTime(800);
+      });
+      expect(useWorkspaceMutationCounter.getState().count).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("coalesces a burst of edits within the debounce window into a single counter bump", () => {
+    // Regression guard for the "page keeps refreshing mid-generation" bug:
+    // a scaffold writes many files in quick succession. Each edit restarts
+    // the debounce timer, so the preview iframe reloads exactly once after
+    // the burst settles — not once per written file.
+    vi.useFakeTimers();
+    try {
+      const client = new QueryClient();
+
+      renderHook(() => useAutoRefreshFilesOnEdit(), {
+        wrapper: makeWrapper(client),
+      });
+
+      // Five edits, each landing in its own flush but all inside the window.
+      [1, 2, 3, 4, 5].forEach((n) => {
+        act(() => {
+          useEventStore
+            .getState()
+            .addEvent(
+              makeObservationEvent(
+                String(n),
+                "FileEditorObservation",
+                "create",
+              ),
+            );
+        });
+        // Advance less than the debounce window so the timer scheduled by
+        // the just-flushed effect keeps getting reset instead of firing
+        // between edits.
+        act(() => {
+          vi.advanceTimersByTime(100);
+        });
+      });
+
+      // Burst still in flight → no bump yet.
+      expect(useWorkspaceMutationCounter.getState().count).toBe(0);
+
+      act(() => {
+        vi.advanceTimersByTime(800);
+      });
+      // Exactly one bump for the whole burst.
+      expect(useWorkspaceMutationCounter.getState().count).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("does NOT bump the workspace mutation counter for read-only / non-file observations", () => {
@@ -220,46 +283,64 @@ describe("useAutoRefreshFilesOnEdit", () => {
     // to find new events. The event store re-sorts by timestamp on insert,
     // so a late-arriving older event lands *between* two newer ones and
     // the tail slice would miss it.
-    const client = new QueryClient();
-    const spy = vi.spyOn(client, "invalidateQueries");
+    vi.useFakeTimers();
+    try {
+      const client = new QueryClient();
+      const spy = vi.spyOn(client, "invalidateQueries");
 
-    renderHook(() => useAutoRefreshFilesOnEdit(), {
-      wrapper: makeWrapper(client),
-    });
+      renderHook(() => useAutoRefreshFilesOnEdit(), {
+        wrapper: makeWrapper(client),
+      });
 
-    // First, push two newer events. The id-numbers drive the timestamp,
-    // so id "10" is later than id "5". Both land in the same effect run
-    // (we coalesce — one bump per batch, not per event), so count goes
-    // from 0 → 1.
-    act(() => {
-      useEventStore
-        .getState()
-        .addEvent(makeObservationEvent("10", "FileEditorObservation", "create"));
-      useEventStore
-        .getState()
-        .addEvent(makeObservationEvent("20", "FileEditorObservation", "create"));
-    });
-    const callsAfterInitial = spy.mock.calls.length;
-    expect(callsAfterInitial).toBeGreaterThan(0);
-    const countAfterInitial = useWorkspaceMutationCounter.getState().count;
-    expect(countAfterInitial).toBe(1);
+      // First, push two newer events. The id-numbers drive the timestamp,
+      // so id "10" is later than id "5". Both land in the same effect run
+      // (we coalesce — one bump per burst, not per event). Invalidation is
+      // immediate; the counter bump lands after the debounce window.
+      act(() => {
+        useEventStore
+          .getState()
+          .addEvent(
+            makeObservationEvent("10", "FileEditorObservation", "create"),
+          );
+        useEventStore
+          .getState()
+          .addEvent(
+            makeObservationEvent("20", "FileEditorObservation", "create"),
+          );
+      });
+      const callsAfterInitial = spy.mock.calls.length;
+      expect(callsAfterInitial).toBeGreaterThan(0);
+      act(() => {
+        vi.advanceTimersByTime(800);
+      });
+      const countAfterInitial = useWorkspaceMutationCounter.getState().count;
+      expect(countAfterInitial).toBe(1);
 
-    // Now insert an OLDER event (id "5" → earliest timestamp). The store
-    // re-sorts so the events array becomes [e5, e10, e20]. The previous
-    // "slice from index 2" approach would return [e20] only and miss e5
-    // entirely — no invalidation, no cache-bust, stale iframe.
-    act(() => {
-      useEventStore
-        .getState()
-        .addEvent(makeObservationEvent("5", "FileEditorObservation", "create"));
-    });
+      // Now insert an OLDER event (id "5" → earliest timestamp). The store
+      // re-sorts so the events array becomes [e5, e10, e20]. The previous
+      // "slice from index 2" approach would return [e20] only and miss e5
+      // entirely — no invalidation, no cache-bust, stale iframe.
+      act(() => {
+        useEventStore
+          .getState()
+          .addEvent(
+            makeObservationEvent("5", "FileEditorObservation", "create"),
+          );
+      });
 
-    // We should have invalidated again and bumped the counter exactly once
-    // more for the late-arriving mutation (count: 1 → 2).
-    expect(spy.mock.calls.length).toBeGreaterThan(callsAfterInitial);
-    expect(useWorkspaceMutationCounter.getState().count).toBe(
-      countAfterInitial + 1,
-    );
+      // We should have invalidated again immediately, and bumped the counter
+      // exactly once more for the late-arriving mutation after the debounce
+      // window (count: 1 → 2).
+      expect(spy.mock.calls.length).toBeGreaterThan(callsAfterInitial);
+      act(() => {
+        vi.advanceTimersByTime(800);
+      });
+      expect(useWorkspaceMutationCounter.getState().count).toBe(
+        countAfterInitial + 1,
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("processes each id-less event distinctly (does NOT collapse them via an `undefined` Set key)", () => {
@@ -269,52 +350,64 @@ describe("useAutoRefreshFilesOnEdit", () => {
     // swallow every subsequent id-less event — silently dropping real
     // mutations on the floor.
     //
-    // Verifies via three SEPARATE act() calls (one per event) so each
-    // store mutation gets its own effect-flush. The counter bumps once
-    // per flush that found at least one new mutation; three flushes →
-    // counter ends at 3. Putting all three addEvent calls inside a
-    // single act() would batch them into one flush (counter=1) and
-    // verify nothing useful.
-    const client = new QueryClient();
+    // Verifies via three SEPARATE act() calls (one per event), each
+    // followed by advancing past the debounce window so the trailing bump
+    // fires once per flush. The counter therefore ends at 3 — one bump per
+    // distinct id-less mutation.
+    vi.useFakeTimers();
+    try {
+      const client = new QueryClient();
 
-    renderHook(() => useAutoRefreshFilesOnEdit(), {
-      wrapper: makeWrapper(client),
-    });
+      renderHook(() => useAutoRefreshFilesOnEdit(), {
+        wrapper: makeWrapper(client),
+      });
 
-    // Three distinct id-less FileEditorObservation events (different
-    // timestamps so the store treats them as ordered, not duplicates).
-    const idlessEvent = (i: number): OHEvent =>
-      ({
-        // no `id` field at all → getEventId returns undefined
-        timestamp: new Date(2026, 0, 1, 0, 0, i).toISOString(),
-        source: "environment",
-        tool_name: "str_replace_based_edit_tool",
-        tool_call_id: `tc-idless-${i}`,
-        action_id: `act-idless-${i}`,
-        observation: {
-          kind: "FileEditorObservation",
-          command: "create",
-          path: `/workspace/project/foo${i}.txt`,
-          old_content: null,
-          new_content: "hello",
-          output: "ok",
-        },
-      }) as unknown as OHEvent;
+      // Three distinct id-less FileEditorObservation events (different
+      // timestamps so the store treats them as ordered, not duplicates).
+      const idlessEvent = (i: number): OHEvent =>
+        ({
+          // no `id` field at all → getEventId returns undefined
+          timestamp: new Date(2026, 0, 1, 0, 0, i).toISOString(),
+          source: "environment",
+          tool_name: "str_replace_based_edit_tool",
+          tool_call_id: `tc-idless-${i}`,
+          action_id: `act-idless-${i}`,
+          observation: {
+            kind: "FileEditorObservation",
+            command: "create",
+            path: `/workspace/project/foo${i}.txt`,
+            old_content: null,
+            new_content: "hello",
+            output: "ok",
+          },
+        }) as unknown as OHEvent;
 
-    act(() => {
-      useEventStore.getState().addEvent(idlessEvent(1));
-    });
-    expect(useWorkspaceMutationCounter.getState().count).toBe(1);
+      act(() => {
+        useEventStore.getState().addEvent(idlessEvent(1));
+      });
+      act(() => {
+        vi.advanceTimersByTime(800);
+      });
+      expect(useWorkspaceMutationCounter.getState().count).toBe(1);
 
-    act(() => {
-      useEventStore.getState().addEvent(idlessEvent(2));
-    });
-    expect(useWorkspaceMutationCounter.getState().count).toBe(2);
+      act(() => {
+        useEventStore.getState().addEvent(idlessEvent(2));
+      });
+      act(() => {
+        vi.advanceTimersByTime(800);
+      });
+      expect(useWorkspaceMutationCounter.getState().count).toBe(2);
 
-    act(() => {
-      useEventStore.getState().addEvent(idlessEvent(3));
-    });
-    expect(useWorkspaceMutationCounter.getState().count).toBe(3);
+      act(() => {
+        useEventStore.getState().addEvent(idlessEvent(3));
+      });
+      act(() => {
+        vi.advanceTimersByTime(800);
+      });
+      expect(useWorkspaceMutationCounter.getState().count).toBe(3);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("does NOT re-bump on subsequent renders for the same id-less event", () => {
@@ -326,40 +419,51 @@ describe("useAutoRefreshFilesOnEdit", () => {
     // element references — would cause the same id-less event to
     // re-trigger the bump on every subsequent re-render, spamming
     // cache invalidations.
-    const client = new QueryClient();
+    vi.useFakeTimers();
+    try {
+      const client = new QueryClient();
 
-    const { rerender } = renderHook(() => useAutoRefreshFilesOnEdit(), {
-      wrapper: makeWrapper(client),
-    });
+      const { rerender } = renderHook(() => useAutoRefreshFilesOnEdit(), {
+        wrapper: makeWrapper(client),
+      });
 
-    const idlessEvent: OHEvent = {
-      timestamp: new Date(2026, 0, 1, 0, 0, 0).toISOString(),
-      source: "environment",
-      tool_name: "str_replace_based_edit_tool",
-      tool_call_id: "tc-idless-stable",
-      action_id: "act-idless-stable",
-      observation: {
-        kind: "FileEditorObservation",
-        command: "create",
-        path: "/workspace/project/foo.txt",
-        old_content: null,
-        new_content: "hello",
-        output: "ok",
-      },
-    } as unknown as OHEvent;
+      const idlessEvent: OHEvent = {
+        timestamp: new Date(2026, 0, 1, 0, 0, 0).toISOString(),
+        source: "environment",
+        tool_name: "str_replace_based_edit_tool",
+        tool_call_id: "tc-idless-stable",
+        action_id: "act-idless-stable",
+        observation: {
+          kind: "FileEditorObservation",
+          command: "create",
+          path: "/workspace/project/foo.txt",
+          old_content: null,
+          new_content: "hello",
+          output: "ok",
+        },
+      } as unknown as OHEvent;
 
-    act(() => {
-      useEventStore.getState().addEvent(idlessEvent);
-    });
-    expect(useWorkspaceMutationCounter.getState().count).toBe(1);
+      act(() => {
+        useEventStore.getState().addEvent(idlessEvent);
+      });
+      act(() => {
+        vi.advanceTimersByTime(800);
+      });
+      expect(useWorkspaceMutationCounter.getState().count).toBe(1);
 
-    // Force several extra re-renders without adding new events. The
-    // id-less event still sits in the events array on every re-render,
-    // but the WeakSet dedup must prevent it from being re-processed.
-    rerender();
-    rerender();
-    rerender();
-    expect(useWorkspaceMutationCounter.getState().count).toBe(1);
+      // Force several extra re-renders without adding new events. The
+      // id-less event still sits in the events array on every re-render,
+      // but the WeakSet dedup must prevent it from being re-processed.
+      rerender();
+      rerender();
+      rerender();
+      act(() => {
+        vi.advanceTimersByTime(800);
+      });
+      expect(useWorkspaceMutationCounter.getState().count).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("dedupes numeric event ids the same way as string ids", () => {
@@ -368,41 +472,52 @@ describe("useAutoRefreshFilesOnEdit", () => {
     // `getEventId` returns `string | number | undefined`. The hook's
     // processed-ids set is widened to match — a stray numeric id (legacy
     // payload, hand-crafted test event, …) must still dedup correctly.
-    const client = new QueryClient();
+    vi.useFakeTimers();
+    try {
+      const client = new QueryClient();
 
-    renderHook(() => useAutoRefreshFilesOnEdit(), {
-      wrapper: makeWrapper(client),
-    });
+      renderHook(() => useAutoRefreshFilesOnEdit(), {
+        wrapper: makeWrapper(client),
+      });
 
-    const numericEvent: OHEvent = {
-      id: 42 as unknown as string, // intentionally numeric at runtime
-      timestamp: new Date(2026, 0, 1, 0, 0, 1).toISOString(),
-      source: "environment",
-      tool_name: "str_replace_based_edit_tool",
-      tool_call_id: "tc-num",
-      action_id: "act-num",
-      observation: {
-        kind: "FileEditorObservation",
-        command: "create",
-        path: "/workspace/project/foo.txt",
-        old_content: null,
-        new_content: "hello",
-        output: "ok",
-      },
-    } as unknown as OHEvent;
+      const numericEvent: OHEvent = {
+        id: 42 as unknown as string, // intentionally numeric at runtime
+        timestamp: new Date(2026, 0, 1, 0, 0, 1).toISOString(),
+        source: "environment",
+        tool_name: "str_replace_based_edit_tool",
+        tool_call_id: "tc-num",
+        action_id: "act-num",
+        observation: {
+          kind: "FileEditorObservation",
+          command: "create",
+          path: "/workspace/project/foo.txt",
+          old_content: null,
+          new_content: "hello",
+          output: "ok",
+        },
+      } as unknown as OHEvent;
 
-    act(() => {
-      useEventStore.getState().addEvent(numericEvent);
-    });
-    const afterFirst = useWorkspaceMutationCounter.getState().count;
-    expect(afterFirst).toBe(1);
+      act(() => {
+        useEventStore.getState().addEvent(numericEvent);
+      });
+      act(() => {
+        vi.advanceTimersByTime(800);
+      });
+      const afterFirst = useWorkspaceMutationCounter.getState().count;
+      expect(afterFirst).toBe(1);
 
-    // Re-adding the same numeric-id event must be a no-op for the
-    // counter (store dedups on id; hook must too).
-    act(() => {
-      useEventStore.getState().addEvent({ ...numericEvent });
-    });
-    expect(useWorkspaceMutationCounter.getState().count).toBe(afterFirst);
+      // Re-adding the same numeric-id event must be a no-op for the
+      // counter (store dedups on id; hook must too).
+      act(() => {
+        useEventStore.getState().addEvent({ ...numericEvent });
+      });
+      act(() => {
+        vi.advanceTimersByTime(800);
+      });
+      expect(useWorkspaceMutationCounter.getState().count).toBe(afterFirst);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("only invalidates once per new event batch", () => {

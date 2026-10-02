@@ -4,6 +4,15 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEventStore, type OHEvent } from "#/stores/use-event-store";
 import { useWorkspaceMutationCounter } from "#/stores/use-workspace-mutation-counter";
 
+// Trailing-debounce window for the workspace mutation counter bump. The
+// counter is the `?v=<n>` cache-buster on the Files-tab rich-preview
+// `<iframe src>`, so every bump forces a full iframe reload. During a web
+// scaffold the agent writes many files in a burst; bumping per edit reloads
+// the preview over and over (the "page keeps refreshing" symptom). Coalescing
+// bursts into a single trailing bump reloads the preview once, after writes go
+// quiet, while query invalidation (below) stays immediate.
+const MUTATION_COUNTER_DEBOUNCE_MS = 800;
+
 // `kind` values we treat as a file-mutation observation.
 const FILE_EDIT_OBSERVATION_KINDS = new Set([
   "FileEditorObservation",
@@ -63,6 +72,12 @@ function isBashObservation(event: OHEvent): boolean {
  * Invalidation only refetches actively-mounted queries, so the cost is
  * limited to when the Files tab is open.
  *
+ * Query invalidation fires immediately on each new mutation batch. The
+ * workspace mutation counter bump — which reloads the rich-preview iframe —
+ * is trailing-debounced ({@link MUTATION_COUNTER_DEBOUNCE_MS}) so a burst of
+ * file edits during scaffolding reloads the preview once, after the writes
+ * go quiet, instead of once per file.
+ *
  * Mount this hook inside any component that should drive auto-refresh —
  * the Files tab is the obvious caller. Multiple mounts are safe because
  * React Query coalesces overlapping invalidations.
@@ -102,6 +117,22 @@ export function useAutoRefreshFilesOnEdit(): void {
   const processedIdsRef = useRef<Set<string | number>>(new Set());
   const processedEventsRef = useRef<WeakSet<OHEvent>>(new WeakSet());
 
+  // Trailing-debounce timer for the mutation counter bump. A burst of file
+  // edits restarts the timer; the counter bumps once when the burst goes
+  // quiet, so the rich-preview iframe reloads a single time instead of once
+  // per written file. Cleared on unmount so a pending bump can't fire into a
+  // torn-down tree.
+  const bumpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (bumpTimerRef.current !== null) {
+        clearTimeout(bumpTimerRef.current);
+        bumpTimerRef.current = null;
+      }
+    },
+    [],
+  );
+
   useEffect(() => {
     let hasNewFileEdits = false;
     let hasNewBashCommands = false;
@@ -131,7 +162,8 @@ export function useAutoRefreshFilesOnEdit(): void {
     // The commits list refreshes too (a `git commit` arrives as a bash
     // observation); per-commit queries (`commit_changes` /
     // `commit_file_diff`) are sha-addressed and immutable, so they are
-    // deliberately NOT invalidated.
+    // deliberately NOT invalidated. Invalidation stays immediate — it only
+    // refetches mounted queries and does not reload the preview iframe.
     queryClient.invalidateQueries({ queryKey: ["file_changes"] });
     queryClient.invalidateQueries({ queryKey: ["file_diff"] });
     queryClient.invalidateQueries({ queryKey: ["git_commits"] });
@@ -145,7 +177,17 @@ export function useAutoRefreshFilesOnEdit(): void {
       // file on disk — e.g. tweaking style.css would silently have no
       // visible effect on the rendered index.html until the user reloaded
       // the whole canvas.
-      bumpWorkspaceMutationCounter();
+      //
+      // Debounced: each new edit batch restarts the timer, so a scaffold
+      // that writes dozens of files reloads the preview once (after the
+      // writes settle) rather than flickering through a reload per file.
+      if (bumpTimerRef.current !== null) {
+        clearTimeout(bumpTimerRef.current);
+      }
+      bumpTimerRef.current = setTimeout(() => {
+        bumpTimerRef.current = null;
+        bumpWorkspaceMutationCounter();
+      }, MUTATION_COUNTER_DEBOUNCE_MS);
     }
   }, [events, queryClient, bumpWorkspaceMutationCounter]);
 }

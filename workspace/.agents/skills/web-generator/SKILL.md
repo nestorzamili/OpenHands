@@ -18,7 +18,31 @@ triggers:
 
 # Web Generator — Next.js Single-Service Standard
 
-Build on top of the built-in `frontend-design` skill for layout, styling, and component quality, and the built-in `docker` skill for containerization. Use the built-in `vercel` skill only when a preview deployment is explicitly requested. This skill defines the DCK project conventions those skills must follow here.
+Build on top of the built-in `frontend-design` skill for layout, styling, and component quality, and the built-in `docker` skill for containerization. Use the built-in `vercel` skill only when a preview deployment is explicitly requested. For every piece of user-facing output — UI, layout, copy, and code — also apply the vendored `antislop` skills (see §0). This skill defines the DCK project conventions those skills must follow here.
+
+## 0. Anti-Slop Is Mandatory for All UI Output
+
+Generated webgen apps must not read as generic AI output. The `antislop` skill
+family lives beside this one in `workspace/.agents/skills/` and is mandatory for
+`webgen/` work:
+
+- `antislop` (core) — **always load it** when building or editing a webgen app.
+  It owns the rule tiers, the liveliness toolkit, and the Delivery Gate.
+- `antislop-ui` — load whenever you build or edit any interface (color, layout,
+  components, decoration, motion).
+- `antislop-copywriting` — load whenever you write or edit user-facing prose
+  (headlines, CTAs, empty states, marketing/product copy).
+- `antislop-layoutmobile` — load whenever a layout must reflow across screen
+  sizes (grids, overflow, tap targets, navigation).
+- `antislop-human` — load for accessibility work (contrast, keyboard, focus,
+  states); it ships a contrast checker.
+- `antislop-code` — load whenever you write or edit code comments.
+
+Division of labor: `antislop` **filters** out slop; `frontend-design` and any
+project `DESIGN.md` **direct** the look. They are different jobs — a sterile
+result means the direction was missing, not that the filter failed. Run
+anti-slop's Delivery Gate (the PASS/FAIL report) before you report a scaffold or
+deploy as done; a failing gate blocks the handoff.
 
 ## 1. Project Layout (mandatory)
 

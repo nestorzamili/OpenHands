@@ -68,10 +68,10 @@ describe("ConfigService", () => {
       (_, i) => `litellm_provider_${i}`,
     );
     server.use(
-      http.get("/api/llm/providers", () =>
+      http.get("*/api/llm/providers", () =>
         HttpResponse.json({ providers: litellmOnlyProviders }),
       ),
-      http.get("/api/llm/models/verified", () =>
+      http.get("*/api/llm/models/verified", () =>
         HttpResponse.json({
           models: {
             openhands: ["claude-opus-4-7", "gpt-5.5"],
@@ -124,7 +124,7 @@ describe("ConfigService", () => {
 
   it("normalizes provider models and honors verified metadata precedence", async () => {
     server.use(
-      http.get("/api/llm/models", () =>
+      http.get("*/api/llm/models", () =>
         HttpResponse.json({
           models: [
             "openai/foreign-model",
@@ -135,7 +135,7 @@ describe("ConfigService", () => {
           ],
         }),
       ),
-      http.get("/api/llm/models/verified", () =>
+      http.get("*/api/llm/models/verified", () =>
         HttpResponse.json({
           models: { anthropic: ["server-verified"] },
         }),
@@ -215,11 +215,11 @@ describe("ConfigService", () => {
 
   it("handles null model/provider metadata from the local SDK", async () => {
     server.use(
-      http.get("/api/llm/models", () => HttpResponse.json({ models: null })),
-      http.get("/api/llm/providers", () =>
+      http.get("*/api/llm/models", () => HttpResponse.json({ models: null })),
+      http.get("*/api/llm/providers", () =>
         HttpResponse.json({ providers: null }),
       ),
-      http.get("/api/llm/models/verified", () =>
+      http.get("*/api/llm/models/verified", () =>
         HttpResponse.json({ models: null }),
       ),
     );

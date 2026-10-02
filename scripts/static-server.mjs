@@ -42,6 +42,11 @@ import {
   matchesPathPrefix,
   proxyServerInfoRequest,
 } from "./proxy-utils.mjs";
+import {
+  createPortalAuthHandler,
+  PortalAuthStore,
+  PORTAL_AUTH_SESSION_COOKIE,
+} from "./portal-auth.mjs";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SPA fallback helpers
@@ -95,6 +100,7 @@ export function parseArgs(argv = process.argv.slice(2), env = process.env) {
     sessionApiKey: null,
     authRequired: false,
     allowLanSessionKey: false,
+    portalAuth: null,
     runtimeServicesInfo: null,
     lockToCloud: null,
     basePath: "/",
@@ -135,6 +141,9 @@ export function parseArgs(argv = process.argv.slice(2), env = process.env) {
       }
       case "--session-api-key":
         config.sessionApiKey = argv[++i] || null;
+        break;
+      case "--portal-auth":
+        config.portalAuth = argv[++i] || null;
         break;
       case "--runtime-services-info":
         config.runtimeServicesInfo = argv[++i] || null;
@@ -207,6 +216,21 @@ export function parseArgs(argv = process.argv.slice(2), env = process.env) {
     process.exit(1);
   }
 
+  // Portal auth gates every request behind a login that runs BEFORE any static
+  // serving, so pairing it with --session-api-key is safe and expected: the
+  // injected key reaches only authenticated users, and the frontend needs it to
+  // authenticate its proxied /api calls to the agent-server. What portal auth
+  // does replace is the API-key entry screen, so it is incompatible with
+  // --auth-required (that would ask a logged-in user to paste a key too).
+  if (config.portalAuth && config.authRequired) {
+    console.error(
+      "ERROR: --portal-auth and --auth-required are mutually exclusive.\n" +
+        "  Portal auth already gates the UI with a login; --auth-required would\n" +
+        "  additionally show the API-key entry screen. Use one or the other.",
+    );
+    process.exit(1);
+  }
+
   // Guard: advertising the editor and routing it are the same decision, so
   // they cannot be allowed to drift. This flag is what the frontend gates the
   // editor control on; if it named a prefix with no route behind it, the
@@ -256,6 +280,14 @@ OPTIONS:
                                (public mode) without VITE_AUTH_REQUIRED baked in.
   --allow-lan-session-key      Permit --session-api-key when --host is not
                                loopback (Docker/container entrypoints only).
+  --portal-auth <store>        Enable the login/setup portal. Every request
+                               (static assets, SPA navigation, proxied API and
+                               WebSocket traffic) requires a valid session
+                               cookie; the first admin is created at /setup.
+                               <store> is a JSON file path where hashed
+                               credentials and sessions are persisted. Mutually
+                               exclusive with --session-api-key. See
+                               scripts/portal-auth.mjs.
   --runtime-services-info <json>
                                Inject a JSON description of the local runtime
                                services into index.html so the pre-built
@@ -654,10 +686,36 @@ async function handleStatic(
 // Server
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Extract the portal session token from a request's Cookie header. Browsers
+ * cannot set custom headers on a `WebSocket`, so the portal session rides on
+ * the cookie for upgrade requests just like it does for HTTP.
+ */
+function parsePortalSessionCookie(req) {
+  const header = req.headers.cookie;
+  if (!header) return undefined;
+  for (const part of header.split(";")) {
+    const idx = part.indexOf("=");
+    if (idx < 0) continue;
+    const key = part.slice(0, idx).trim();
+    if (key === PORTAL_AUTH_SESSION_COOKIE) {
+      return part.slice(idx + 1).trim();
+    }
+  }
+  return undefined;
+}
+
 export function startStaticServer(config) {
   const route = createRouter(config.routes);
   const proxy = createProxyHandlers({ label: `static:${config.port}` });
   const dirAbs = resolve(config.dir);
+  const portalAuth =
+    config.portalAuth != null && config.portalAuth !== ""
+      ? (() => {
+          const store = new PortalAuthStore(config.portalAuth);
+          return { store, handler: createPortalAuthHandler(store) };
+        })()
+      : null;
   const policy = applySessionKeyPolicy({
     host: config.host,
     sessionApiKey: config.sessionApiKey || null,
@@ -681,6 +739,10 @@ export function startStaticServer(config) {
   const uninstallDiagnostics = proxy.installDiagnostics();
 
   const server = createServer((req, res) => {
+    if (portalAuth) {
+      const handled = portalAuth.handler(req, res);
+      if (handled) return;
+    }
     const url = req.url ?? "/";
     const backend = route(url);
     if (backend) {
@@ -720,6 +782,19 @@ export function startStaticServer(config) {
   });
 
   server.on("upgrade", (req, socket, head) => {
+    if (portalAuth) {
+      const token = parsePortalSessionCookie(req);
+      if (!portalAuth.store.resolveSession(token)) {
+        socket.write(
+          "HTTP/1.1 401 Unauthorized\r\n" +
+            "Connection: close\r\n" +
+            "Content-Length: 0\r\n" +
+            "\r\n",
+        );
+        socket.destroy();
+        return;
+      }
+    }
     const backend = route(req.url ?? "/");
     if (backend) {
       proxy.proxyWebSocket(req, socket, head, backend);

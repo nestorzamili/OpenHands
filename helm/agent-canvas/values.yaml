@@ -136,7 +136,7 @@ config:
   automationPort: 18001
   # Required Postgres connection string for the automation backend.
   # The entrypoint fails fast when empty (no SQLite fallback).
-  # automationDbUrl: "postgresql+asyncpg://user:pass@host/dck_automation"
+  # automationDbUrl: "postgresql+asyncpg://user:pass@host/dck_agentic"
   automationDbUrl: ""
   # Extra environment variables to pass through to the container.
   # Each entry is `{ name: ..., value: ... }` or `{ name: ..., valueFrom: ... }`.

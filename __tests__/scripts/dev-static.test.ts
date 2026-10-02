@@ -27,7 +27,7 @@ describe("dev-static", () => {
       },
       {
         AUTOMATION_DB_URL:
-          "postgresql+asyncpg://user:pass@localhost:5432/dck_automation",
+          "postgresql+asyncpg://user:pass@localhost:5432/dck_agentic",
       },
     );
 
@@ -36,7 +36,7 @@ describe("dev-static", () => {
       AUTOMATION_AGENT_SERVER_API_KEY: "shared-session-key",
       AUTOMATION_LOCAL_API_KEY: "shared-session-key",
       AUTOMATION_DB_URL:
-        "postgresql+asyncpg://user:pass@localhost:5432/dck_automation",
+        "postgresql+asyncpg://user:pass@localhost:5432/dck_agentic",
       AUTOMATION_POSTHOG_API_KEY:
         "phc_kBtz5nKmxVRRQ7HtPwr2QX9eMC5j65zE86QKocVNwb4U",
       AUTOMATION_POSTHOG_HOST: "https://us.i.posthog.com",

@@ -142,7 +142,17 @@ describe("package library metadata", () => {
   });
 
   it("uses local dev commands without Docker", () => {
-    expect(packageJson.scripts.dev).toBe(
+    // `dev` runs the local launcher gated by the login portal (--portal);
+    // assert the launcher + flag rather than an exact string so adding flags
+    // does not require rewriting unrelated expectations.
+    expect(packageJson.scripts.dev).toContain(
+      "node --env-file-if-exists=.env scripts/dev-with-automation.mjs",
+    );
+    expect(packageJson.scripts.dev).toContain("--portal");
+    expect(packageJson.scripts["dev:public"]).toBe(
+      "node --env-file-if-exists=.env scripts/dev-with-automation.mjs --public",
+    );
+    expect(packageJson.scripts["dev:insecure"]).toBe(
       "node --env-file-if-exists=.env scripts/dev-with-automation.mjs",
     );
     expect(packageJson.scripts["dev:static"]).toBe(

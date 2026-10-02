@@ -1,19 +1,12 @@
-import { PrefetchPageLinks, useLocation } from "react-router";
+import { PrefetchPageLinks } from "react-router";
+import { DckAutomationsSection } from "#/components/features/home/dck-automations-section";
 import { DckModulesSection } from "#/components/features/dck/dck-modules-section";
 import { DckRecentConversations } from "#/components/features/dck/dck-recent-conversations";
-import { HomeChatLauncher } from "#/components/features/home/home-chat-launcher";
 import { LlmNotConfiguredBanner } from "#/components/features/home/llm-not-configured-banner";
-import {
-  isOnboardingPreviewActive,
-  OnboardingHost,
-} from "#/components/features/onboarding";
 
 <PrefetchPageLinks page="/conversations/:conversationId" />;
 
 function HomeScreen() {
-  const location = useLocation();
-  const isPreview = isOnboardingPreviewActive(location.search);
-
   return (
     <div
       data-testid="home-screen"
@@ -23,14 +16,11 @@ function HomeScreen() {
         <LlmNotConfiguredBanner />
       </div>
 
-      <div className="flex w-full flex-col gap-6 pt-6">
+      <div className="flex w-full flex-col gap-8 pt-6 pb-10">
         <DckModulesSection />
         <DckRecentConversations />
+        <DckAutomationsSection />
       </div>
-
-      <HomeChatLauncher />
-
-      {!isPreview ? <OnboardingHost /> : null}
     </div>
   );
 }

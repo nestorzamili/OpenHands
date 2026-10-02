@@ -426,6 +426,31 @@ describe("buildConfig", () => {
     expect(new Set(servicePorts).size).toBe(servicePorts.length);
   });
 
+  it("defaults to no portal auth (store null) without --portal", async () => {
+    const config = await buildConfig({}, envWithIsolatedKeyPath());
+    expect(config.isPortal).toBe(false);
+    expect(config.portalAuthStore).toBeNull();
+  });
+
+  it("enables portal auth with a persisted store under the state dir", async () => {
+    const config = await buildConfig(
+      { portal: true },
+      envWithIsolatedKeyPath(),
+    );
+    expect(config.isPortal).toBe(true);
+    expect(config.portalAuthStore).toBe(
+      path.join(config.stateDir, "portal-auth.json"),
+    );
+    // Portal injects the session key (gated by login), so it is not public.
+    expect(config.isPublic).toBeFalsy();
+  });
+
+  it("rejects --portal together with --public", async () => {
+    await expect(
+      buildConfig({ portal: true, public: true }, envWithIsolatedKeyPath()),
+    ).rejects.toThrow(/mutually exclusive/i);
+  });
+
   it("respects preferred PORT from env when available", async () => {
     // Use a high port unlikely to be busy
     const preferredPort = "19501";

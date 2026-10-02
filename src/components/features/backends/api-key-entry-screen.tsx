@@ -1,7 +1,9 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
 import { SettingsClient } from "@openhands/typescript-client/clients";
+import DckMark from "#/assets/branding/dck-mark.svg?react";
 import { I18nKey } from "#/i18n/declaration";
+import { PRODUCT_NAME } from "#/constants/branding";
 import { isSdkHttpStatusError } from "#/api/agent-server-compatibility";
 import { getAgentServerClientOptions } from "#/api/agent-server-client-options";
 import { isNoBackend } from "#/api/backend-registry/active-store";
@@ -85,64 +87,85 @@ export default function ApiKeyEntryScreen() {
       data-testid="api-key-entry-screen"
       className="flex min-h-screen items-center justify-center bg-base px-6"
     >
-      <div
-        className={cn(
-          "relative rounded-xl border border-border bg-base-secondary",
-          modalWidthClassName("md"),
-          MODAL_MAX_WIDTH_VIEWPORT,
-        )}
-      >
-        <div className="px-6 pt-6 pb-2 pr-12">
-          <h2 className="text-lg font-semibold">
-            {t(I18nKey.BACKEND$ADD_TITLE)}
-          </h2>
+      <div className="flex w-full flex-col items-center gap-6">
+        <div
+          data-testid="dck-auth-brand"
+          className="flex flex-col items-center gap-3 text-center"
+        >
+          <DckMark
+            data-testid="dck-auth-logo"
+            className="h-14 w-14"
+            aria-hidden
+          />
+          <div className="flex flex-col gap-1">
+            <h1 className="text-xl font-semibold text-contrast">
+              {PRODUCT_NAME}
+            </h1>
+            <p className="text-sm text-text-tertiary">
+              {t(I18nKey.AUTH$SIGN_IN_TO_CONTINUE)}
+            </p>
+          </div>
         </div>
 
-        <div className="px-6 pb-6 pt-2">
-          <BackendForm
-            mode="add"
-            backend={{ ...active.backend, host, apiKey: "", name: "" }}
-            onSubmitted={() => {}}
-            testIdRoot="api-key-entry"
-            hostReadOnly
-            requireApiKey
-            onSubmitOverride={handleSubmitOverride}
-            renderActions={({ canSubmit, testIdRoot }) => (
-              <>
-                {connectionStatus !== "idle" && (
-                  <div className="flex items-center gap-3 text-sm">
-                    <BackendStatusDot
-                      isConnected={connectionStatus === "success"}
-                    />
-                    <span
-                      data-testid={`${testIdRoot}-status`}
-                      className={
-                        connectionStatus === "error"
-                          ? "text-red-400"
-                          : "text-green-400"
-                      }
-                    >
-                      {connectionStatus === "error"
-                        ? errorMessage
-                        : t(I18nKey.ONBOARDING$BACKEND_STATUS_CONNECTED)}
-                    </span>
-                  </div>
-                )}
+        <div
+          className={cn(
+            "relative rounded-xl border border-border bg-base-secondary",
+            modalWidthClassName("md"),
+            MODAL_MAX_WIDTH_VIEWPORT,
+          )}
+        >
+          <div className="px-6 pt-6 pb-2 pr-12">
+            <h2 className="text-lg font-semibold">
+              {t(I18nKey.BACKEND$ADD_TITLE)}
+            </h2>
+          </div>
 
-                <BrandButton
-                  type="submit"
-                  variant="secondary"
-                  isDisabled={!canSubmit || isValidating}
-                  testId={`${testIdRoot}-submit`}
-                  className="w-full text-center"
-                >
-                  {isValidating
-                    ? t(I18nKey.ONBOARDING$BACKEND_STATUS_CHECKING)
-                    : t(I18nKey.BACKEND$CONNECT)}
-                </BrandButton>
-              </>
-            )}
-          />
+          <div className="px-6 pb-6 pt-2">
+            <BackendForm
+              mode="add"
+              backend={{ ...active.backend, host, apiKey: "", name: "" }}
+              onSubmitted={() => {}}
+              testIdRoot="api-key-entry"
+              hostReadOnly
+              requireApiKey
+              onSubmitOverride={handleSubmitOverride}
+              renderActions={({ canSubmit, testIdRoot }) => (
+                <>
+                  {connectionStatus !== "idle" && (
+                    <div className="flex items-center gap-3 text-sm">
+                      <BackendStatusDot
+                        isConnected={connectionStatus === "success"}
+                      />
+                      <span
+                        data-testid={`${testIdRoot}-status`}
+                        className={
+                          connectionStatus === "error"
+                            ? "text-red-400"
+                            : "text-green-400"
+                        }
+                      >
+                        {connectionStatus === "error"
+                          ? errorMessage
+                          : t(I18nKey.ONBOARDING$BACKEND_STATUS_CONNECTED)}
+                      </span>
+                    </div>
+                  )}
+
+                  <BrandButton
+                    type="submit"
+                    variant="secondary"
+                    isDisabled={!canSubmit || isValidating}
+                    testId={`${testIdRoot}-submit`}
+                    className="w-full text-center"
+                  >
+                    {isValidating
+                      ? t(I18nKey.ONBOARDING$BACKEND_STATUS_CHECKING)
+                      : t(I18nKey.BACKEND$CONNECT)}
+                  </BrandButton>
+                </>
+              )}
+            />
+          </div>
         </div>
       </div>
     </div>

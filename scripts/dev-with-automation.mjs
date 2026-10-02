@@ -216,6 +216,9 @@ function parseArgs() {
       case "--public":
         config.public = true;
         break;
+      case "--portal":
+        config.portal = true;
+        break;
       case "--frontend-only":
         config.frontendOnly = true;
         break;
@@ -257,6 +260,12 @@ OPTIONS:
   --static-dir <dir>          Static build directory (default: build/)
   --skip-build                Reuse build/ when the launcher builds static assets
   --dynamic                   Force Vite dev server when a wrapper defaults static
+  --portal                    Gate the UI behind a username/password login
+                              portal (default for \`npm run dev\`). First run
+                              creates an admin at /setup; the store persists
+                              under the state dir.
+  --public                    Show the API-key entry screen instead (requires
+                              LOCAL_BACKEND_API_KEY).
   --frontend-only             Start only the frontend behind ingress
   --backend-only              Start only agent-server + automation behind ingress
   -v, --verbose               Show detailed output
@@ -419,9 +428,20 @@ async function buildConfig(args, env = process.env) {
   const launchAgentServer = !frontendOnly;
   const launchAutomation = !frontendOnly;
   const isPublic = args.public;
+  const isPortal = Boolean(args.portal);
 
   if (isPublic && frontendOnly) {
     throw new Error("--public cannot be used with --frontend-only");
+  }
+
+  if (isPortal && isPublic) {
+    throw new Error(
+      "--portal and --public are mutually exclusive: the portal already " +
+        "gates the UI with a login, so the API-key entry screen is not used.",
+    );
+  }
+  if (isPortal && frontendOnly) {
+    throw new Error("--portal cannot be used with --frontend-only");
   }
 
   // In public mode, LOCAL_BACKEND_API_KEY is required — without it the
@@ -537,6 +557,13 @@ async function buildConfig(args, env = process.env) {
 
     // Public mode — the session key should NOT be baked into the frontend
     isPublic,
+
+    // Portal mode — a username/password login portal gates the ingress. The
+    // session key is still injected into the frontend (the login gate runs
+    // first, so only authenticated users receive it). The store persists under
+    // the state dir so the admin created on first run survives restarts.
+    isPortal,
+    portalAuthStore: isPortal ? join(stateDir, "portal-auth.json") : null,
 
     frontendOnly,
     backendOnly,
@@ -1147,6 +1174,9 @@ function startIngress(config) {
         : []),
       ...buildRouteArgs(getLocalServiceRoutes(config)),
       ...getNoReferrerPrefixArgs(config),
+      ...(config.portalAuthStore
+        ? ["--portal-auth", config.portalAuthStore]
+        : []),
       ...(frontendBackend ? ["--default", frontendBackend] : []),
     ],
     {
@@ -1193,7 +1223,7 @@ export function requireAutomationDbUrl(env = process.env) {
   const value = env.AUTOMATION_DB_URL?.trim();
   if (!value) {
     throw new Error(
-      'AUTOMATION_DB_URL is not set. This stack requires PostgreSQL, e.g. AUTOMATION_DB_URL="postgresql+asyncpg://user:pass@localhost:5432/dck_automation".',
+      'AUTOMATION_DB_URL is not set. This stack requires PostgreSQL, e.g. AUTOMATION_DB_URL="postgresql+asyncpg://user:pass@localhost:5432/dck_agentic".',
     );
   }
   if (!value.startsWith("postgresql+asyncpg://")) {

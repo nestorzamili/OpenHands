@@ -1,5 +1,5 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ExecutionStatus } from "#/types/agent-server/core";
 import type { AppConversation } from "#/api/conversation-service/agent-server-conversation-service.types";
@@ -20,6 +20,23 @@ vi.mock("#/api/canvas-extensions-service", () => ({
   default: { listInstalled: vi.fn() },
 }));
 
+const mockCreateConversation = vi.fn(
+  async (_payload: {
+    workingDir?: string;
+    query?: string;
+    entryPoint?: string;
+  }) => ({
+    conversation_id: "conv-new",
+  }),
+);
+
+vi.mock("#/hooks/mutation/use-create-conversation", () => ({
+  useCreateConversation: () => ({
+    mutateAsync: mockCreateConversation,
+    isPending: false,
+  }),
+}));
+
 vi.mock("@openhands/typescript-client/clients", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("@openhands/typescript-client/clients")
@@ -32,6 +49,15 @@ vi.mock("@openhands/typescript-client/clients", async (importOriginal) => ({
           : [],
       next_page_id: null,
     }));
+
+    downloadFile = vi.fn(async (path: string) => {
+      if (path === "/projects/webgen/shop/.dck.json") {
+        return new TextEncoder().encode(
+          JSON.stringify({ name: "shop", port: 3100, stack: "nextjs" }),
+        ).buffer;
+      }
+      throw new Error("not found");
+    });
   },
 }));
 
@@ -75,6 +101,8 @@ const researchConversation = makeConversation({
 });
 
 beforeEach(() => {
+  vi.stubEnv("VITE_DCK_WORKSPACE_ROOT", "");
+  mockCreateConversation.mockClear();
   vi.mocked(
     AgentServerConversationService.searchConversations,
   ).mockResolvedValue({
@@ -84,8 +112,12 @@ beforeEach(() => {
   vi.mocked(CanvasExtensionsService.listInstalled).mockResolvedValue([]);
 });
 
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 describe("DckModulesSection", () => {
-  it("renders all five module cards with the webgen project list", async () => {
+  it("renders all five module cards with a count (no inline project list)", async () => {
     renderWithProviders(<DckModulesSection />);
 
     for (const id of [
@@ -99,20 +131,46 @@ describe("DckModulesSection", () => {
         await screen.findByTestId(`dck-module-card-${id}`),
       ).toBeInTheDocument();
     }
-    expect(await screen.findByTestId("dck-project-row")).toHaveTextContent(
-      "shop",
-    );
+
+    // Count is shown; the per-project detail now lives on the module page, so
+    // the home card renders no project rows.
+    expect(
+      await screen.findByTestId("dck-module-count-webgen"),
+    ).toHaveTextContent("1 project");
+    expect(screen.queryByTestId("dck-project-row")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("dck-project-link")).not.toBeInTheDocument();
   });
 
-  it("opens the existing conversation for a project row", async () => {
+  it("links View all to the module detail page", async () => {
+    renderWithProviders(<DckModulesSection />);
+
+    const viewAll = await screen.findByTestId("dck-module-view-all-webgen");
+    expect(viewAll).toHaveAttribute("href", "/modules/webgen");
+
+    const conversationViewAll = await screen.findByTestId(
+      "dck-module-view-all-research",
+    );
+    expect(conversationViewAll).toHaveAttribute("href", "/modules/research");
+  });
+
+  it("seeds the module prompt as the opening query for a new conversation", async () => {
     const navigate = vi.fn();
     const user = userEvent.setup();
     renderWithProviders(<DckModulesSection />, { navigation: { navigate } });
 
-    await user.click(await screen.findByTestId("dck-project-row"));
+    const powerbiCard = await screen.findByTestId("dck-module-card-powerbi");
+    const newButton = within(powerbiCard).getByRole("button");
+    await user.click(newButton);
 
     await waitFor(() => {
-      expect(navigate).toHaveBeenCalledWith("/conversations/conv-web");
+      expect(mockCreateConversation).toHaveBeenCalledTimes(1);
+    });
+    const payload = mockCreateConversation.mock.calls[0][0];
+    expect(payload.workingDir).toBe("/projects/powerbi");
+    expect(payload.query).toMatch(/power bi|dax|power query/i);
+    expect(payload.entryPoint).toBeUndefined();
+    await waitFor(() => {
+      expect(navigate).toHaveBeenCalledWith("/conversations/conv-new");
     });
   });
 });

@@ -68,7 +68,7 @@ describe("Docker automation-db policy", () => {
 
   it("accepts postgresql+asyncpg URLs", () => {
     const { status } = runPolicyBlock(
-      "postgresql+asyncpg://user:pass@localhost:5432/dck_automation",
+      "postgresql+asyncpg://user:pass@localhost:5432/dck_agentic",
     );
     expect(status).toBe(0);
   });

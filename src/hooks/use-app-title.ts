@@ -2,8 +2,9 @@ import { useParams } from "react-router";
 import { useUserConversation } from "#/hooks/query/use-user-conversation";
 import { useConversationStateStore } from "#/stores/conversation-state-store";
 import { getAgentStateEmoji } from "#/utils/agent-state-emoji";
+import { PRODUCT_NAME } from "#/constants/branding";
 
-const APP_TITLE = "OpenHands";
+const APP_TITLE = PRODUCT_NAME;
 
 export const useAppTitle = () => {
   const { conversationId } = useParams<{ conversationId: string }>();

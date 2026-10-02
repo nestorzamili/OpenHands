@@ -27,11 +27,11 @@ jobs:
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: dck_automation
+          POSTGRES_DB: dck_agentic
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U postgres -d dck_automation"
+          --health-cmd "pg_isready -U postgres -d dck_agentic"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -39,7 +39,7 @@ jobs:
     env:
       MOCK_LLM_REPORT_PATH: mock-llm-report.md
       MOCK_LLM_WORKFLOW_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-      AUTOMATION_DB_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/dck_automation
+      AUTOMATION_DB_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/dck_agentic
 
     steps:
       - name: Check out repository

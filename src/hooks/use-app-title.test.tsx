@@ -6,6 +6,7 @@ import { useUserConversation } from "./query/use-user-conversation";
 import { useAppTitle } from "./use-app-title";
 import { useConversationStateStore } from "#/stores/conversation-state-store";
 import { ExecutionStatus } from "#/types/agent-server/core/base/common";
+import { PRODUCT_NAME } from "#/constants/branding";
 
 const renderAppTitleHook = () =>
   renderHook(() => useAppTitle(), {
@@ -39,7 +40,7 @@ describe("useAppTitle", () => {
   it("returns the OSS app title outside conversations", async () => {
     const { result } = renderAppTitleHook();
 
-    await waitFor(() => expect(result.current).toBe("OpenHands"));
+    await waitFor(() => expect(result.current).toBe(PRODUCT_NAME));
   });
 
   it("returns the conversation title with the OSS app name", async () => {
@@ -52,7 +53,7 @@ describe("useAppTitle", () => {
     const { result } = renderAppTitleHook();
 
     await waitFor(() =>
-      expect(result.current).toBe("My Conversation | OpenHands"),
+      expect(result.current).toBe(`My Conversation | ${PRODUCT_NAME}`),
     );
   });
 
@@ -63,7 +64,7 @@ describe("useAppTitle", () => {
 
     const { result } = renderAppTitleHook();
 
-    await waitFor(() => expect(result.current).toBe("OpenHands"));
+    await waitFor(() => expect(result.current).toBe(PRODUCT_NAME));
   });
 
   it.each([
@@ -87,7 +88,9 @@ describe("useAppTitle", () => {
       const { result } = renderAppTitleHook();
 
       await waitFor(() =>
-        expect(result.current).toBe(`${emoji} My Conversation | OpenHands`),
+        expect(result.current).toBe(
+          `${emoji} My Conversation | ${PRODUCT_NAME}`,
+        ),
       );
     },
   );
@@ -105,7 +108,7 @@ describe("useAppTitle", () => {
     const { result } = renderAppTitleHook();
 
     await waitFor(() =>
-      expect(result.current).toBe("🟢 My Conversation | OpenHands"),
+      expect(result.current).toBe(`🟢 My Conversation | ${PRODUCT_NAME}`),
     );
   });
 
@@ -119,7 +122,7 @@ describe("useAppTitle", () => {
     const { result } = renderAppTitleHook();
 
     await waitFor(() =>
-      expect(result.current).toBe("My Conversation | OpenHands"),
+      expect(result.current).toBe(`My Conversation | ${PRODUCT_NAME}`),
     );
   });
 });

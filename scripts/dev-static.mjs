@@ -367,7 +367,7 @@ export function requireAutomationDbUrl(env = process.env) {
   const value = env.AUTOMATION_DB_URL?.trim();
   if (!value) {
     throw new Error(
-      'AUTOMATION_DB_URL is not set. This stack requires PostgreSQL, e.g. AUTOMATION_DB_URL="postgresql+asyncpg://user:pass@localhost:5432/dck_automation".',
+      'AUTOMATION_DB_URL is not set. This stack requires PostgreSQL, e.g. AUTOMATION_DB_URL="postgresql+asyncpg://user:pass@localhost:5432/dck_agentic".',
     );
   }
   if (!value.startsWith("postgresql+asyncpg://")) {

@@ -1,5 +1,8 @@
 import { useTranslation } from "react-i18next";
-import OpenHandsLogo from "#/assets/branding/openhands-logo.svg?react";
+// Keep the import binding/component name as `OpenHandsLogo` for merge-safety
+// with upstream; only the asset it points to is rebranded to the DCK mark.
+import OpenHandsLogo from "#/assets/branding/dck-logo.svg?react";
+import DckMark from "#/assets/branding/dck-mark.svg?react";
 import { NavigationLink } from "#/components/shared/navigation-link";
 import { I18nKey } from "#/i18n/declaration";
 import { cn } from "#/utils/utils";
@@ -13,6 +16,12 @@ export type OpenHandsLogoButtonProps = {
   logoClassName?: string;
   logoWidth?: number;
   logoHeight?: number;
+  /**
+   * Render the square crown mark (`dck-mark.svg`) instead of the wide
+   * crown+wordmark. Used by the collapsed sidebar rail, where a wordmark does
+   * not fit the narrow icon column.
+   */
+  useMark?: boolean;
 };
 
 export function OpenHandsLogoButton({
@@ -20,10 +29,16 @@ export function OpenHandsLogoButton({
   logoClassName,
   logoWidth = DEFAULT_LOGO_WIDTH,
   logoHeight = DEFAULT_LOGO_HEIGHT,
+  useMark = false,
 }: OpenHandsLogoButtonProps = {}) {
   const { t } = useTranslation("openhands");
 
   const ariaLabel = t(I18nKey.BRANDING$OPENHANDS_LOGO);
+
+  const Mark = useMark ? DckMark : OpenHandsLogo;
+  // The square mark is 1:1; render it at the available height so it sits
+  // centered in the collapsed icon column rather than stretched to a wide box.
+  const markWidth = useMark ? logoHeight : logoWidth;
 
   return (
     <NavigationLink
@@ -31,8 +46,8 @@ export function OpenHandsLogoButton({
       aria-label={ariaLabel}
       className={cn(className)}
     >
-      <OpenHandsLogo
-        width={logoWidth}
+      <Mark
+        width={markWidth}
         height={logoHeight}
         className={cn(
           "shrink-0 text-contrast [&_path[fill=white]]:fill-current",

@@ -144,8 +144,9 @@ export function SidebarRailBody({
             )}
           >
             <OpenHandsLogoButton
-              logoWidth={SIDEBAR_LOGO_WIDTH}
-              logoHeight={SIDEBAR_LOGO_HEIGHT}
+              useMark={collapsed}
+              logoWidth={collapsed ? ICON_SIZE : SIDEBAR_LOGO_WIDTH}
+              logoHeight={collapsed ? ICON_SIZE : SIDEBAR_LOGO_HEIGHT}
               logoClassName="max-w-none"
               className={cn(SIDEBAR_ICON_SLOT_CLASS, "overflow-visible")}
             />

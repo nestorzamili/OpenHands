@@ -16,8 +16,16 @@ const useActiveAgentProfileMock = vi.fn<
   () => { activeProfile: { agent_kind: string; name: string } | null }
 >(() => ({ activeProfile: null }));
 
+const usePortalUserMock = vi.fn<
+  () => { data: { username: string; isAdmin: boolean } | null }
+>(() => ({ data: null }));
+
 vi.mock("#/hooks/query/use-config", () => ({
   useConfig: () => useConfigMock(),
+}));
+
+vi.mock("#/hooks/query/use-portal-user", () => ({
+  usePortalUser: () => usePortalUserMock(),
 }));
 
 vi.mock("#/hooks/query/use-settings", () => ({
@@ -61,6 +69,7 @@ describe("useSettingsNavItems", () => {
       orgId: null,
     });
     useActiveAgentProfileMock.mockReturnValue({ activeProfile: null });
+    usePortalUserMock.mockReturnValue({ data: null });
   });
 
   afterEach(() => {
@@ -80,6 +89,39 @@ describe("useSettingsNavItems", () => {
       type: "item",
       item: baseLlm,
     });
+  });
+
+  it("adds a Users item only for portal admins", () => {
+    useConfigMock.mockReturnValue({ data: createConfig() });
+
+    // No portal user -> no Users item.
+    let { result } = renderHook(() => useSettingsNavItems());
+    expect(
+      result.current.some(
+        (i) => i.type === "item" && i.item.to === "/settings/users",
+      ),
+    ).toBe(false);
+
+    // Non-admin portal user -> still hidden.
+    usePortalUserMock.mockReturnValue({
+      data: { username: "bob", isAdmin: false },
+    });
+    ({ result } = renderHook(() => useSettingsNavItems()));
+    expect(
+      result.current.some(
+        (i) => i.type === "item" && i.item.to === "/settings/users",
+      ),
+    ).toBe(false);
+
+    // Admin portal user -> Users item present.
+    usePortalUserMock.mockReturnValue({
+      data: { username: "grok", isAdmin: true },
+    });
+    ({ result } = renderHook(() => useSettingsNavItems()));
+    const usersItem = result.current.find(
+      (i) => i.type === "item" && i.item.to === "/settings/users",
+    );
+    expect(usersItem).toBeTruthy();
   });
 
   it("keeps the generic LLM settings item on cloud backends", () => {

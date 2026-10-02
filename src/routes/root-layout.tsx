@@ -24,7 +24,6 @@ import { CloudOrganizationBoundary } from "#/components/features/backends/cloud-
 import { useAppTitle } from "#/hooks/use-app-title";
 import { ReactRouterNavigationProvider } from "./react-router-navigation-provider";
 import { OnboardingHost } from "#/components/features/onboarding";
-import { isOnboardingPreviewActive } from "#/components/features/onboarding/onboarding-preview";
 import { CanvasExtensionsRuntimeProvider } from "#/components/features/canvas-extensions/canvas-extensions-runtime";
 
 const EnvironmentSwitchOverlay = React.lazy(
@@ -116,7 +115,6 @@ function MainAppContent() {
   const hideMobileSidebarMenuBar = /^\/conversations\/[^/]+/.test(
     location.pathname,
   );
-  const showOnboardingPreview = isOnboardingPreviewActive(location.search);
 
   return (
     <ReactRouterNavigationProvider>
@@ -157,7 +155,7 @@ function MainAppContent() {
             <EnvironmentSwitchOverlay />
             <CommandMenu />
           </React.Suspense>
-          {showOnboardingPreview ? <OnboardingHost /> : null}
+          <OnboardingHost />
         </SidebarMobileNavProvider>
       </CanvasExtensionsRuntimeProvider>
     </ReactRouterNavigationProvider>

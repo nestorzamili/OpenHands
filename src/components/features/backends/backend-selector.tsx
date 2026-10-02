@@ -29,6 +29,7 @@ import { useConversationStore } from "#/stores/conversation-store";
 import { AddBackendModal } from "./add-backend-modal";
 import { BackendStatusDot } from "./backend-status-dot";
 import { ManageBackendsModal } from "./manage-backends-modal";
+import { PortalAccountFooter } from "./portal-account-footer";
 import { cn } from "#/utils/utils";
 import { formControlTransitionClassName } from "#/utils/form-control-classes";
 import {
@@ -353,6 +354,13 @@ export function BackendSelector({
     ],
   );
 
+  const dropdownFooter = (
+    <>
+      {addBackendFooter}
+      <PortalAccountFooter />
+    </>
+  );
+
   return (
     <>
       <div className="flex items-center gap-2 w-full">
@@ -369,7 +377,7 @@ export function BackendSelector({
                   : buildStatusPrefix(healthByBackendId[active.backend.id]),
               }
             }
-            footer={addBackendFooter}
+            footer={dropdownFooter}
             openUpward={openUpward}
             hideTrigger={hideTrigger}
             defaultOpen={defaultOpen}

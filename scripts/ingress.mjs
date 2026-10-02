@@ -34,6 +34,11 @@ import {
   matchesPathPrefix,
   proxyServerInfoRequest,
 } from "./proxy-utils.mjs";
+import {
+  createPortalAuthHandler,
+  PortalAuthStore,
+  PORTAL_AUTH_SESSION_COOKIE,
+} from "./portal-auth.mjs";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Configuration
@@ -48,6 +53,7 @@ function parseArgs() {
     defaultBackend: null,
     noReferrerPrefixes: [],
     runtimeServicesInfo: null,
+    portalAuth: null,
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -83,6 +89,9 @@ function parseArgs() {
       case "--runtime-services-info":
         config.runtimeServicesInfo = args[++i] || null;
         break;
+      case "--portal-auth":
+        config.portalAuth = args[++i] || null;
+        break;
       case "-h":
       case "--help":
         showHelp();
@@ -111,6 +120,10 @@ OPTIONS:
                               responses under <p>. For upstreams whose URL
                               carries a credential in the query string.
   --runtime-services-info     Runtime services JSON for /server_info
+  --portal-auth <store>       Gate every request (HTTP + WebSocket) behind a
+                              username/password login portal. <store> is a JSON
+                              file of hashed credentials/sessions. See
+                              scripts/portal-auth.mjs.
   -h, --help                  Show this help
 
 ENVIRONMENT VARIABLES:
@@ -163,12 +176,30 @@ function buildConfig(args, env = process.env) {
     noReferrerPrefixes: args.noReferrerPrefixes ?? [],
     runtimeServicesInfo:
       args.runtimeServicesInfo || env.INGRESS_RUNTIME_SERVICES_INFO || null,
+    portalAuth: args.portalAuth || env.INGRESS_PORTAL_AUTH || null,
   };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Server
 // ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Read the portal session token from a request's Cookie header — WebSocket
+ * upgrades can't carry custom headers, so the session rides on the cookie.
+ */
+function parseIngressPortalCookie(req) {
+  const header = req.headers.cookie;
+  if (!header) return undefined;
+  for (const part of header.split(";")) {
+    const idx = part.indexOf("=");
+    if (idx < 0) continue;
+    if (part.slice(0, idx).trim() === PORTAL_AUTH_SESSION_COOKIE) {
+      return part.slice(idx + 1).trim();
+    }
+  }
+  return undefined;
+}
 
 export function startIngress(config) {
   const route = createRouter(config.routes, config.defaultBackend);
@@ -177,7 +208,18 @@ export function startIngress(config) {
 
   const noReferrerPrefixes = config.noReferrerPrefixes ?? [];
 
+  const portalAuth =
+    config.portalAuth != null && config.portalAuth !== ""
+      ? (() => {
+          const store = new PortalAuthStore(config.portalAuth);
+          return { store, handler: createPortalAuthHandler(store) };
+        })()
+      : null;
+
   const server = createServer((req, res) => {
+    if (portalAuth?.handler(req, res)) {
+      return;
+    }
     const url = req.url ?? "/";
     const backend = route(url);
 
@@ -208,6 +250,17 @@ export function startIngress(config) {
 
   // Handle WebSocket upgrades
   server.on("upgrade", (req, socket, head) => {
+    if (portalAuth) {
+      const token = parseIngressPortalCookie(req);
+      if (!portalAuth.store.resolveSession(token)) {
+        socket.write(
+          "HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
+        );
+        socket.destroy();
+        return;
+      }
+    }
+
     const backend = route(req.url ?? "/");
 
     if (!backend) {

@@ -35,6 +35,16 @@
 #   AGENT_CANVAS_ALLOW_LAN_SESSION_KEY – Set to true only when the published
 #                          host port is restricted to loopback and you accept
 #                          embedding the session key in the served HTML
+#   AGENT_CANVAS_PORTAL_AUTH – Path to a JSON store enabling the username/
+#                          password login portal (first-run admin + additional
+#                          users). Gates every request (static, /api, /sockets,
+#                          WebSocket) behind a login that runs before serving.
+#                          The session key is still injected into the HTML (the
+#                          frontend needs it for proxied /api calls) but only
+#                          logged-in users ever receive it. Takes precedence
+#                          over AGENT_CANVAS_PUBLIC. Put the store on a persisted
+#                          volume and serve behind a TLS proxy that sets
+#                          X-Forwarded-Proto.
 #   OH_SECRET_KEY        – Secret key for settings encryption (auto-generated
 #                          and persisted if not provided)
 #   OPENHANDS_AUTOMATION_API_KEY – Override automation backend auth key
@@ -333,7 +343,7 @@ mkdir -p "$AUTOMATION_WORKSPACE_BASE"
 # >>> docker-automation-db-policy
 if [ -z "${AUTOMATION_DB_URL:-}" ]; then
   log_error "AUTOMATION_DB_URL is not set. This image requires PostgreSQL."
-  log_error 'Example: export AUTOMATION_DB_URL="postgresql+asyncpg://user:pass@postgres:5432/dck_automation"'
+  log_error 'Example: export AUTOMATION_DB_URL="postgresql+asyncpg://user:pass@postgres:5432/dck_agentic"'
   exit 1
 fi
 case "$AUTOMATION_DB_URL" in
@@ -405,19 +415,57 @@ RUNTIME_SERVICES_INFO="$(node /opt/agent-canvas/runtime-services-info.mjs \
 # every interface, session-key injection stays disabled unless the operator
 # explicitly opts in.
 # >>> docker-session-key-policy: extracted by the regression test below.
+# Two auth modes for the main static server:
+#   - Public mode (AGENT_CANVAS_PUBLIC=true): the frontend shows the API-key
+#     entry screen; the session key is NOT injected and must be pasted by the
+#     user. Required for any internet-facing / off-loopback deployment. Mutually
+#     exclusive with --allow-lan-session-key.
+#   - Local mode (default): the key may be injected into the HTML only when the
+#     operator opts in with AGENT_CANVAS_ALLOW_LAN_SESSION_KEY=true, and only
+#     when the host publishes the port on loopback.
 STATIC_SERVER_SESSION_KEY_ARGS=()
-if [ "${AGENT_CANVAS_ALLOW_LAN_SESSION_KEY:-false}" = "true" ]; then
+STATIC_SERVER_AUTH_ARGS=()
+INJECT_SESSION_KEY=true
+PORTAL_AUTH_ARGS=()
+if [ -n "${AGENT_CANVAS_PORTAL_AUTH:-}" ]; then
+  # Portal auth gates every request behind a username/password login that runs
+  # before any static serving. The session key is still injected into the HTML
+  # (as in local mode) because the frontend needs it to authenticate its
+  # proxied /api calls to the agent-server — and the login gate means only an
+  # authenticated user ever receives that HTML. Portal replaces the API-key
+  # entry screen, so --auth-required is NOT added.
+  PORTAL_AUTH_ARGS+=(--portal-auth "$AGENT_CANVAS_PORTAL_AUTH")
+  if [ "${AGENT_CANVAS_PUBLIC:-false}" = "true" ]; then
+    log "WARNING: AGENT_CANVAS_PUBLIC is ignored when AGENT_CANVAS_PORTAL_AUTH is set; the portal login gate is used instead of the API-key entry screen."
+  fi
+  log "Portal auth enabled (store: $AGENT_CANVAS_PORTAL_AUTH). The session key is injected but served only to logged-in users. Serve behind a TLS reverse proxy that sets X-Forwarded-Proto/X-Forwarded-For."
+elif [ "${AGENT_CANVAS_PUBLIC:-false}" = "true" ]; then
+  INJECT_SESSION_KEY=false
+  STATIC_SERVER_AUTH_ARGS+=(--auth-required)
+  if [ "${AGENT_CANVAS_ALLOW_LAN_SESSION_KEY:-false}" = "true" ]; then
+    log "WARNING: AGENT_CANVAS_ALLOW_LAN_SESSION_KEY is ignored in public mode (AGENT_CANVAS_PUBLIC=true); the key is never injected."
+  fi
+  log "Public mode: API-key entry screen enabled; session key not injected. Serve behind a TLS reverse proxy."
+elif [ "${AGENT_CANVAS_ALLOW_LAN_SESSION_KEY:-false}" = "true" ]; then
   log "WARNING: Embedding the session API key in frontend HTML; publish port $PORT on host loopback only."
   STATIC_SERVER_SESSION_KEY_ARGS+=(--allow-lan-session-key)
 fi
 # <<< docker-session-key-policy
+# --session-api-key is mutually exclusive with --auth-required (public mode),
+# so only pass it when injection is enabled.
+STATIC_SERVER_KEY_FLAG=()
+if [ "$INJECT_SESSION_KEY" = "true" ]; then
+  STATIC_SERVER_KEY_FLAG=(--session-api-key "$EFFECTIVE_SESSION_KEY")
+fi
 node /opt/agent-canvas/static-server.mjs \
   --port "$PORT" \
   --host :: \
   "${STATIC_SERVER_SESSION_KEY_ARGS[@]}" \
+  "${STATIC_SERVER_AUTH_ARGS[@]}" \
+  "${PORTAL_AUTH_ARGS[@]}" \
   --dir /opt/agent-canvas/frontend \
   --base-path "$AGENT_CANVAS_BASE_PATH" \
-  --session-api-key "$EFFECTIVE_SESSION_KEY" \
+  "${STATIC_SERVER_KEY_FLAG[@]}" \
   --runtime-services-info "$RUNTIME_SERVICES_INFO" \
   --route "/api/automation=http://127.0.0.1:${AUTOMATION_PORT}" \
   --route "/api=http://127.0.0.1:${AGENT_SERVER_PORT}" \

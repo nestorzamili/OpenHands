@@ -52,6 +52,7 @@ import {
   COLOR_THEME_BOOTSTRAP_SCRIPT,
   readPersistedColorTheme,
 } from "#/themes/color-themes";
+import { PRODUCT_NAME, PRODUCT_TAGLINE } from "#/constants/branding";
 
 /** Applies the persisted palette before paint; useEffect lands a frame late. */
 function ColorThemeApplier() {
@@ -226,8 +227,8 @@ export const links: LinksFunction = () => [
 ];
 
 export const meta: MetaFunction = () => [
-  { title: "DCK Agentic" },
-  { name: "description", content: "Let's Start Building!" },
+  { title: PRODUCT_NAME },
+  { name: "description", content: PRODUCT_TAGLINE },
 ];
 
 export default function App() {

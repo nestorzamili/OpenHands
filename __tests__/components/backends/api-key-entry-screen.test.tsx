@@ -92,6 +92,16 @@ afterEach(() => {
 // ── Tests ────────────────────────────────────────────────────────────
 
 describe("ApiKeyEntryScreen", () => {
+  it("renders the DCK brand mark and product name", () => {
+    renderScreen();
+
+    expect(screen.getByTestId("dck-auth-brand")).toBeInTheDocument();
+    expect(screen.getByTestId("dck-auth-logo")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { level: 1, name: "DCK Agentic" }),
+    ).toBeInTheDocument();
+  });
+
   // @spec — UI: name + host (disabled) + api key + connect
   it("renders name, host (disabled), api key, and connect button", () => {
     renderScreen();

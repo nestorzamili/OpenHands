@@ -53,7 +53,7 @@ vi.mock(
 );
 
 vi.mock("#/hooks/use-app-title", () => ({
-  useAppTitle: () => "OpenHands",
+  useAppTitle: () => "DCK Agentic",
 }));
 
 vi.mock("#/components/features/sidebar/sidebar", () => ({
@@ -258,7 +258,7 @@ describe("root layout", () => {
     expect(syncAutomationTelemetryConsentMock).toHaveBeenCalledOnce();
     expect(telemetryIdentityMock).toHaveBeenCalledOnce();
     expect(ensureActiveProfileMock).toHaveBeenCalledOnce();
-    expect(document.title).toBe("OpenHands");
+    expect(document.title).toBe("DCK Agentic");
     expect(
       await screen.findByTestId("environment-switch-overlay"),
     ).toBeInTheDocument();
@@ -323,10 +323,12 @@ describe("root layout", () => {
     expect(screen.getByTestId("mobile-menu-bar")).toBeInTheDocument();
   });
 
-  it("renders the onboarding host only when preview mode is requested", () => {
+  it("mounts the onboarding host so it can self-gate on any route", () => {
     const { unmount } = renderMainApp("/settings");
 
-    expect(screen.queryByTestId("onboarding-host")).not.toBeInTheDocument();
+    // OnboardingHost is always mounted from the root layout; the component
+    // itself decides whether the modal shows (first-run vs preview vs done).
+    expect(screen.getByTestId("onboarding-host")).toBeInTheDocument();
     unmount();
 
     renderMainApp("/settings?previewOnboardingStep=2");

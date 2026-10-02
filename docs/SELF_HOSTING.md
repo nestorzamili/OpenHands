@@ -284,3 +284,85 @@ as an additional backend and switch between local and remote from the UI.
    - **Session API key** — the `LOCAL_BACKEND_API_KEY` you chose in step 3.
 2. Save. The new backend should show as "Connected". Pick it from the
    backend switcher to talk to the remote machine.
+
+## 6. Portal login with per-user accounts
+
+The DCK `docker-compose.yml` enables a **username/password login portal** by
+default (`AGENT_CANVAS_PORTAL_AUTH`): a first-run admin plus additional user
+accounts, instead of a single shared API key. To run it outside compose, pass
+`--portal-auth <store>` to the static server.
+
+When enabled, **every** request — static assets, SPA navigation, proxied
+`/api/*` traffic, and WebSocket upgrades — requires a valid session cookie:
+
+- First run (no admin yet): all traffic redirects to `/setup`, where you create
+  the initial **admin** account.
+- `GET /login` serves a login page; a successful `POST /api/portal-auth/login`
+  issues an `HttpOnly; SameSite=Strict` session cookie (12h TTL, marked
+  `Secure` when the request arrives over HTTPS).
+- An admin can create additional (non-admin) users via
+  `POST /api/portal-auth/users`.
+- `POST /api/portal-auth/logout` invalidates the session.
+
+Credentials are stored in `<store>` (a JSON file) as salted scrypt password
+hashes; sessions are stored only as SHA-256 digests, so a store leak exposes
+neither passwords nor usable sessions.
+
+The agent-server still authenticates its own `/api` with a session key. The
+login gate runs **before** anything is served, so that key is injected into the
+HTML as before but reaches **only logged-in users** — it is a backend-internal
+credential, never the thing a user types. The user-facing credential is the
+portal username/password.
+
+```sh
+node scripts/static-server.mjs \
+  --port 3001 --dir build \
+  --portal-auth /var/lib/canvas/portal-auth.json \
+  --route "/api=http://localhost:18000" \
+  --route "/sockets=http://localhost:18000"
+```
+
+### With the Docker image
+
+The container entrypoint wires the flag from an environment variable, so you do
+not invoke `static-server.mjs` directly. Set `AGENT_CANVAS_PORTAL_AUTH` to a
+store path on a **persisted volume** and the entrypoint passes `--portal-auth`
+for you (and skips session-key injection):
+
+```sh
+docker run -it --rm \
+  -p 127.0.0.1:8000:8000 \
+  -e AGENT_CANVAS_PORTAL_AUTH=/home/openhands/.openhands/portal-auth.json \
+  -e AUTOMATION_DB_URL="postgresql+asyncpg://user:pass@host:5432/dck_agentic" \
+  -v "$HOME/.openhands:/home/openhands/.openhands" \
+  ghcr.io/openhands/agent-canvas:latest
+```
+
+`AGENT_CANVAS_PORTAL_AUTH` takes precedence over `AGENT_CANVAS_PUBLIC` and
+`AGENT_CANVAS_ALLOW_LAN_SESSION_KEY` (both are ignored, with a warning, when the
+portal is enabled). The repo's `docker-compose.yml` carries a commented example.
+
+> [!IMPORTANT]
+> - `--portal-auth` is mutually exclusive with `--auth-required` (the API-key
+>   entry screen): the portal already gates the UI with a login. It is **not**
+>   exclusive with `--session-api-key` — the login gate runs first, so the
+>   injected key is served only to authenticated users.
+> - The session cookie travels from the browser, so you must still terminate
+>   **TLS at a reverse proxy** (nginx + Let's Encrypt as above) and never expose
+>   plain HTTP to the internet. The proxy must forward `X-Forwarded-Proto`
+>   (so the cookie is marked `Secure`) and `X-Forwarded-For` (so per-IP login
+>   throttling works). With nginx:
+>   ```nginx
+>   proxy_set_header X-Forwarded-Proto $scheme;
+>   proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+>   ```
+> - If the store file exists but cannot be read or parsed, the server **fails
+>   closed** (refuses to start) rather than silently reopening first-run setup.
+
+> [!NOTE]
+> `--portal-auth` is wired on `scripts/static-server.mjs` (used directly and by
+> the Docker image via `AGENT_CANVAS_PORTAL_AUTH`). The non-Docker split
+> launcher (`npx @openhands/agent-canvas` / `npm run dev`) routes `/api` and
+> `/sockets` through a standalone ingress that bypasses the static server's
+> gate, so the portal is **not** supported there yet — use the Docker image (or
+> invoke `static-server.mjs` directly) for portal-gated deployments.

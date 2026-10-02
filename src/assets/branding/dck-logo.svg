@@ -1,0 +1,17 @@
+<svg width="148" height="100" viewBox="0 0 148 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!--
+    DCK Agentic brand mark: gold crown over the "DCK" wordmark.
+    Paths use fill="white" so the consuming button's
+    `[&_path[fill=white]]:fill-current` rule can theme the wordmark via
+    currentColor. The crown keeps its brand gold.
+  -->
+  <!-- Crown mark -->
+  <path d="M26 20 L36 36 L50 16 L64 36 L74 20 L70 48 L30 48 Z" fill="#E3B341"/>
+  <rect x="30" y="52" width="44" height="7" rx="2" fill="#E3B341"/>
+  <!-- D -->
+  <path d="M12 70 L12 96 L22 96 C31 96 36 90 36 83 C36 76 31 70 22 70 Z M19 76 L22 76 C27 76 29 79 29 83 C29 87 27 90 22 90 L19 90 Z" fill="white"/>
+  <!-- C -->
+  <path d="M70 83 C70 74 63 69 55 69 C46 69 40 76 40 83 C40 90 46 97 55 97 C61 97 66 94 69 89 L63 85 C61 88 58 90 55 90 C50 90 47 87 47 83 C47 79 50 76 55 76 C58 76 61 78 63 81 Z" fill="white"/>
+  <!-- K -->
+  <path d="M74 70 L81 70 L81 80 L90 70 L99 70 L88 82 L100 96 L91 96 L83 86 L81 88 L81 96 L74 96 Z" fill="white"/>
+</svg>

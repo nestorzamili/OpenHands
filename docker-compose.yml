@@ -7,8 +7,11 @@ services:
     group_add:
       - "956"
     ports:
-      # Internal-only: loopback-bound, no public mode. External access (if any)
-      # goes through the reverse proxy on the `proxy` network, never directly.
+      # Published for the reverse proxy / host. Auth is MANDATORY: the UI is
+      # gated behind the username/password login portal. For internet-facing
+      # use, place a TLS-terminating reverse proxy in front (never expose plain
+      # HTTP) — the session cookie is sent by the browser and must travel over
+      # HTTPS. The proxy must forward X-Forwarded-Proto and X-Forwarded-For.
       - "127.0.0.1:8000:8000"
     volumes:
       - ./config:/home/openhands/.openhands
@@ -16,11 +19,15 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - AGENT_CANVAS_DISABLE_TELEMETRY=1
-      # The container listens on :: so the proxy network can reach it; the host
-      # publish above stays loopback-only, which is what makes auto-injected
-      # session auth acceptable here. No PUBLIC_MODE_PORT: no public login port.
-      - AGENT_CANVAS_ALLOW_LAN_SESSION_KEY=true
-      - AUTOMATION_DB_URL=${AUTOMATION_DB_URL:?Set AUTOMATION_DB_URL, e.g. postgresql+asyncpg://user:pass@postgres:5432/dck_automation}
+      # Login portal (per-user accounts) is the default auth mode. On first
+      # launch, open the UI and create the admin account at /setup; the admin
+      # can then add more users. The store lives on the ./config volume so
+      # accounts/sessions survive restarts. The internal agent-server/automation
+      # session key is auto-generated and persisted to the same volume
+      # (api-key.txt); it is injected into the HTML but served only to logged-in
+      # users, never pasted by hand.
+      - AGENT_CANVAS_PORTAL_AUTH=/home/openhands/.openhands/portal-auth.json
+      - AUTOMATION_DB_URL=${AUTOMATION_DB_URL:?Set AUTOMATION_DB_URL, e.g. postgresql+asyncpg://user:pass@postgres:5432/dck_agentic}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:

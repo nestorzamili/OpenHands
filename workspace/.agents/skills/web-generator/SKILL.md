@@ -46,26 +46,60 @@ One service named `app` (Next.js `standalone` output). Do not split into `fronte
 - External shared services only, never per-project containers:
   - `DATABASE_URL=postgresql://<user>:<pass>@host.docker.internal:5432/dck_<app-name>`
   - `REDIS_URL=redis://host.docker.internal:6379` (only when caching/queues are needed)
+- The app runs as a Docker container in both environments (dev Canvas on the
+  host, prod Canvas in a container), so it always reaches the host PostgreSQL
+  through `host.docker.internal`. Every app `docker-compose.yml` MUST therefore
+  declare the gateway mapping on the `app` service so that name resolves:
+
+  ```yaml
+  services:
+    app:
+      # ...
+      extra_hosts:
+        - "host.docker.internal:host-gateway"
+  ```
+
+  Without this the container cannot resolve `host.docker.internal` and DB/Redis
+  connections fail. Do not use `localhost` in the container's `DATABASE_URL` —
+  inside the container `localhost` is the app itself, not the host.
 - Secrets live in gitignored `.env`; commit only `.env.example` with placeholders. Never commit real credentials.
 
 ## 3. Secrets Are the Source of Truth
 
-All integration keys and per-app URLs (`DATABASE_URL_<APP>`, `REDIS_URL`, provider API keys) live in the portal's Secret Manager (`/settings/secrets`, server-side encrypted). The `.env` file is a generated artifact, never the source:
+The portal Secret Manager (`/settings/secrets`, server-side encrypted) is the
+single source of truth for all integration keys and per-app URLs
+(`DATABASE_URL_<APP>`, `REDIS_URL`, provider API keys). The app's `.env` file is
+a generated artifact derived from those secrets — never the source, never
+hand-maintained. This split is the same in dev and prod (the Secret Manager runs
+in both):
 
-- At deploy and rebuild time, read each required secret and write `.env` fresh. Never append blindly, never print values to logs or chat.
+- Secrets live in the Secret Manager. Every conversation already receives them
+  automatically as server-resolved `LookupSecret` values — no manual passing.
+- At deploy and rebuild time, read each required secret and write `.env` fresh
+  (the container reads env from `.env`). Never append blindly, never print
+  values to logs or chat.
+- If a required secret is missing, stop and ask the operator to add it in
+  `/settings/secrets` rather than inventing a value or committing a real one.
 - Name pattern is `[a-zA-Z][a-zA-Z0-9_]{0,63}` (e.g. `DATABASE_URL_SHOP`).
-- Rotate in the Secret Manager UI; the next deploy regenerates `.env`. Every conversation already receives all secrets automatically as server-resolved lookups — no manual passing needed.
+- Rotate in the Secret Manager UI; the next deploy regenerates `.env`.
+- `.env.example` carries placeholders only and is the only env file committed;
+  `.env` is gitignored.
 
 ## 4. Port Allocation
 
-First free integer starting at 3000 (`3000:3000`, then `3001:3000`, …). Before scaffolding, check both live usage and recorded usage:
+Pick the first free integer starting at 3000 (`3000:3000`, then `3001:3000`, …).
+Before scaffolding, gather both recorded and live usage precisely — do not grep
+for a loose `"300"` substring:
 
 ```bash
-docker ps --format '{{.Ports}}'
-grep -rh "300" webgen/*/docker-compose.yml
+# Recorded ports from existing apps (authoritative per-app value):
+cat webgen/*/.dck.json 2>/dev/null | grep -oE '"port"[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+'
+# Live published host ports:
+docker ps --format '{{.Ports}}' | grep -oE '0\.0\.0\.0:[0-9]+|127\.0\.0\.1:[0-9]+' | grep -oE '[0-9]+$'
 ```
 
-Record the choice in `webgen/<app-name>/.dck.json`:
+Choose the lowest free port ≥ 3000 not in either set. Record it in
+`webgen/<app-name>/.dck.json`:
 
 ```json
 { "name": "<app-name>", "port": 3000, "stack": "nextjs" }

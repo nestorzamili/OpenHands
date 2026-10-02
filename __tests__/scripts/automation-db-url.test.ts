@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { requireAutomationDbUrl as requireDbUrlAutomation } from "../../scripts/dev-with-automation.mjs";
 import { requireAutomationDbUrl as requireDbUrlStatic } from "../../scripts/dev-static.mjs";
 
-const PG_URL = "postgresql+asyncpg://user:pass@localhost:5432/dck_automation";
+const PG_URL = "postgresql+asyncpg://user:pass@localhost:5432/dck_agentic";
 
 describe.each([
   ["dev-with-automation", requireDbUrlAutomation],

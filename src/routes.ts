@@ -19,6 +19,7 @@ export default [
     route("skills", "routes/skills-settings.tsx"),
     route("plugins", "routes/skills-plugins.tsx"),
     route("apps", "routes/canvas-extensions.tsx"),
+    route("modules/:moduleId", "routes/module-detail.tsx"),
     route("extensions/:extensionName/*", "routes/canvas-extension-page.tsx"),
     route("mcp", "routes/mcp.tsx"),
     route("settings", "routes/settings.tsx", [
@@ -32,6 +33,7 @@ export default [
       route("verification", "routes/verification-settings.tsx"),
       route("app", "routes/app-settings.tsx"),
       route("secrets", "routes/secrets-settings.tsx"),
+      route("users", "routes/users-settings.tsx"),
     ]),
     route("oauth/device/verify", "routes/device-verify.tsx"),
     route("automations", "routes/automations-list.tsx"),

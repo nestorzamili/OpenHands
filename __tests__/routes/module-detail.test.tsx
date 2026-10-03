@@ -144,11 +144,23 @@ describe("ModuleDetailView projects list", () => {
     expect(await screen.findByTestId("dck-project-row")).toHaveTextContent(
       "shop",
     );
-    expect(await screen.findByTestId("dck-project-stack")).toHaveTextContent(
-      "nextjs",
-    );
     const link = await screen.findByTestId("dck-project-link");
     expect(link).toHaveAttribute("href", "http://localhost:3100");
+  });
+
+  it("renders the webgen projects as a table with a status badge", async () => {
+    renderWithProviders(
+      <ModuleDetailView dckModule={getDckModuleById("webgen")} />,
+    );
+
+    expect(
+      await screen.findByTestId("dck-webgen-project-table"),
+    ).toBeInTheDocument();
+    // `.dck.json` has no verified lastStatus and the conversation is RUNNING,
+    // so the badge shows agent activity ("working"), never an unverified
+    // "running".
+    const badge = await screen.findByTestId("dck-project-status-badge");
+    expect(badge).toHaveAttribute("data-status", "working");
   });
 
   it("opens the project conversation prompt-free on row click", async () => {
@@ -167,7 +179,7 @@ describe("ModuleDetailView projects list", () => {
     expect(mockCreateConversation).not.toHaveBeenCalled();
   });
 
-  it("seeds the scaffold prompt on New project", async () => {
+  it("opens the New Project dialog and seeds a spec-filled prompt on submit", async () => {
     vi.mocked(
       AgentServerConversationService.searchConversations,
     ).mockResolvedValue({
@@ -179,30 +191,63 @@ describe("ModuleDetailView projects list", () => {
       <ModuleDetailView dckModule={getDckModuleById("webgen")} />,
     );
 
+    // Clicking New project opens the dialog — it must NOT create immediately.
     await user.click(await screen.findByTestId("dck-module-new-project"));
+    expect(
+      await screen.findByTestId("webgen-new-project-dialog"),
+    ).toBeInTheDocument();
+    expect(mockCreateConversation).not.toHaveBeenCalled();
+
+    await user.type(
+      screen.getByTestId("webgen-new-project-name"),
+      "landing-site",
+    );
+    await user.click(screen.getByTestId("webgen-new-project-database"));
+    await user.click(screen.getByTestId("webgen-new-project-submit"));
 
     await waitFor(() => {
       expect(mockCreateConversation).toHaveBeenCalledTimes(1);
     });
     const payload = mockCreateConversation.mock.calls[0][0];
     expect(payload.workingDir).toBe("/projects/webgen");
-    expect(payload.query).toMatch(/nextjs|scaffold|app/i);
+    expect(payload.query).toContain("landing-site");
+    expect(payload.query).toMatch(/Database: yes/);
   });
 
-  it("New project creates a fresh conversation even when the base already has one", async () => {
+  it("creates nothing when the New Project dialog is cancelled", async () => {
     const user = userEvent.setup();
     renderWithProviders(
       <ModuleDetailView dckModule={getDckModuleById("webgen")} />,
     );
 
     await user.click(await screen.findByTestId("dck-module-new-project"));
+    await user.click(await screen.findByTestId("webgen-new-project-cancel"));
 
     await waitFor(() => {
-      expect(mockCreateConversation).toHaveBeenCalledTimes(1);
+      expect(
+        screen.queryByTestId("webgen-new-project-dialog"),
+      ).not.toBeInTheDocument();
     });
-    expect(mockCreateConversation.mock.calls[0][0].workingDir).toBe(
-      "/projects/webgen",
+    expect(mockCreateConversation).not.toHaveBeenCalled();
+  });
+
+  it("blocks a duplicate project name in the New Project dialog", async () => {
+    // `shop` already exists under webgen (FileClient mock), so submit stays
+    // disabled and no conversation is created.
+    const user = userEvent.setup();
+    renderWithProviders(
+      <ModuleDetailView dckModule={getDckModuleById("webgen")} />,
     );
+
+    await user.click(await screen.findByTestId("dck-module-new-project"));
+    await user.type(screen.getByTestId("webgen-new-project-name"), "shop");
+    await user.tab();
+
+    expect(
+      await screen.findByTestId("webgen-new-project-name-error"),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("webgen-new-project-submit")).toBeDisabled();
+    expect(mockCreateConversation).not.toHaveBeenCalled();
   });
 });
 

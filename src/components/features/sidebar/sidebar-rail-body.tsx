@@ -3,7 +3,6 @@ import { useTranslation } from "react-i18next";
 import {
   ChevronLeft,
   ChevronRight,
-  Plus,
   Server,
   Settings,
   PanelsTopLeft,
@@ -30,6 +29,7 @@ import { BackendStatusDot } from "#/components/features/backends/backend-status-
 import { CommandMenuTrigger } from "#/components/features/command-menu/command-menu-trigger";
 import { AgentCanvasVersionTile } from "#/components/features/settings/agent-canvas-version-tile";
 import { SidebarConversationList } from "./sidebar-conversation-list";
+import { SidebarNewChatButton } from "./sidebar-new-chat-button";
 import { SidebarOnboardingChecklist } from "./sidebar-onboarding-checklist";
 import AutomationsIcon from "#/icons/automations.svg?react";
 import {
@@ -46,8 +46,6 @@ import { useCanvasExtensionsRuntime } from "#/components/features/canvas-extensi
 import type { Backend } from "#/api/backend-registry/types";
 
 const ICON_SIZE = 18;
-const SIDEBAR_LOGO_WIDTH = 34;
-const SIDEBAR_LOGO_HEIGHT = Math.round((SIDEBAR_LOGO_WIDTH * 30) / 46);
 
 export interface SidebarRailBodyProps {
   collapsed: boolean;
@@ -145,10 +143,9 @@ export function SidebarRailBody({
           >
             <OpenHandsLogoButton
               useMark={collapsed}
-              logoWidth={collapsed ? ICON_SIZE : SIDEBAR_LOGO_WIDTH}
-              logoHeight={collapsed ? ICON_SIZE : SIDEBAR_LOGO_HEIGHT}
+              logoHeight={ICON_SIZE}
               logoClassName="max-w-none"
-              className={cn(SIDEBAR_ICON_SLOT_CLASS, "overflow-visible")}
+              className={cn(SIDEBAR_ICON_SLOT_CLASS, "w-auto overflow-visible")}
             />
           </div>
           {collapsed && showCollapseToggle ? (
@@ -204,14 +201,7 @@ export function SidebarRailBody({
 
       <nav className={sidebarNavListClassName(collapsed)}>
         <CommandMenuTrigger collapsed={collapsed} />
-        <SidebarNavLink
-          to="/conversations"
-          end
-          label={t(I18nKey.SIDEBAR$NEW_CHAT)}
-          testId="sidebar-conversations-link"
-          collapsed={collapsed}
-          icon={<Plus width={ICON_SIZE} height={ICON_SIZE} />}
-        />
+        <SidebarNewChatButton collapsed={collapsed} />
         <SidebarNavLink
           to={CUSTOMIZE_PATH}
           label={t(I18nKey.NAV$CUSTOMIZE)}

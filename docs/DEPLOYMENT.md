@@ -28,14 +28,14 @@ separate subtree.
     ├── .agents/skills/          # Standard OpenHands skills directory
     │   ├── web-generator/       # Next.js single-service scaffolding rules
     │   ├── dashboard-generator/ # Canvas Extension dashboard rules
-    │   ├── power-bi/            # DAX & Star Schema optimization guide
     │   ├── social-research/     # Trend research wrapper (research-brief/news-digest)
-    │   └── data-analytics/      # PostgreSQL querying & visualization standards
+    │   ├── data-analytics/      # PostgreSQL querying, visualization + Power BI/DAX
+    │   └── content-creator/     # Marketing & social content standards
     ├── webgen/                  # Next.js apps, one Docker Compose stack each
     ├── dashboards/              # Canvas Extension dashboard packages
     ├── research/                # Market intelligence and social research reports
-    ├── powerbi/                 # DAX measures, M scripts, and model schemas
-    ├── analytics/               # Data analytics scripts, queries, and charts
+    ├── analytics/               # Data analytics scripts, queries, charts, BI models
+    ├── content/                 # Marketing & social content artifacts
     └── AGENTS.md                # Universal repository instructions for all agents
 ```
 

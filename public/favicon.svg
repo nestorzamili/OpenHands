@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
-  <rect width="1024" height="1024" rx="224" fill="#0f1419"/>
-  <rect x="148" y="636" width="120" height="120" rx="24" fill="#4f46e5"/>
-  <text x="512" y="560" text-anchor="middle" font-family="Inter, Arial, Helvetica, sans-serif" font-size="300" font-weight="800" fill="#ffffff" letter-spacing="8">DCK</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="DCK">
+  <rect width="64" height="64" rx="14" fill="#0b1e3b"/>
+  <path d="M18 42h28l-2.6-14.5-6.4 5.9L32 22l-4.9 11.4-6.5-5.9L18 42Z" fill="#c9b79a"/>
+  <rect x="19" y="45" width="26" height="4" rx="2" fill="#a6937c"/>
 </svg>

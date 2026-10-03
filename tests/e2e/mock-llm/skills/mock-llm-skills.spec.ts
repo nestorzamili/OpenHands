@@ -94,7 +94,11 @@ async function navigateToNewChat(page: Page): Promise<void> {
     await page
       .getByTestId("sidebar-conversations-link")
       .click({ timeout: 5_000 });
-    await expect(page).toHaveURL(/\/conversations\/?$/, { timeout: 5_000 });
+    // "New chat" now creates a conversation and navigates to it, so the URL
+    // lands on /conversations/<id> rather than the bare /conversations home.
+    await expect(page).toHaveURL(/\/conversations\/[^/]+$/, {
+      timeout: 10_000,
+    });
   }).toPass({ timeout: 30_000, intervals: [500, 1_000, 2_000] });
 }
 

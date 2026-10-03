@@ -33,10 +33,17 @@ Status: **F1–F4 implemented on `dev`; F5 (MCP registration at runtime + secret
 | `webgen/` | Next.js fullstack (App Router + API routes), shadcn, Tailwind; Prisma + better-auth optional | Required, one compose stack per app | `webgen/<app>/` containing `docker-compose.yml` + `.dck.json` | Runnable app on `localhost:<port>` |
 | `dashboards/` | Canvas Extension (`/apps`): ESM bundle + manifest v1, pages registered in sidebar; Sidecar only for heavy compute | No compose stack (lifecycle = install/enable/uninstall via `/apps` UI) | Extension name + `contributes.pages[]` (`src/types/canvas-extension.ts`) | Embedded dashboard pages inside Canvas |
 | `research/` | Built-in `research-brief` + `news-digest` skills/automations; DCK `social-research` skill is a thin wrapper (needs `TAVILY_API_KEY`) | No | `research/YYYY-MM-DD_<topic>_report.md` | Markdown report with sources + timestamps |
-| `powerbi/` | Agent only (Star Schema, DAX, Power Query M, TMDL/`.bim`) | No | `powerbi/<model>/` | Measures, M scripts, model snippets |
-| `analytics/` | Python (Pandas/Polars/DuckDB/SQLAlchemy) + SQL to host Postgres, charts to PNG/SVG | No (one-shot runs) | `analytics/<analysis>.py`, `analytics/charts/` | Scripts, query results, charts, insight write-up |
+| `analytics/` | Python (Pandas/Polars/DuckDB/SQLAlchemy) + SQL to host Postgres, charts to PNG/SVG; also Power BI / DAX / Power Query (M) / TMDL on request | No (one-shot runs) | `analytics/<analysis>.py`, `analytics/charts/` | Scripts, query results, charts, BI models, insight write-up |
+| `content/` | Agent only; marketing & social content (captions/scripts, content calendars, SEO/blog, email) applying antislop copywriting | No | `content/YYYY-MM-DD_<name>.md` | Publish-ready marketing content artifacts |
 
-Cards for `research`/`powerbi`/`analytics` show artifact lists + `Continue in conversation`. Only `webgen` gets Docker lifecycle actions (`deploy`/`rebuild`/`stop`/`delete`/env). Dashboards are managed through the built-in `/apps` install/enable/uninstall flow, not card actions.
+Cards for `research`/`analytics`/`content` show artifact lists + `Continue in conversation`. Only `webgen` gets Docker lifecycle actions (`deploy`/`rebuild`/`stop`/`delete`/env). Dashboards are managed through the built-in `/apps` install/enable/uninstall flow, not card actions.
+
+> **Module revision (post-F4):** the standalone `powerbi/` module was removed to
+> cut the data/BI redundancy (Analytics, Power BI, and Dashboards all answered
+> "show my data"). Power BI / DAX / Power Query now live inside the
+> `data-analytics` skill, and a new `content/` module covers marketing/social
+> content production. Final set: `webgen`, `dashboards`, `research`,
+> `analytics`, `content`.
 
 ## 3. Webgen project standard
 
@@ -98,7 +105,7 @@ Done:
 - `src/root.tsx` document title + description → driven by `PRODUCT_NAME` / `PRODUCT_TAGLINE` (no hardcoded literals).
 - `src/hooks/use-app-title.ts` `APP_TITLE` → `PRODUCT_NAME`, so the browser tab title stays `DCK Agentic` (and `… | DCK Agentic` inside conversations) instead of leaking `OpenHands`.
 - `public/favicon.svg` → DCK mark; `public/site.webmanifest` `name`/`short_name` → `DCK Agentic`/`DCK`.
-- `src/assets/branding/dck-logo.svg` (gold crown + `DCK` wordmark); sidebar rail logo (`openhands-logo-button.tsx`) imports it. Component name/testid/import binding kept for merge-safety.
+- `src/assets/branding/dck-mark.svg` (navy rounded-square gold crown); the sidebar rail logo (`openhands-logo-button.tsx`) renders this mark in both collapsed and expanded states, adding the `PRODUCT_NAME` wordmark beside it when expanded so the mark's shape/position never jumps on toggle. `public/favicon.svg` and the portal login page use the same crown mark. Component name/testid/import binding kept for merge-safety. (`dck-logo.svg` — the older crown+wordmark stack — is retained in the repo but no longer referenced by the sidebar.)
 - `electron/loading.html` splash `<title>`/`<h1>`/tagline → `DCK Agentic` + `PRODUCT_TAGLINE` copy (the "OpenHands agent server" first-launch hint stays — it names the actual backend binary).
 - `src/constants/branding.ts` → `PRODUCT_NAME`/`PRODUCT_SHORT_NAME`/`PRODUCT_TAGLINE`, now the single source of truth consumed by `root.tsx`, `use-app-title.ts`, and their tests.
 - Product-facing i18n values rebranded (English in all locales, keys added to `IDENTICAL_VALUE_ALLOWLIST`): `BRANDING$OPENHANDS_LOGO`, `AUTH$LOGGING_BACK_IN`, `HOME$OPENHANDS_DESCRIPTION`. Regenerated via `npm run make-i18n`; `check-translation-completeness` passes.

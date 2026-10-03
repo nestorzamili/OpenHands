@@ -34,17 +34,20 @@ export function buildWebgenLifecycleCommand(
         `Deploy the "${context.appName}" webgen app via its conversation (containerized, never on the host):`,
         `${enter} && docker compose up -d --build`,
         `then verify: ${verifySuffix(context.port)}`,
+        `then update ${dir}/.dck.json: set "lastStatus" to "running" if healthy (else "error") and "lastCheckedAt" to the current ISO-8601 UTC time.`,
       ].join("\n");
     case "rebuild":
       return [
         `Rebuild the "${context.appName}" webgen app with a clean restart (containerized, never on the host):`,
         `${enter} && docker compose down && docker compose up -d --build`,
         `then verify: ${verifySuffix(context.port)}`,
+        `then update ${dir}/.dck.json: set "lastStatus" to "running" if healthy (else "error") and "lastCheckedAt" to the current ISO-8601 UTC time.`,
       ].join("\n");
     case "stop":
       return [
         `Stop the "${context.appName}" webgen app:`,
         `${enter} && docker compose down`,
+        `then update ${dir}/.dck.json: set "lastStatus" to "stopped" and "lastCheckedAt" to the current ISO-8601 UTC time.`,
       ].join("\n");
     case "delete":
       return [

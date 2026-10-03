@@ -387,6 +387,11 @@ function isHtmlNavigation(req, urlPath) {
 const BRAND_NAME = "DCK Agentic";
 const BRAND_MARK = `<svg class="brand-mark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="DCK"><rect width="64" height="64" rx="14" fill="#0b1e3b"/><path d="M18 42h28l-2.6-14.5-6.4 5.9L32 22l-4.9 11.4-6.5-5.9L18 42Z" fill="#c9b79a"/><rect x="19" y="45" width="26" height="4" rx="2" fill="#a6937c"/></svg>`;
 
+// Same crown mark without the CSS class / role, sized for a favicon. Kept in
+// sync with public/favicon.svg and src/assets/branding/dck-mark.svg so the
+// portal tab icon matches the SPA tab icon exactly.
+const BRAND_MARK_FAVICON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#0b1e3b"/><path d="M18 42h28l-2.6-14.5-6.4 5.9L32 22l-4.9 11.4-6.5-5.9L18 42Z" fill="#c9b79a"/><rect x="19" y="45" width="26" height="4" rx="2" fill="#a6937c"/></svg>`;
+
 const PAGE_STYLE = `
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
@@ -409,22 +414,29 @@ const PAGE_STYLE = `
     background: #0e1424; color: #e6e9f0; font-size: 14px;
   }
   input:focus { outline: none; border-color: #5b7cfa; }
+  input[aria-invalid="true"] { border-color: #ff7a85; }
   button {
     width: 100%; margin-top: 18px; padding: 11px; border: 0; border-radius: 8px;
     background: #5b7cfa; color: #fff; font-size: 14px; font-weight: 600; cursor: pointer;
   }
   button:hover { background: #4a6bf0; }
+  button:disabled { opacity: 0.6; cursor: not-allowed; }
   .error { margin-top: 14px; color: #ff7a85; font-size: 13px; min-height: 18px; white-space: pre-wrap; }
   small.hint { color: #8a93ab; font-size: 12px; line-height: 1.5; }
 `;
 
 function shellPage({ title, subtitle, body, script }) {
+  // Inline the brand mark as the favicon via a data URI so it renders even
+  // pre-auth (unauthenticated non-navigation asset requests are 401'd by the
+  // gate below, so a `/favicon.svg` link would not load on the login page).
+  const faviconHref = `data:image/svg+xml,${encodeURIComponent(BRAND_MARK_FAVICON)}`;
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="robots" content="noindex" />
+<link rel="icon" type="image/svg+xml" href="${faviconHref}" />
 <title>${title}</title>
 <style>${PAGE_STYLE}</style>
 </head>
@@ -442,29 +454,63 @@ ${body}
 
 function loginPageHtml() {
   const form = `
-<form id="f" autocomplete="on">
+<form id="f" autocomplete="on" novalidate>
 <label for="username">Username</label>
-<input id="username" name="username" autocomplete="username" required />
+<input id="username" name="username" autocomplete="username" required
+  aria-describedby="err" />
 <label for="password">Password</label>
-<input id="password" name="password" type="password" autocomplete="current-password" required />
-<button type="submit">Sign in</button>
-<div class="error" id="err"></div>
+<input id="password" name="password" type="password" autocomplete="current-password"
+  required aria-describedby="err" />
+<button id="submit" type="submit">Sign in</button>
+<div class="error" id="err" role="alert" aria-live="assertive"></div>
 </form>`;
   const script = `
 const f = document.getElementById('f');
+const btn = document.getElementById('submit');
+const err = document.getElementById('err');
+function setError(msg) {
+  err.textContent = msg || '';
+  const invalid = Boolean(msg);
+  f.username.setAttribute('aria-invalid', String(invalid));
+  f.password.setAttribute('aria-invalid', String(invalid));
+}
+let submitting = false;
 f.addEventListener('submit', async (e) => {
   e.preventDefault();
-  const err = document.getElementById('err');
-  err.textContent = '';
+  if (submitting) return;
+  setError('');
+  const username = f.username.value.trim();
+  const password = f.password.value;
+  if (!username || !password) {
+    setError('Enter your username and password.');
+    (username ? f.password : f.username).focus();
+    return;
+  }
+  submitting = true;
+  btn.disabled = true;
+  btn.textContent = 'Signing in…';
   try {
     const r = await fetch('/api/portal-auth/login', {
       method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ username: f.username.value, password: f.password.value })
+      body: JSON.stringify({ username, password })
     });
-    const data = await r.json();
-    if (!r.ok) { err.textContent = data.error || 'Login failed.'; return; }
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      setError(data.error || 'Login failed.');
+      btn.disabled = false;
+      btn.textContent = 'Sign in';
+      submitting = false;
+      f.password.focus();
+      f.password.select();
+      return;
+    }
     window.location.href = data.returnTo || '/';
-  } catch { err.textContent = 'Network error.'; }
+  } catch {
+    setError('Network error. Check your connection and try again.');
+    btn.disabled = false;
+    btn.textContent = 'Sign in';
+    submitting = false;
+  }
 });
 document.addEventListener('DOMContentLoaded', () => f.username.focus());
 `;
@@ -478,31 +524,76 @@ document.addEventListener('DOMContentLoaded', () => f.username.focus());
 
 function setupPageHtml() {
   const form = `
-<form id="f" autocomplete="on">
+<form id="f" autocomplete="on" novalidate>
 <p class="sub">No admin account configured yet. Create one to lock down this instance.</p>
 <label for="username">Admin username</label>
-<input id="username" name="username" autocomplete="username" required />
+<input id="username" name="username" autocomplete="username" required
+  maxlength="64" aria-describedby="err" />
 <label for="password">Password</label>
-<input id="password" name="password" type="password" autocomplete="new-password" required />
-<small class="hint">At least 8 characters. This account can create additional users later.</small>
-<button type="submit">Create admin</button>
-<div class="error" id="err"></div>
+<input id="password" name="password" type="password" autocomplete="new-password"
+  required minlength="8" aria-describedby="pw-hint err" />
+<small class="hint" id="pw-hint">At least 8 characters. This account can create additional users later.</small>
+<label for="confirm">Confirm password</label>
+<input id="confirm" name="confirm" type="password" autocomplete="new-password"
+  required minlength="8" aria-describedby="err" />
+<button id="submit" type="submit">Create admin</button>
+<div class="error" id="err" role="alert" aria-live="assertive"></div>
 </form>`;
   const script = `
 const f = document.getElementById('f');
+const btn = document.getElementById('submit');
+const err = document.getElementById('err');
+function setError(msg, field) {
+  err.textContent = msg || '';
+  const invalid = Boolean(msg);
+  for (const el of [f.username, f.password, f.confirm]) {
+    el.setAttribute('aria-invalid', 'false');
+  }
+  if (invalid && field) field.setAttribute('aria-invalid', 'true');
+}
+let submitting = false;
 f.addEventListener('submit', async (e) => {
   e.preventDefault();
-  const err = document.getElementById('err');
-  err.textContent = '';
+  if (submitting) return;
+  setError('');
+  const username = f.username.value.trim();
+  const password = f.password.value;
+  const confirm = f.confirm.value;
+  if (!username) { setError('Enter an admin username.', f.username); f.username.focus(); return; }
+  if (password.length < 8) {
+    setError('Password must be at least 8 characters.', f.password);
+    f.password.focus();
+    return;
+  }
+  if (password !== confirm) {
+    setError('Passwords do not match.', f.confirm);
+    f.confirm.focus();
+    f.confirm.select();
+    return;
+  }
+  submitting = true;
+  btn.disabled = true;
+  btn.textContent = 'Creating…';
   try {
     const r = await fetch('/api/portal-auth/setup', {
       method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ username: f.username.value, password: f.password.value })
+      body: JSON.stringify({ username, password })
     });
-    const data = await r.json();
-    if (!r.ok) { err.textContent = data.error || 'Failed to create admin.'; return; }
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      setError(data.error || 'Failed to create admin.');
+      btn.disabled = false;
+      btn.textContent = 'Create admin';
+      submitting = false;
+      return;
+    }
     window.location.href = data.returnTo || '/';
-  } catch { err.textContent = 'Network error.'; }
+  } catch {
+    setError('Network error. Check your connection and try again.');
+    btn.disabled = false;
+    btn.textContent = 'Create admin';
+    submitting = false;
+  }
 });
 document.addEventListener('DOMContentLoaded', () => f.username.focus());
 `;

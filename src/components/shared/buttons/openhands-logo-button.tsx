@@ -1,25 +1,26 @@
 import { useTranslation } from "react-i18next";
 // Keep the import binding/component name as `OpenHandsLogo` for merge-safety
 // with upstream; only the asset it points to is rebranded to the DCK mark.
-import OpenHandsLogo from "#/assets/branding/dck-logo.svg?react";
 import DckMark from "#/assets/branding/dck-mark.svg?react";
 import { NavigationLink } from "#/components/shared/navigation-link";
 import { I18nKey } from "#/i18n/declaration";
+import { PRODUCT_NAME } from "#/constants/branding";
 import { cn } from "#/utils/utils";
 
-const DEFAULT_LOGO_WIDTH = 46;
 const DEFAULT_LOGO_HEIGHT = 30;
 
 export type OpenHandsLogoButtonProps = {
   className?: string;
-  /** Applied to the root `<svg>` (e.g. `max-w-none` so Tailwind preflight doesn’t clamp wide marks inside a narrow flex slot). */
+  /** Applied to the root `<svg>` mark. */
   logoClassName?: string;
   logoWidth?: number;
   logoHeight?: number;
   /**
-   * Render the square crown mark (`dck-mark.svg`) instead of the wide
-   * crown+wordmark. Used by the collapsed sidebar rail, where a wordmark does
-   * not fit the narrow icon column.
+   * Render only the square crown mark (no wordmark). Used by the collapsed
+   * sidebar rail, where a wordmark does not fit the narrow icon column. When
+   * false, the same mark is rendered with the product wordmark beside it, so
+   * the mark's shape and left anchor stay identical across collapse/expand —
+   * only the wordmark appears or disappears.
    */
   useMark?: boolean;
 };
@@ -27,7 +28,6 @@ export type OpenHandsLogoButtonProps = {
 export function OpenHandsLogoButton({
   className,
   logoClassName,
-  logoWidth = DEFAULT_LOGO_WIDTH,
   logoHeight = DEFAULT_LOGO_HEIGHT,
   useMark = false,
 }: OpenHandsLogoButtonProps = {}) {
@@ -35,25 +35,30 @@ export function OpenHandsLogoButton({
 
   const ariaLabel = t(I18nKey.BRANDING$OPENHANDS_LOGO);
 
-  const Mark = useMark ? DckMark : OpenHandsLogo;
-  // The square mark is 1:1; render it at the available height so it sits
-  // centered in the collapsed icon column rather than stretched to a wide box.
-  const markWidth = useMark ? logoHeight : logoWidth;
+  // The mark is square (1:1); render it at the available height in both states
+  // so the crown never changes size or horizontal position when the sidebar
+  // toggles. Only the wordmark (shown when expanded) differs.
+  const mark = (
+    <DckMark
+      width={logoHeight}
+      height={logoHeight}
+      className={cn("shrink-0 text-contrast", logoClassName)}
+      aria-hidden
+    />
+  );
 
   return (
     <NavigationLink
       to="/conversations"
       aria-label={ariaLabel}
-      className={cn(className)}
+      className={cn("flex min-w-0 items-center gap-2", className)}
     >
-      <Mark
-        width={markWidth}
-        height={logoHeight}
-        className={cn(
-          "shrink-0 text-contrast [&_path[fill=white]]:fill-current",
-          logoClassName,
-        )}
-      />
+      {mark}
+      {!useMark && (
+        <span className="min-w-0 truncate text-sm font-semibold text-contrast">
+          {PRODUCT_NAME}
+        </span>
+      )}
     </NavigationLink>
   );
 }

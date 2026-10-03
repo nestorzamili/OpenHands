@@ -1,9 +1,9 @@
 import type { LucideIcon } from "lucide-react";
 import {
-  BarChart3,
   Globe,
   LayoutDashboard,
   LineChart,
+  PenLine,
   Search,
 } from "lucide-react";
 import type { AppConversation } from "#/api/conversation-service/agent-server-conversation-service.types";
@@ -58,7 +58,7 @@ const DCK_MODULE_DEFS: DckModuleDef[] = [
     skillName: "web-generator",
     kind: "projects",
     icon: Globe,
-    description: "Autonomous full-stack Next.js application scaffolding",
+    description: "",
     promptTemplate:
       "Scaffold a new containerized Next.js fullstack app under webgen/ following the web-generator standard. Ask me for the app name and whether it needs a database or auth before scaffolding.",
   },
@@ -85,26 +85,26 @@ const DCK_MODULE_DEFS: DckModuleDef[] = [
       "Run a social media and trending research brief, preferring the built-in research-brief and news-digest skills, and save the report under research/. Ask me for the topic and time window first.",
   },
   {
-    id: "powerbi",
-    name: "Power BI",
-    slug: "powerbi",
-    skillName: "power-bi-assistant",
-    kind: "conversations",
-    icon: BarChart3,
-    description: "DAX optimization and semantic model pipelines",
-    promptTemplate:
-      "Help me with Power BI modeling: star schema design, optimized DAX measures, and Power Query (M) transformations, saving outputs under powerbi/. Ask me about the model and tables first.",
-  },
-  {
     id: "analytics",
     name: "Analytics",
     slug: "analytics",
     skillName: "data-analytics",
     kind: "conversations",
     icon: LineChart,
-    description: "SQL exploration with charts and insights",
+    description: "SQL exploration, charts, and Power BI / DAX modeling",
     promptTemplate:
-      "Run an exploratory data analysis: query the host PostgreSQL database with SQL, produce charts, and write insights under analytics/. Ask me which dataset or question to analyze first.",
+      "Run an exploratory data analysis: query the host PostgreSQL database with SQL, produce charts, and write insights under analytics/. I may also ask for Power BI DAX measures or Power Query (M). Ask me which dataset or question to analyze first.",
+  },
+  {
+    id: "content",
+    name: "Content",
+    slug: "content",
+    skillName: "content-creator",
+    kind: "conversations",
+    icon: PenLine,
+    description: "Marketing and social content, calendars, and SEO copy",
+    promptTemplate:
+      "Help me produce marketing content: social captions and scripts, a content calendar, or SEO blog copy, saving outputs under content/. Ask me about the brand, channel, and goal first.",
   },
 ];
 
@@ -220,6 +220,7 @@ export function extensionEntryPath(
 
 export type DckProjectStatus =
   | "running"
+  | "stopped"
   | "working"
   | "idle"
   | "paused"
@@ -227,14 +228,47 @@ export type DckProjectStatus =
   | "configured"
   | "unknown";
 
+/**
+ * Resolve the status shown for a webgen project. Precedence reflects what the
+ * frontend can honestly know:
+ *
+ *   1. The agent-verified app runtime status from `.dck.json`
+ *      (`lastStatus`: running/stopped/error) — the only signal that reflects
+ *      the actual container, written by the agent after a lifecycle action.
+ *      `running` is still overridden to `working` while the agent is actively
+ *      executing, so a live agent turn is visible.
+ *   2. If the app was never verified, fall back to the conversation's agent
+ *      execution status (working/paused/error) so an in-progress scaffold
+ *      shows activity.
+ *   3. Otherwise `configured` (has `.dck.json`) or `unknown` (no metadata).
+ *
+ * The frontend never claims an unverified "running": that status only comes
+ * from the agent, which alone can reach the Docker daemon.
+ */
 export function deriveProjectStatus(
   meta: DckProjectMeta | null | undefined,
   latestConversation: AppConversation | null | undefined,
 ): DckProjectStatus {
+  const agentExecuting =
+    latestConversation?.execution_status === ExecutionStatus.RUNNING;
+
+  if (meta?.lastStatus) {
+    switch (meta.lastStatus) {
+      case "running":
+        // Surface a live agent turn over the last verified "running".
+        return agentExecuting ? "working" : "running";
+      case "stopped":
+        return "stopped";
+      case "error":
+        return "error";
+      default:
+        break;
+    }
+  }
+
   if (latestConversation) {
     switch (latestConversation.execution_status) {
       case ExecutionStatus.RUNNING:
-        return "running";
       case ExecutionStatus.IDLE:
       case ExecutionStatus.WAITING_FOR_CONFIRMATION:
         return "working";
@@ -243,12 +277,11 @@ export function deriveProjectStatus(
       case ExecutionStatus.ERROR:
       case ExecutionStatus.STUCK:
         return "error";
-      case ExecutionStatus.FINISHED:
-        return "idle";
       default:
         break;
     }
   }
+
   return meta ? "configured" : "unknown";
 }
 
@@ -268,6 +301,7 @@ export function projectLastTouched(
 
 export const DCK_STATUS_LABEL_KEYS: Record<DckProjectStatus, string> = {
   running: "DCK$STATUS_RUNNING",
+  stopped: "DCK$STATUS_STOPPED",
   working: "DCK$STATUS_WORKING",
   idle: "DCK$STATUS_IDLE",
   paused: "DCK$STATUS_PAUSED",

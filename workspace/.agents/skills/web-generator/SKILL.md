@@ -126,8 +126,14 @@ Choose the lowest free port ≥ 3000 not in either set. Record it in
 `webgen/<app-name>/.dck.json`:
 
 ```json
-{ "name": "<app-name>", "port": 3000, "stack": "nextjs" }
+{ "name": "<app-name>", "port": 3000, "stack": "nextjs", "lastStatus": "stopped", "lastCheckedAt": null }
 ```
+
+`lastStatus` is the agent-verified container state the portal reads to show an
+honest status badge (the browser cannot reach the Docker daemon). Allowed
+values: `"running"`, `"stopped"`, `"error"`. `lastCheckedAt` is the ISO-8601
+UTC timestamp of the verification (or `null` before the first deploy). Keep both
+fields in sync with reality on every lifecycle action (§6).
 
 Never assign `8000/8002` (canvas) or `5432/3306/6379` (infrastructure).
 
@@ -147,6 +153,19 @@ docker compose down
 ```
 
 Verify every deploy with `ps`, logs, and an endpoint health check. `docker compose down -v` only with explicit operator confirmation. Never run long-lived dev servers or install packages on the host.
+
+**Always update `.dck.json` status after a lifecycle action** so the portal
+badge stays honest — the frontend reads this file, it cannot query Docker:
+
+- After a successful `up`/deploy/rebuild where `docker compose ps` shows the
+  service up and the health check (`curl -s http://localhost:<port>/`) passes,
+  set `"lastStatus": "running"`.
+- After `docker compose down` (stop), set `"lastStatus": "stopped"`.
+- If the container exits non-zero, the health check fails, or the build breaks,
+  set `"lastStatus": "error"`.
+- Always set `"lastCheckedAt"` to the current ISO-8601 UTC timestamp at the same
+  time (e.g. `"2026-01-15T09:30:00Z"`). Do not touch `name`/`port`/`stack` when
+  updating status.
 
 ## 7. Junk-Free Guarantee
 

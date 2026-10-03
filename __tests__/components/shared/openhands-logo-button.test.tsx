@@ -12,15 +12,19 @@ function renderLogo(props?: Parameters<typeof OpenHandsLogoButton>[0]) {
 }
 
 describe("OpenHandsLogoButton", () => {
-  it("renders the square DCK crown mark when useMark is set", () => {
+  it("renders only the crown mark (no wordmark) when useMark is set", () => {
     renderLogo({ useMark: true });
-    // dck-mark.svg carries role="img" aria-label="DCK".
-    expect(screen.getByRole("img", { name: "DCK" })).toBeInTheDocument();
+    // Collapsed rail: the square crown mark with no product wordmark beside it.
+    expect(screen.queryByText("DCK Agentic")).not.toBeInTheDocument();
+    // The link still exposes an accessible name for the logo.
+    expect(
+      screen.getByRole("link", { name: /dck|openhands|logo/i }),
+    ).toBeInTheDocument();
   });
 
-  it("renders the wordmark (no square mark) by default", () => {
+  it("renders the crown mark with the product wordmark by default", () => {
     renderLogo();
-    // The wide crown+wordmark has no "DCK" image role, so the square mark is absent.
-    expect(screen.queryByRole("img", { name: "DCK" })).not.toBeInTheDocument();
+    // Expanded rail: same mark, plus the product name as a wordmark.
+    expect(screen.getByText("DCK Agentic")).toBeInTheDocument();
   });
 });

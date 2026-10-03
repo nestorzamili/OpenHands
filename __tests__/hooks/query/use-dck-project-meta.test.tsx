@@ -65,6 +65,8 @@ describe("useDckProjectMeta", () => {
       port: 3100,
       stack: "nextjs",
       url: "http://localhost:3100",
+      lastStatus: null,
+      lastCheckedAt: null,
     });
   });
 

@@ -6,7 +6,8 @@ import { BackNavButton } from "#/components/shared/buttons/back-nav-button";
 import { NavigationLink } from "#/components/shared/navigation-link";
 import { ConversationStatusDot } from "#/components/features/conversation-panel/conversation-status-dot";
 import { ProjectRow } from "#/components/features/dck/project-row";
-import { WebgenLifecycleActions } from "#/components/features/dck/webgen-lifecycle-actions";
+import { WebgenProjectTable } from "#/components/features/dck/webgen-project-table";
+import { WebgenNewProjectDialog } from "#/components/features/dck/webgen-new-project-dialog";
 import {
   useAllConversationsQuery,
   useOpenConversation,
@@ -14,6 +15,10 @@ import {
 import { useSearchSubdirs } from "#/hooks/query/use-search-subdirs";
 import { useCanvasExtensions } from "#/hooks/query/use-canvas-extensions";
 import { formatRelativeTime } from "#/utils/format-relative-time";
+import {
+  buildWebgenScaffoldPrompt,
+  type WebgenNewProjectSpec,
+} from "#/dck/webgen-new-project";
 import {
   DCK_COPY,
   conversationWorkingDir,
@@ -131,6 +136,18 @@ function ModuleProjectsList({
     );
   }
 
+  if (isWebgen) {
+    return (
+      <WebgenProjectTable
+        entries={entries}
+        conversations={conversations}
+        onOpen={openPath}
+        isBusy={isCreating}
+        dispatchLifecycle={dispatchLifecycle}
+      />
+    );
+  }
+
   return (
     <ul className="flex flex-col gap-1">
       {entries.map((entry) => (
@@ -140,19 +157,6 @@ function ModuleProjectsList({
             conversations={conversations}
             onOpen={openPath}
             isBusy={isCreating}
-            renderActions={
-              isWebgen
-                ? (meta) => (
-                    <WebgenLifecycleActions
-                      appName={entry.name}
-                      port={meta?.port ?? null}
-                      projectPath={entry.path}
-                      onDispatch={dispatchLifecycle}
-                      disabled={isCreating}
-                    />
-                  )
-                : undefined
-            }
           />
         </li>
       ))}
@@ -290,6 +294,19 @@ export function ModuleDetailView({
   } = useAllConversationsQuery();
   const { openPath, createScoped, prefillAndOpen, isCreating } =
     useOpenConversation();
+  const [showNewProjectDialog, setShowNewProjectDialog] = React.useState(false);
+
+  // Existing webgen project names, used to block duplicate names in the New
+  // Project dialog. Only the webgen module needs this; the query is gated on
+  // the module being webgen so other modules don't fetch it.
+  const isWebgenModule = dckModule?.id === "webgen";
+  const webgenSubdirs = useSearchSubdirs(
+    isWebgenModule ? (dckModule?.workspacePath ?? null) : null,
+  );
+  const existingWebgenNames = React.useMemo(
+    () => (webgenSubdirs.data?.items ?? []).map((entry) => entry.name),
+    [webgenSubdirs.data],
+  );
 
   if (!dckModule) {
     return (
@@ -318,13 +335,15 @@ export function ModuleDetailView({
 
   let headerAction: React.ReactNode = null;
   if (dckModule.kind === "projects") {
+    const onNewProject = isWebgenModule
+      ? () => setShowNewProjectDialog(true)
+      : () =>
+          void createScoped(dckModule.workspacePath, dckModule.promptTemplate);
     headerAction = (
       <button
         type="button"
         disabled={isCreating}
-        onClick={() =>
-          void createScoped(dckModule.workspacePath, dckModule.promptTemplate)
-        }
+        onClick={onNewProject}
         data-testid="dck-module-new-project"
         className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-indigo-400 hover:text-indigo-300 disabled:opacity-50"
       >
@@ -364,9 +383,11 @@ export function ModuleDetailView({
                 <h1 className="text-xl font-semibold text-contrast">
                   {dckModule.name}
                 </h1>
-                <p className="text-sm text-text-tertiary">
-                  {dckModule.description}
-                </p>
+                {dckModule.description && (
+                  <p className="text-sm text-text-tertiary">
+                    {dckModule.description}
+                  </p>
+                )}
               </div>
             </div>
             {headerAction}
@@ -399,6 +420,20 @@ export function ModuleDetailView({
           </div>
         </div>
       </div>
+      {isWebgenModule && showNewProjectDialog && (
+        <WebgenNewProjectDialog
+          existingNames={existingWebgenNames}
+          isSubmitting={isCreating}
+          onCancel={() => setShowNewProjectDialog(false)}
+          onSubmit={(spec: WebgenNewProjectSpec) => {
+            void createScoped(
+              dckModule.workspacePath,
+              buildWebgenScaffoldPrompt(spec),
+            );
+            setShowNewProjectDialog(false);
+          }}
+        />
+      )}
     </div>
   );
 }

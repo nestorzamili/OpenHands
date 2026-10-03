@@ -11,6 +11,8 @@ describe("parseDckProjectMeta", () => {
       port: 3000,
       stack: "nextjs",
       url: "http://localhost:3000",
+      lastStatus: null,
+      lastCheckedAt: null,
     });
   });
 
@@ -23,7 +25,30 @@ describe("parseDckProjectMeta", () => {
       port: 3100,
       stack: "nextjs",
       url: "http://localhost:3100",
+      lastStatus: null,
+      lastCheckedAt: null,
     });
+  });
+
+  it("parses the agent-written runtime status and verification timestamp", () => {
+    const result = parseDckProjectMeta(
+      JSON.stringify({
+        name: "shop",
+        port: 3100,
+        stack: "nextjs",
+        lastStatus: "RUNNING",
+        lastCheckedAt: "2026-01-15T09:30:00Z",
+      }),
+    );
+    expect(result?.lastStatus).toBe("running");
+    expect(result?.lastCheckedAt).toBe("2026-01-15T09:30:00Z");
+  });
+
+  it("ignores an unrecognized runtime status", () => {
+    const result = parseDckProjectMeta(
+      JSON.stringify({ name: "shop", port: 3100, lastStatus: "exploded" }),
+    );
+    expect(result?.lastStatus).toBeNull();
   });
 
   it("returns null fields and no url when values are missing or invalid", () => {
@@ -33,6 +58,8 @@ describe("parseDckProjectMeta", () => {
       port: null,
       stack: null,
       url: null,
+      lastStatus: null,
+      lastCheckedAt: null,
     });
   });
 

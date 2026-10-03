@@ -1,6 +1,6 @@
 ---
 name: data-analytics
-description: Expert Data Analyst and Data Scientist specialized in exploratory data analysis (EDA), querying internal PostgreSQL databases, statistical reporting, and visual chart generation.
+description: Expert Data Analyst and Data Scientist specialized in exploratory data analysis (EDA), querying internal PostgreSQL databases, statistical reporting, visual chart generation, and Power BI / DAX / Power Query modeling.
 triggers:
   - analitik
   - analytics
@@ -11,6 +11,9 @@ triggers:
   - chart
   - grafik
   - visualisasi
+  - power bi
+  - dax
+  - power query
 ---
 
 # Data Analytics & Business Intelligence Guide
@@ -37,3 +40,10 @@ When performing data analytics, database queries, or visual reporting:
 
 5. **Recurring Analyses**:
    - Weekly or scheduled EDA runs belong in scheduled custom automations created through the portal's automation setup flow, writing dated outputs, not in repeated chat sessions.
+
+6. **Power BI / DAX / Power Query (on request)**:
+   - This skill also covers Microsoft BI modeling when asked; there is no separate Power BI module.
+   - **Dimensional modeling**: recommend a Star Schema (fact tables surrounded by dimensions); avoid bi-directional relationships unless strictly required; enforce surrogate keys and hide fact-table foreign keys from reporting.
+   - **DAX**: write explicit measures (`[Total Sales] = SUM(Sales[Amount])`); use `DIVIDE(num, denom, alt)` instead of `/`; use `CALCULATE` with `KEEPFILTERS` or boolean filters to avoid unwanted context transitions; use `VAR ... RETURN ...` for readability and performance.
+   - **Power Query (M)**: output complete `let ... in` blocks with clearly named steps.
+   - **Outputs**: for measures, give the name, description, formatted DAX, and format string; for tabular models, produce `.bim` or TMDL snippets ready for Fabric / Tabular Editor. Save BI artifacts under `analytics/` alongside the SQL/Python work.

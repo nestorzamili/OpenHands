@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 
 /**
  * Policy: generated per-module DCK project content (webgen apps, research
- * reports, powerbi models, analytics scripts, dashboard scaffolds) must be
+ * reports, content artifacts, analytics scripts, dashboard scaffolds) must be
  * git-ignored so each project keeps its own commits/repo and never pollutes
  * this repo's history. The shared DCK infrastructure we DO track — the module
  * `.gitkeep` placeholders, the skills under `workspace/.agents`, and
@@ -39,7 +39,7 @@ describe("workspace .gitignore policy", () => {
     "workspace/webgen/shop/src/index.ts",
     "workspace/research/2026-01-01_trends_report.md",
     "workspace/analytics/eda.py",
-    "workspace/powerbi/model/measures.bim",
+    "workspace/content/2026-01-01_ig_captions.md",
     "workspace/dashboards/foo/manifest.json",
   ];
 
@@ -53,7 +53,7 @@ describe("workspace .gitignore policy", () => {
     "workspace/AGENTS.md",
     "workspace/webgen/.gitkeep",
     "workspace/research/.gitkeep",
-    "workspace/powerbi/.gitkeep",
+    "workspace/content/.gitkeep",
     "workspace/analytics/.gitkeep",
     "workspace/dashboards/.gitkeep",
   ];

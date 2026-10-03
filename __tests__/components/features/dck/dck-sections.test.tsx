@@ -7,7 +7,6 @@ import AgentServerConversationService from "#/api/conversation-service/agent-ser
 import CanvasExtensionsService from "#/api/canvas-extensions-service";
 import { renderWithProviders } from "test-utils";
 import { DckModulesSection } from "#/components/features/dck/dck-modules-section";
-import { DckRecentConversations } from "#/components/features/dck/dck-recent-conversations";
 
 vi.mock(
   "#/api/conversation-service/agent-server-conversation-service.api",
@@ -124,8 +123,8 @@ describe("DckModulesSection", () => {
       "webgen",
       "dashboards",
       "research",
-      "powerbi",
       "analytics",
+      "content",
     ]) {
       expect(
         await screen.findByTestId(`dck-module-card-${id}`),
@@ -158,38 +157,47 @@ describe("DckModulesSection", () => {
     const user = userEvent.setup();
     renderWithProviders(<DckModulesSection />, { navigation: { navigate } });
 
-    const powerbiCard = await screen.findByTestId("dck-module-card-powerbi");
-    const newButton = within(powerbiCard).getByRole("button");
+    const contentCard = await screen.findByTestId("dck-module-card-content");
+    const newButton = within(contentCard).getByRole("button");
     await user.click(newButton);
 
     await waitFor(() => {
       expect(mockCreateConversation).toHaveBeenCalledTimes(1);
     });
     const payload = mockCreateConversation.mock.calls[0][0];
-    expect(payload.workingDir).toBe("/projects/powerbi");
-    expect(payload.query).toMatch(/power bi|dax|power query/i);
+    expect(payload.workingDir).toBe("/projects/content");
+    expect(payload.query).toMatch(/content|marketing|seo/i);
     expect(payload.entryPoint).toBeUndefined();
     await waitFor(() => {
       expect(navigate).toHaveBeenCalledWith("/conversations/conv-new");
     });
   });
-});
 
-describe("DckRecentConversations", () => {
-  it("lists recent conversations newest first and navigates on click", async () => {
-    const navigate = vi.fn();
+  it("opens the webgen spec dialog instead of creating immediately", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<DckRecentConversations />, {
-      navigation: { navigate },
-    });
+    renderWithProviders(<DckModulesSection />);
 
-    const rows = await screen.findAllByTestId("dck-recent-row");
-    expect(rows).toHaveLength(2);
-    expect(rows[0]).toHaveTextContent("Trend report");
+    const webgenCard = await screen.findByTestId("dck-module-card-webgen");
+    await user.click(within(webgenCard).getByRole("button"));
 
-    await user.click(rows[1]);
+    // Dialog opens; nothing is created until the spec is submitted.
+    expect(
+      await screen.findByTestId("webgen-new-project-dialog"),
+    ).toBeInTheDocument();
+    expect(mockCreateConversation).not.toHaveBeenCalled();
+
+    // `shop` already exists (FileClient mock) → a unique name is required.
+    await user.type(
+      screen.getByTestId("webgen-new-project-name"),
+      "promo-site",
+    );
+    await user.click(screen.getByTestId("webgen-new-project-submit"));
+
     await waitFor(() => {
-      expect(navigate).toHaveBeenCalledWith("/conversations/conv-web");
+      expect(mockCreateConversation).toHaveBeenCalledTimes(1);
     });
+    const payload = mockCreateConversation.mock.calls[0][0];
+    expect(payload.workingDir).toBe("/projects/webgen");
+    expect(payload.query).toContain("promo-site");
   });
 });

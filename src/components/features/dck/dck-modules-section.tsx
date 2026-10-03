@@ -22,6 +22,11 @@ import {
   useAllConversations,
   useOpenConversation,
 } from "#/components/features/dck/use-dck-conversations";
+import { WebgenNewProjectDialog } from "#/components/features/dck/webgen-new-project-dialog";
+import {
+  buildWebgenScaffoldPrompt,
+  type WebgenNewProjectSpec,
+} from "#/dck/webgen-new-project";
 
 function ViewAllLink({ module }: { module: DckModule }) {
   const { t } = useTranslation("openhands");
@@ -38,11 +43,11 @@ function ViewAllLink({ module }: { module: DckModule }) {
 
 function ProjectsCard({
   module,
-  createNew,
+  onNewProject,
   isCreating,
 }: {
   module: DckModule;
-  createNew: (workingDir: string, promptTemplate?: string) => void;
+  onNewProject: () => void;
   isCreating: boolean;
 }) {
   const { t } = useTranslation("openhands");
@@ -57,7 +62,7 @@ function ProjectsCard({
         <button
           type="button"
           disabled={isCreating}
-          onClick={() => createNew(module.workspacePath, module.promptTemplate)}
+          onClick={onNewProject}
           className="shrink-0 text-xs font-medium text-indigo-400 hover:text-indigo-300 disabled:opacity-50"
         >
           {t(I18nKey.PROJECT$NEW_PROJECT)}
@@ -146,6 +151,17 @@ export function DckModulesSection() {
   const createNew = (workingDir: string, promptTemplate?: string) =>
     void createScoped(workingDir, promptTemplate ?? "");
 
+  // Webgen uses a spec dialog (name/description/DB/auth) before creating a
+  // conversation, so the first message carries the spec and the agent starts
+  // scaffolding without a round-trip of clarifying questions.
+  const webgenModule = modules.find((module) => module.id === "webgen") ?? null;
+  const [showWebgenDialog, setShowWebgenDialog] = React.useState(false);
+  const webgenSubdirs = useSearchSubdirs(webgenModule?.workspacePath ?? null);
+  const existingWebgenNames = React.useMemo(
+    () => (webgenSubdirs.data?.items ?? []).map((entry) => entry.name),
+    [webgenSubdirs.data],
+  );
+
   return (
     <section
       data-testid="dck-modules-section"
@@ -161,7 +177,12 @@ export function DckModulesSection() {
               <ProjectsCard
                 key={module.id}
                 module={module}
-                createNew={createNew}
+                onNewProject={
+                  module.id === "webgen"
+                    ? () => setShowWebgenDialog(true)
+                    : () =>
+                        createNew(module.workspacePath, module.promptTemplate)
+                }
                 isCreating={isCreating}
               />
             );
@@ -180,6 +201,20 @@ export function DckModulesSection() {
           );
         })}
       </div>
+      {webgenModule && showWebgenDialog && (
+        <WebgenNewProjectDialog
+          existingNames={existingWebgenNames}
+          isSubmitting={isCreating}
+          onCancel={() => setShowWebgenDialog(false)}
+          onSubmit={(spec: WebgenNewProjectSpec) => {
+            void createScoped(
+              webgenModule.workspacePath,
+              buildWebgenScaffoldPrompt(spec),
+            );
+            setShowWebgenDialog(false);
+          }}
+        />
+      )}
     </section>
   );
 }
@@ -210,7 +245,9 @@ function ModuleCardShell({
         </div>
         {action}
       </div>
-      <p className="text-xs text-text-tertiary">{module.description}</p>
+      {module.description && (
+        <p className="text-xs text-text-tertiary">{module.description}</p>
+      )}
       {count !== null && (
         <p
           data-testid={`dck-module-count-${module.id}`}

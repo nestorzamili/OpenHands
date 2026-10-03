@@ -42,8 +42,8 @@ describe("DCK module registry", () => {
       "webgen",
       "dashboards",
       "research",
-      "powerbi",
       "analytics",
+      "content",
     ]);
     expect(
       modules.every(
@@ -70,8 +70,8 @@ describe("DCK module registry", () => {
     webgen: ["nextjs", "next.js", "fullstack", "scaffold", "app"],
     dashboards: ["dashboard", "analytics dashboard", "canvas app"],
     research: ["riset", "tren", "trending", "social media", "research"],
-    powerbi: ["power bi", "dax", "power query"],
     analytics: ["analytics", "sql", "postgres", "chart"],
+    content: ["content", "marketing", "seo", "blog", "social"],
   };
 
   it("seeds every module prompt with a skill trigger keyword", () => {
@@ -150,7 +150,7 @@ describe("conversationsForBase", () => {
       latestConversationForPath(conversations, "/projects/webgen/shop")?.id,
     ).toBe("new");
     expect(
-      latestConversationForPath(conversations, "/projects/powerbi"),
+      latestConversationForPath(conversations, "/projects/content"),
     ).toBeNull();
   });
 });
@@ -172,23 +172,57 @@ describe("formatProjectCount", () => {
 });
 
 describe("deriveProjectStatus", () => {
-  const meta = { name: "shop", port: 3000, stack: "nextjs", url: null };
+  const meta = {
+    name: "shop",
+    port: 3000,
+    stack: "nextjs",
+    url: null,
+    lastStatus: null,
+    lastCheckedAt: null,
+  };
+
+  it("prefers the agent-verified app runtime status from .dck.json", () => {
+    expect(deriveProjectStatus({ ...meta, lastStatus: "running" }, null)).toBe(
+      "running",
+    );
+    expect(deriveProjectStatus({ ...meta, lastStatus: "stopped" }, null)).toBe(
+      "stopped",
+    );
+    expect(deriveProjectStatus({ ...meta, lastStatus: "error" }, null)).toBe(
+      "error",
+    );
+  });
+
+  it("shows 'working' over a verified 'running' while the agent is executing", () => {
+    const conversation = makeConversation({
+      id: "c",
+      execution_status: ExecutionStatus.RUNNING,
+    });
+    expect(
+      deriveProjectStatus({ ...meta, lastStatus: "running" }, conversation),
+    ).toBe("working");
+  });
 
   it.each([
-    [ExecutionStatus.RUNNING, "running"],
+    // No verified app status → fall back to the agent execution status.
+    [ExecutionStatus.RUNNING, "working"],
     [ExecutionStatus.IDLE, "working"],
     [ExecutionStatus.WAITING_FOR_CONFIRMATION, "working"],
     [ExecutionStatus.PAUSED, "paused"],
     [ExecutionStatus.ERROR, "error"],
     [ExecutionStatus.STUCK, "error"],
-    [ExecutionStatus.FINISHED, "idle"],
-  ])("maps conversation status %s to %s", (status, expected) => {
-    const conversation = makeConversation({
-      id: "c",
-      execution_status: status,
-    });
-    expect(deriveProjectStatus(meta, conversation)).toBe(expected);
-  });
+    // FINISHED is not activity → configured (metadata exists).
+    [ExecutionStatus.FINISHED, "configured"],
+  ])(
+    "maps conversation status %s to %s when unverified",
+    (status, expected) => {
+      const conversation = makeConversation({
+        id: "c",
+        execution_status: status,
+      });
+      expect(deriveProjectStatus(meta, conversation)).toBe(expected);
+    },
+  );
 
   it("falls back to configured when meta exists without a conversation", () => {
     expect(deriveProjectStatus(meta, null)).toBe("configured");
@@ -201,6 +235,7 @@ describe("deriveProjectStatus", () => {
   it("has a label key for every status", () => {
     for (const status of [
       "running",
+      "stopped",
       "working",
       "idle",
       "paused",
@@ -236,7 +271,7 @@ describe("relatedConversationCount and projectLastTouched", () => {
     expect(
       relatedConversationCount(conversations, "/projects/webgen/shop"),
     ).toBe(2);
-    expect(relatedConversationCount(conversations, "/projects/powerbi")).toBe(
+    expect(relatedConversationCount(conversations, "/projects/content")).toBe(
       0,
     );
   });
@@ -245,6 +280,6 @@ describe("relatedConversationCount and projectLastTouched", () => {
     expect(projectLastTouched(conversations, "/projects/webgen/shop")).toBe(
       "2026-09-29T10:00:00.000Z",
     );
-    expect(projectLastTouched(conversations, "/projects/powerbi")).toBeNull();
+    expect(projectLastTouched(conversations, "/projects/content")).toBeNull();
   });
 });

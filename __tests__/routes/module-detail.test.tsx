@@ -4,7 +4,6 @@ import userEvent from "@testing-library/user-event";
 import { ExecutionStatus } from "#/types/agent-server/core";
 import type { AppConversation } from "#/api/conversation-service/agent-server-conversation-service.types";
 import AgentServerConversationService from "#/api/conversation-service/agent-server-conversation-service.api";
-import CanvasExtensionsService from "#/api/canvas-extensions-service";
 import { renderWithProviders } from "test-utils";
 import { ModuleDetailView } from "#/routes/module-detail";
 import { getDckModuleById } from "#/dck/modules";
@@ -15,10 +14,6 @@ vi.mock(
     default: { searchConversations: vi.fn() },
   }),
 );
-
-vi.mock("#/api/canvas-extensions-service", () => ({
-  default: { listInstalled: vi.fn() },
-}));
 
 const mockCreateConversation = vi.fn(
   async (_payload: { workingDir?: string; query?: string }) => ({
@@ -106,7 +101,6 @@ beforeEach(() => {
     items: [researchConversation, webgenConversation],
     next_page_id: null,
   });
-  vi.mocked(CanvasExtensionsService.listInstalled).mockResolvedValue([]);
 });
 
 afterEach(() => {

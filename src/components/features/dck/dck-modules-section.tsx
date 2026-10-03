@@ -1,7 +1,6 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchSubdirs } from "#/hooks/query/use-search-subdirs";
-import { useCanvasExtensions } from "#/hooks/query/use-canvas-extensions";
 import { NavigationLink } from "#/components/shared/navigation-link";
 import { I18nKey } from "#/i18n/declaration";
 import {
@@ -74,31 +73,6 @@ function ProjectsCard({
       ) : (
         <ViewAllLink module={module} />
       )}
-    </ModuleCardShell>
-  );
-}
-
-function ExtensionsCard({ module }: { module: DckModule }) {
-  const { t } = useTranslation("openhands");
-  const extensions = useCanvasExtensions();
-  const count = extensions.data?.length ?? 0;
-
-  return (
-    <ModuleCardShell
-      module={module}
-      count={formatProjectCount(count)}
-      action={
-        <NavigationLink
-          to="/apps"
-          className="shrink-0 text-xs font-medium text-indigo-400 hover:text-indigo-300"
-        >
-          {t(I18nKey.FEATURED_AUTOMATIONS$VIEW_ALL)}
-        </NavigationLink>
-      }
-    >
-      {count === 0 ? (
-        <p className="text-xs text-text-tertiary">{DCK_COPY.noExtensions}</p>
-      ) : null}
     </ModuleCardShell>
   );
 }
@@ -186,9 +160,6 @@ export function DckModulesSection() {
                 isCreating={isCreating}
               />
             );
-          }
-          if (module.kind === "extensions") {
-            return <ExtensionsCard key={module.id} module={module} />;
           }
           return (
             <ConversationsCard

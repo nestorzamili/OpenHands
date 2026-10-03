@@ -12,7 +12,7 @@ Status: **F1–F4 implemented on `dev`; F5 (MCP registration at runtime + secret
 6. OpenHands itself: PostgreSQL-only, `AUTOMATION_DB_URL` fail-fast, no silent SQLite fallback. Old SQLite files may be deleted (not yet in use).
 7. Deploy/rebuild: executed as agent conversation (optionally wrapped as automation templates), never as direct Docker-daemon calls from the frontend.
 8. Maximize built-ins: automations, skills, MCP, secrets store, Files/VSCode tabs, conversation panel. No new backend endpoints in this repo.
-9. Dashboards: Canvas Extensions under `/apps` ONLY (no standalone compose, no `300x` port, no `.dck.json` per dashboard). Rationale: same-origin embedded pages, sidebar registration, install/enable UI already built in; local-backend-only constraint is acceptable for DCK. Standalone compose is reserved for `webgen/` customer apps needing their own URL + Docker lifecycle.
+9. Dashboards: use the **built-in Apps feature only** (Customize → Apps / `/apps`). The earlier custom DCK `dashboards` module card, its module-detail view, the local-path install affordance, the `sample-dashboard` example, and the `dashboard-generator` skill were **removed** — apps are installed and enabled through the built-in Canvas Extensions flow (e.g. from the public `OpenHands/canvas-apps` registry), with no DCK-specific module or scaffolding layer. Rationale: the built-in install/enable/uninstall UI, sidebar registration, and same-origin embedding already cover this; a custom module only duplicated it. Standalone compose remains reserved for `webgen/` customer apps.
 10. Research: reuse built-in `research-brief` + `news-digest` skills/automations; DCK `social-research` skill becomes a thin wrapper (requires `TAVILY_API_KEY`, Notion optional).
 11. Web scaffolding: DCK `web-generator` skill wraps built-ins `frontend-design` + `docker` (+ `vercel` when preview deploy needed) instead of standalone prompting.
 12. MCP: register custom Postgres read-only + search (Tavily/Brave) servers via `/mcp`; no builtin Postgres/PowerBI entry exists in the 79-entry catalog.
@@ -31,19 +31,23 @@ Status: **F1–F4 implemented on `dev`; F5 (MCP registration at runtime + secret
 | Module | Runtime | Docker | Detected project unit | Outputs |
 |---|---|---|---|---|
 | `webgen/` | Next.js fullstack (App Router + API routes), shadcn, Tailwind; Prisma + better-auth optional | Required, one compose stack per app | `webgen/<app>/` containing `docker-compose.yml` + `.dck.json` | Runnable app on `localhost:<port>` |
-| `dashboards/` | Canvas Extension (`/apps`): ESM bundle + manifest v1, pages registered in sidebar; Sidecar only for heavy compute | No compose stack (lifecycle = install/enable/uninstall via `/apps` UI) | Extension name + `contributes.pages[]` (`src/types/canvas-extension.ts`) | Embedded dashboard pages inside Canvas |
+| ~~`dashboards/`~~ (removed as a DCK module) | Built-in Apps feature only (Canvas Extensions via `/apps`); no custom module card or `dashboard-generator` skill | No compose stack | n/a — managed entirely by built-in Customize → Apps | Embedded app pages inside Canvas |
 | `research/` | Built-in `research-brief` + `news-digest` skills/automations; DCK `social-research` skill is a thin wrapper (needs `TAVILY_API_KEY`) | No | `research/YYYY-MM-DD_<topic>_report.md` | Markdown report with sources + timestamps |
 | `analytics/` | Python (Pandas/Polars/DuckDB/SQLAlchemy) + SQL to host Postgres, charts to PNG/SVG; also Power BI / DAX / Power Query (M) / TMDL on request | No (one-shot runs) | `analytics/<analysis>.py`, `analytics/charts/` | Scripts, query results, charts, BI models, insight write-up |
 | `content/` | Agent only; marketing & social content (captions/scripts, content calendars, SEO/blog, email) applying antislop copywriting | No | `content/YYYY-MM-DD_<name>.md` | Publish-ready marketing content artifacts |
 
-Cards for `research`/`analytics`/`content` show artifact lists + `Continue in conversation`. Only `webgen` gets Docker lifecycle actions (`deploy`/`rebuild`/`stop`/`delete`/env). Dashboards are managed through the built-in `/apps` install/enable/uninstall flow, not card actions.
+Cards for `research`/`analytics`/`content` show artifact lists + `Continue in conversation`. Only `webgen` gets Docker lifecycle actions (`deploy`/`rebuild`/`stop`/`delete`/env). There is no `dashboards` module card — apps are managed through the built-in `/apps` install/enable/uninstall flow directly.
 
 > **Module revision (post-F4):** the standalone `powerbi/` module was removed to
 > cut the data/BI redundancy (Analytics, Power BI, and Dashboards all answered
 > "show my data"). Power BI / DAX / Power Query now live inside the
 > `data-analytics` skill, and a new `content/` module covers marketing/social
-> content production. Final set: `webgen`, `dashboards`, `research`,
-> `analytics`, `content`.
+> content production.
+>
+> **Module revision (post-F5):** the custom `dashboards` / Apps module was also
+> removed in favor of the built-in Apps feature (Customize → Apps). Final DCK
+> module card set: `webgen`, `research`, `analytics`, `content`. Apps are not a
+> DCK module — they are installed through the built-in Canvas Extensions flow.
 
 ## 3. Webgen project standard
 
@@ -69,7 +73,7 @@ Rules:
 - Port allocation: first free integer ≥ 3000. The agent must check both `grep -r` over `webgen/*/docker-compose.yml` and live `docker ps` published ports, then record the choice in `.dck.json`. Reserved and never assigned to apps: `8000/8002` (canvas), `5432/3306/6379` (infra).
 - Admin credentials are never committed. Templates carry placeholders; real values go into per-project `.env` (gitignored) and/or `/settings/secrets` (auto-attached as `LookupSecret` on conversation start).
 - The `web-generator` `SKILL.md` (lives in `workspace/.agents/skills`, rewritten from the old React+Vite+FastAPI template) must be rewritten to this standard as a wrapper: reference built-in `frontend-design` (layout/styling), `docker` (containerization), and `vercel` (preview deploys when needed) instead of duplicating their guidance.
-- Add a `dashboard-generator` skill only as extension-scaffolding guidance (manifest v1 + ESM bundle per `canvas-extension-api`); dashboards ship through `/apps`, not compose.
+- Do not add a `dashboard-generator` skill or any custom dashboards module. Apps ship through the built-in Customize → Apps flow (Canvas Extensions, `/apps`); the earlier scaffolding-skill idea was dropped.
 
 ## 3b. Built-in reuse audit (do not rebuild)
 
@@ -123,7 +127,7 @@ Keep the existing stack and add the DCK layer on top:
 
 - Keep: `HomeChatLauncher`, `RecommendedAutomationsLauncher` (`variant="rail"`), `PinnedAutomationsDashboard`, `RunningAutomationsList` (`src/components/features/home/home-chat-launcher.tsx:300-304`, `src/routes/home.tsx`).
 - Add: `src/dck/modules.ts` static registry (5 modules: id, workspace path, skill name, description, prompt template) + module card grid above the launcher.
-- Add: per-module project list — `webgen` via `useWorkspaceFiles` (convention from §3, no new backend); `dashboards` via the built-in extensions runtime (`useCanvasExtensions` / `useCanvasExtensionsRuntime`, deep links to `/extensions/<name>/...`).
+- Add: per-module project list — `webgen` via `useWorkspaceFiles` (convention from §3, no new backend). There is no `dashboards` module list; apps are reached through the built-in Customize → Apps page (`/apps`) and open at `/extensions/<name>/...`.
 - Add: recent block composed from existing sources — `usePaginatedConversations` (recent chats) + latest automation runs (recent jobs) + workspace mtimes (recently touched projects). No new heavy queries.
 
 Reused built-ins instead of new builds: `/automations*` routes for schedules/history, `/skills` + per-conversation skill picker, Files + `/vscode` tabs for `.env`/code editing.
@@ -149,7 +153,7 @@ Secrets convention: per-app `DATABASE_URL`/`REDIS_URL` and integration keys live
 
 1. From module card → project row → `Continue in conversation`.
 2. For `webgen`: opens/navigates to a conversation scoped to `workingDir=/projects/webgen/<app>`, relevant skill active, context preloaded (port, DB name, last status).
-3. For `dashboards`: navigates to the extension page under `/extensions/<name>/...` (`src/routes/canvas-extension-page.tsx`); development/iteration happens via the extension source + reinstall through `/apps`.
+3. Apps are not part of this flow: they are installed/opened through the built-in Customize → Apps page (`/apps`) and mount at `/extensions/<name>/...` (`src/routes/canvas-extension-page.tsx`).
 4. All code/file/terminal/browser work happens in the existing conversation UI (Files, Terminal, VSCode tabs). Homepage needs no code viewer.
 
 ### F-C. Deploy / rebuild / stop / delete / env update
@@ -169,7 +173,7 @@ Secrets convention: per-app `DATABASE_URL`/`REDIS_URL` and integration keys live
 - **F1 — Postgres-only fail-fast:** entrypoint, both dev launchers, helm values/docs, compose wiring, SQLite deletion, first-run `asyncpg` verification.
 - **F2 — Minimal branding:** title, favicon, home header copy + i18n regeneration + completeness check.
 - **F3 — Module registry + homepage cards:** `src/dck/modules.ts`, card grid, project lists via `useWorkspaceFiles`, deep links into conversations. Opening a module card seeds a per-module opening prompt as the new conversation's `query` (→ `initial_message`); each prompt contains a trigger keyword from the module's workspace skill so the DCK skill auto-activates on the first turn. Opening an existing conversation never injects a prompt. No skill id or prompt is sent as a conversation-creation parameter (skills activate from triggers, not from create payloads).
-- **F4 — Webgen standard + dashboards as extensions + automation templates:** DONE in `dck/workspace/.agents/skills` (`web-generator` rewritten as `frontend-design`+`docker` wrapper with junk-free and secrets rules; `dashboard-generator` skill added; `social-research` rewrapped over `research-brief`/`news-digest`; `data-analytics` extended with MCP + scheduling notes). Deploy/rebuild and recurring jobs are created as custom automations through the built-in setup flow (the published catalog cannot be extended from this fork).
+- **F4 — Webgen standard + automation templates:** DONE in `dck/workspace/.agents/skills` (`web-generator` rewritten as `frontend-design`+`docker` wrapper with junk-free and secrets rules; `social-research` rewrapped over `research-brief`/`news-digest`; `data-analytics` extended with MCP + scheduling notes). The custom `dashboard-generator` skill and `dashboards` module were later removed (post-F5) in favor of the built-in Apps feature. Deploy/rebuild and recurring jobs are created as custom automations through the built-in setup flow (the published catalog cannot be extended from this fork).
 - **F5 — MCP + secrets + recent:** recent block DONE in F3. MCP servers are runtime registrations (see §10); secrets convention DONE (Secret Manager as source of truth, `.env` generated at deploy).
 
 ## 9. Verification per phase

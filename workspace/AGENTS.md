@@ -3,7 +3,7 @@
 Welcome to the internal **DCK Agentic** workspace. This repository is organized into dedicated domain modules:
 
 - `webgen/` — Full Stack Next.js web applications, landing pages, and prototypes (single-service Docker Compose).
-- `dashboards/` — Embedded analytics dashboards shipped as Canvas Extensions (install/enable via `/apps`).
+- `dashboards/` — Scratch space for Canvas Extension app sources. Apps are installed and enabled through the built-in **Customize → Apps** flow (`/apps`), e.g. from the public `OpenHands/canvas-apps` registry. There is no custom module or scaffolding skill for this; use the built-in Apps feature directly.
 - `research/` — Market research reports, social media trend analysis, and competitor monitoring.
 - `powerbi/` — DAX measure libraries, Power Query (M) transformations, and semantic model definitions.
 - `analytics/` — Exploratory data analysis, SQL queries against host PostgreSQL, and visual charts.

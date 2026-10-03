@@ -1,16 +1,10 @@
 import type { LucideIcon } from "lucide-react";
-import {
-  Globe,
-  LayoutDashboard,
-  LineChart,
-  PenLine,
-  Search,
-} from "lucide-react";
+import { Globe, LineChart, PenLine, Search } from "lucide-react";
 import type { AppConversation } from "#/api/conversation-service/agent-server-conversation-service.types";
 import { ExecutionStatus } from "#/types/agent-server/core/base/common";
 import type { DckProjectMeta } from "#/dck/project-metadata";
 
-export type DckModuleKind = "projects" | "extensions" | "conversations";
+export type DckModuleKind = "projects" | "conversations";
 
 /**
  * Root under which DCK module directories live, as seen by the active
@@ -61,17 +55,6 @@ const DCK_MODULE_DEFS: DckModuleDef[] = [
     description: "",
     promptTemplate:
       "Scaffold a new containerized Next.js fullstack app under webgen/ following the web-generator standard. Ask me for the app name and whether it needs a database or auth before scaffolding.",
-  },
-  {
-    id: "dashboards",
-    name: "Dashboards",
-    slug: "dashboards",
-    skillName: "dashboard-generator",
-    kind: "extensions",
-    icon: LayoutDashboard,
-    description: "Embedded analytics pages served inside the portal",
-    promptTemplate:
-      "Build an embedded analytics dashboard as a Canvas Extension under dashboards/ following the dashboard-generator standard. Ask me what metrics and data source it should visualize before starting.",
   },
   {
     id: "research",
@@ -141,7 +124,6 @@ export const DCK_COPY = {
   viewAll: "View all",
   noProjects: "No projects yet",
   noConversations: "No conversations yet",
-  noExtensions: "No dashboards installed",
 } as const;
 
 export function normalizeModulePath(value: string | null | undefined): string {
@@ -204,18 +186,6 @@ export function latestConversationForPath(
 
 export function formatProjectCount(count: number): string {
   return count === 1 ? "1 project" : `${count} projects`;
-}
-
-export interface ExtensionPageLike {
-  path: string;
-}
-
-export function extensionEntryPath(
-  name: string,
-  pages: ExtensionPageLike[] | null | undefined,
-): string {
-  const first = pages?.[0]?.path ?? null;
-  return first ? `/extensions/${name}/${first}` : "/apps";
 }
 
 export type DckProjectStatus =

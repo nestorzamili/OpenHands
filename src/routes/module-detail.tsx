@@ -3,7 +3,6 @@ import { useParams } from "react-router";
 import { useTranslation } from "react-i18next";
 import { I18nKey } from "#/i18n/declaration";
 import { BackNavButton } from "#/components/shared/buttons/back-nav-button";
-import { NavigationLink } from "#/components/shared/navigation-link";
 import { ConversationStatusDot } from "#/components/features/conversation-panel/conversation-status-dot";
 import { ProjectRow } from "#/components/features/dck/project-row";
 import { WebgenProjectTable } from "#/components/features/dck/webgen-project-table";
@@ -13,7 +12,6 @@ import {
   useOpenConversation,
 } from "#/components/features/dck/use-dck-conversations";
 import { useSearchSubdirs } from "#/hooks/query/use-search-subdirs";
-import { useCanvasExtensions } from "#/hooks/query/use-canvas-extensions";
 import { formatRelativeTime } from "#/utils/format-relative-time";
 import {
   buildWebgenScaffoldPrompt,
@@ -23,7 +21,6 @@ import {
   DCK_COPY,
   conversationWorkingDir,
   conversationsForBase,
-  extensionEntryPath,
   getDckModuleById,
   type DckModule,
 } from "#/dck/modules";
@@ -240,46 +237,6 @@ function ModuleConversationsList({
   );
 }
 
-function ModuleExtensionsList() {
-  const extensions = useCanvasExtensions();
-  const installed = extensions.data ?? [];
-
-  if (extensions.isLoading) {
-    return <ListState state="loading" emptyText={DCK_COPY.noExtensions} />;
-  }
-  if (extensions.isError) {
-    return (
-      <ListState
-        state="error"
-        onRetry={() => void extensions.refetch()}
-        emptyText={DCK_COPY.noExtensions}
-      />
-    );
-  }
-  if (installed.length === 0) {
-    return <ListState state="empty" emptyText={DCK_COPY.noExtensions} />;
-  }
-
-  return (
-    <ul className="flex flex-col gap-1">
-      {installed.map((extension) => (
-        <li key={extension.name}>
-          <NavigationLink
-            to={extensionEntryPath(
-              extension.name,
-              extension.manifest?.contributes?.pages,
-            )}
-            data-testid="dck-extension-row"
-            className="block truncate rounded-lg px-2 py-1.5 text-left text-sm text-contrast hover:bg-surface"
-          >
-            {extension.manifest?.display_name ?? extension.name}
-          </NavigationLink>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
 export function ModuleDetailView({
   dckModule,
 }: {
@@ -416,7 +373,6 @@ export function ModuleDetailView({
                 emptyCta={headerAction}
               />
             )}
-            {dckModule.kind === "extensions" && <ModuleExtensionsList />}
           </div>
         </div>
       </div>

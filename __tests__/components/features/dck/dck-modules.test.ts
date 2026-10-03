@@ -35,12 +35,11 @@ describe("DCK module registry", () => {
     vi.unstubAllEnvs();
   });
 
-  it("declares the five DCK modules with slugs, workspace paths, and skills", () => {
+  it("declares the four DCK modules with slugs, workspace paths, and skills", () => {
     vi.stubEnv("VITE_DCK_WORKSPACE_ROOT", "");
     const modules = getDckModules();
     expect(modules.map((module) => module.id)).toEqual([
       "webgen",
-      "dashboards",
       "research",
       "analytics",
       "content",
@@ -68,7 +67,6 @@ describe("DCK module registry", () => {
 
   const MODULE_SKILL_TRIGGERS: Record<string, string[]> = {
     webgen: ["nextjs", "next.js", "fullstack", "scaffold", "app"],
-    dashboards: ["dashboard", "analytics dashboard", "canvas app"],
     research: ["riset", "tren", "trending", "social media", "research"],
     analytics: ["analytics", "sql", "postgres", "chart"],
     content: ["content", "marketing", "seo", "blog", "social"],

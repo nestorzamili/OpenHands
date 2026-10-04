@@ -15,8 +15,6 @@ name: DCK Docker
 on:
   push:
     branches: [dev]
-    tags:
-      - "dck-v*"
   workflow_dispatch:
     inputs:
       image:
@@ -105,20 +103,9 @@ jobs:
           TAGS=""
           add_tag() { TAGS="${TAGS:+${TAGS},}${IMAGE}:${1}-${ARCH}"; }
 
-          # SHA tag (always)
+          # Every build publishes an immutable sha tag plus the rolling latest.
           add_tag "sha-${SHORT_SHA}"
-
-          # Branch build → `latest` (dev is the DCK release branch)
-          if [[ "$RELEVANT_REF" == refs/heads/* ]]; then
-            add_tag "latest"
-          fi
-
-          # dck-vX.Y.Z tag → version + latest
-          if [[ "$RELEVANT_REF" == refs/tags/dck-v* ]]; then
-            VERSION="${RELEVANT_REF#refs/tags/dck-v}"
-            add_tag "$VERSION"
-            add_tag "latest"
-          fi
+          add_tag "latest"
 
           # Manual extra tag
           if [ -n "${{ inputs.tag }}" ]; then
@@ -220,48 +207,42 @@ jobs:
           done
 
   # ───────────────────────────────────────────────────────────────────────────
-  # Release bundle — only on dck-v* tags.
-  #
-  # Packages the small set of files the VM needs (compose, workspace content,
-  # .env template, bootstrap + migrate scripts) into a tarball and attaches it
-  # to a GitHub Release. scripts/dck-vm-bootstrap.sh downloads this bundle so
-  # the VM never needs a full repo checkout (deploy decision 3=c).
+  # Deploy bundle — the files the VM needs (compose, workspace content, .env
+  # template, bootstrap + migrate scripts), published as a workflow artifact
+  # (no GitHub Release). The VM pulls it with the GitHub API via the bootstrap
+  # script. Named by short SHA so each build is identifiable.
   # ───────────────────────────────────────────────────────────────────────────
-  release-bundle:
-    name: Publish deploy bundle
+  deploy-bundle:
+    name: Build deploy bundle artifact
     needs: merge-manifests
-    if: startsWith(github.ref, 'refs/tags/dck-v')
     runs-on: ubuntu-24.04
-    permissions:
-      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Build deploy bundle
+      - name: Assemble bundle
+        id: bundle
         run: |
-          VERSION="${GITHUB_REF#refs/tags/}"
+          SHORT_SHA=$(echo "${GITHUB_SHA}" | cut -c1-7)
+          echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
           STAGE="dck-agentic-deploy"
-          mkdir -p "$STAGE/workspace"
-          # Only the files a release directory needs — see docs/DEPLOYMENT.md.
+          mkdir -p "$STAGE/workspace" "$STAGE/scripts"
           cp docker-compose.yml "$STAGE/"
           cp .env.production.sample "$STAGE/"
           cp -r workspace/.agents "$STAGE/workspace/"
           cp workspace/AGENTS.md "$STAGE/workspace/"
-          mkdir -p "$STAGE/scripts"
           cp scripts/migrate-automation-db.sh "$STAGE/scripts/"
           cp scripts/dck-vm-bootstrap.sh "$STAGE/scripts/"
-          tar -czf "dck-agentic-deploy-${VERSION}.tar.gz" -C "$STAGE" .
-          # Stable alias so the bootstrap can fetch a tag-independent name too.
-          cp "dck-agentic-deploy-${VERSION}.tar.gz" "dck-agentic-deploy.tar.gz"
-          sha256sum dck-agentic-deploy*.tar.gz > SHA256SUMS.txt
+          tar -czf "dck-agentic-deploy.tar.gz" -C "$STAGE" .
+          sha256sum dck-agentic-deploy.tar.gz > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
-      - name: Attach bundle to the GitHub Release
-        uses: softprops/action-gh-release@v2
+      - name: Upload deploy bundle artifact
+        uses: actions/upload-artifact@v7
         with:
-          files: |
-            dck-agentic-deploy-*.tar.gz
+          name: dck-agentic-deploy-${{ steps.bundle.outputs.short_sha }}
+          path: |
             dck-agentic-deploy.tar.gz
             SHA256SUMS.txt
-          fail_on_unmatched_files: true
+          retention-days: 30
+

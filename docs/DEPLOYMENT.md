@@ -62,22 +62,27 @@ Key facts for this VM:
 
 The image is built by `.github/workflows/dck-docker.yml` and published to GHCR
 as `dck-agentic` under the repository owner's namespace
-(`ghcr.io/<owner>/dck-agentic`) with `VITE_BASE_PATH=/`. Push to `dev`
-(publishes `latest` + `sha-<short>`) or tag `dck-v<version>` for a pinned
-release. Set `CANVAS_IMAGE` in `.env` to your owner's path. The VM only
-pulls — it never builds.
+(`ghcr.io/<owner>/dck-agentic`) with `VITE_BASE_PATH=/`. Every push to `dev`
+publishes `sha-<short>` + `latest` and uploads a **deploy bundle workflow
+artifact** (`dck-agentic-deploy-<sha>`) containing the compose file, workspace
+content, `.env` template, and scripts the VM needs. No GitHub Release is used.
+The VM only pulls — it never builds.
 
 ### 2. First-run bootstrap (one command)
 
-Download and run `scripts/dck-vm-bootstrap.sh` on the VM. It lays out
-`/opt/dck-agentic`, fetches the deploy bundle from the GitHub Release, fixes
-bind-mount ownership, writes `.env` (generating a Postgres password), and starts
-the stack:
+Download and run `scripts/dck-vm-bootstrap.sh` on the VM. It fetches the deploy
+bundle artifact from the latest successful workflow run (via the `gh` CLI),
+lays out `/opt/dck-agentic`, fixes bind-mount ownership, writes `.env`
+(generating a Postgres password), and starts the stack:
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/<owner>/OpenHands/<tag>/scripts/dck-vm-bootstrap.sh" \
-  | OWNER=<owner> VERSION=<tag> bash
-# e.g. OWNER=dck-ai VERSION=dck-v1.2.3
+# One-time: install gh and authenticate (needs repo + actions:read).
+#   gh auth login        # or: export GH_TOKEN=<token>
+
+curl -fsSL "https://raw.githubusercontent.com/<owner>/OpenHands/dev/scripts/dck-vm-bootstrap.sh" \
+  | OWNER=<owner> bash
+# e.g. OWNER=dck-ai
+# Pin a specific build with RUN_ID=<workflow-run-id>.
 ```
 
 The script is idempotent: re-running never clobbers an existing `.env` and only
@@ -98,8 +103,9 @@ cd /opt/dck-agentic
 docker compose pull && docker compose up -d
 ```
 
-Bump `CANVAS_IMAGE_TAG` in `.env` first to pin a specific release. Migrations
-re-apply automatically and are a no-op when the schema is current.
+To refresh the compose/workspace/scripts too, re-run the bootstrap (it leaves
+`.env` untouched). Migrations re-apply automatically and are a no-op when the
+schema is current.
 
 > **Out-of-band migration (rare).** The migration is automatic; to run it
 > manually (e.g. with `AGENT_CANVAS_SKIP_DB_MIGRATE=1` set on the container),

@@ -1,13 +1,20 @@
 #!/usr/bin/env bash
 # DCK Agentic — one-command VM first-run bootstrap.
 #
-# Usage:
-#   OWNER=dck-ai VERSION=dck-v1.2.3 bash dck-vm-bootstrap.sh
-#   curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/<tag>/scripts/dck-vm-bootstrap.sh | OWNER=... VERSION=... bash
+# Downloads the deploy bundle artifact produced by the DCK Docker workflow
+# (compose, workspace content, .env template, scripts), lays out
+# /opt/dck-agentic, fixes bind-mount ownership, writes .env, and starts the
+# stack. The container image comes from GHCR. No GitHub Release is used — the
+# bundle is a workflow artifact, so this needs the `gh` CLI authenticated
+# (gh auth login) or GH_TOKEN set with repo + actions:read scope.
 #
-# Env: OWNER (required), REPO (default OpenHands), VERSION (default latest
-#      release), TARGET_DIR (default /opt/dck-agentic), CANVAS_UID (default
-#      10001:10001), POSTGRES_USER/PASSWORD/DB, CANVAS_IMAGE/CANVAS_IMAGE_TAG.
+# Usage:
+#   OWNER=dck-ai bash dck-vm-bootstrap.sh
+#
+# Env: OWNER (required), REPO (default OpenHands), WORKFLOW (default
+#      dck-docker.yml), RUN_ID (optional specific run; default latest success),
+#      TARGET_DIR (default /opt/dck-agentic), CANVAS_UID (default 10001:10001),
+#      POSTGRES_USER/PASSWORD/DB, CANVAS_IMAGE/CANVAS_IMAGE_TAG.
 set -euo pipefail
 
 log() { printf '\033[32m[dck-bootstrap]\033[0m %s\n' "$*"; }
@@ -15,13 +22,14 @@ err() { printf '\033[31m[dck-bootstrap] ERROR:\033[0m %s\n' "$*" >&2; }
 die() { err "$*"; exit 1; }
 
 REPO="${REPO:-OpenHands}"
+WORKFLOW="${WORKFLOW:-dck-docker.yml}"
 TARGET_DIR="${TARGET_DIR:-/opt/dck-agentic}"
 CANVAS_UID="${CANVAS_UID:-10001:10001}"
 
 [ -n "${OWNER:-}" ] || die "OWNER is required (e.g. OWNER=dck-ai)."
 command -v docker >/dev/null 2>&1 || die "docker not found on PATH."
 docker compose version >/dev/null 2>&1 || die "docker compose v2 not available."
-command -v curl >/dev/null 2>&1 || die "curl not found on PATH."
+command -v gh >/dev/null 2>&1 || die "gh (GitHub CLI) not found; needed to fetch the workflow artifact. Install gh and run 'gh auth login' (or set GH_TOKEN)."
 
 SUDO=""
 if [ "$(id -u)" -ne 0 ]; then
@@ -29,36 +37,37 @@ if [ "$(id -u)" -ne 0 ]; then
   SUDO="sudo"
 fi
 
-API_BASE="https://api.github.com/repos/${OWNER}/${REPO}"
-DL_BASE="https://github.com/${OWNER}/${REPO}/releases"
-
-if [ -z "${VERSION:-}" ]; then
-  log "Resolving latest release of ${OWNER}/${REPO}..."
-  VERSION="$(curl -fsSL "${API_BASE}/releases/latest" \
-    | grep -oE '"tag_name"[[:space:]]*:[[:space:]]*"[^"]+"' \
-    | head -1 | sed -E 's/.*"([^"]+)"$/\1/')"
-  [ -n "$VERSION" ] || die "Could not resolve latest release tag; set VERSION explicitly."
-fi
-log "Installing deploy bundle ${VERSION}"
-
+SLUG="${OWNER}/${REPO}"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
-BUNDLE="dck-agentic-deploy-${VERSION}.tar.gz"
-log "Downloading ${BUNDLE}..."
-curl -fsSL -o "$TMP/$BUNDLE" "${DL_BASE}/download/${VERSION}/${BUNDLE}" \
-  || die "Failed to download ${BUNDLE} from the ${VERSION} release."
 
-if curl -fsSL -o "$TMP/SHA256SUMS.txt" "${DL_BASE}/download/${VERSION}/SHA256SUMS.txt" 2>/dev/null; then
+# Resolve the run to pull the artifact from (latest successful by default).
+if [ -z "${RUN_ID:-}" ]; then
+  log "Resolving latest successful ${WORKFLOW} run on ${SLUG}..."
+  RUN_ID="$(gh run list --repo "$SLUG" --workflow "$WORKFLOW" \
+    --status success --limit 1 --json databaseId --jq '.[0].databaseId')"
+  [ -n "$RUN_ID" ] || die "No successful ${WORKFLOW} run found; set RUN_ID explicitly."
+fi
+log "Downloading deploy bundle from run ${RUN_ID}..."
+# The artifact name is dck-agentic-deploy-<sha>; match by prefix.
+gh run download "$RUN_ID" --repo "$SLUG" --pattern 'dck-agentic-deploy-*' --dir "$TMP" \
+  || die "Failed to download the deploy bundle artifact from run ${RUN_ID}."
+
+# gh extracts each artifact into its own subdir; find the tarball.
+BUNDLE_TGZ="$(find "$TMP" -name 'dck-agentic-deploy.tar.gz' | head -1)"
+[ -n "$BUNDLE_TGZ" ] || die "Bundle tarball not found in the downloaded artifact."
+SUMS="$(dirname "$BUNDLE_TGZ")/SHA256SUMS.txt"
+if [ -f "$SUMS" ]; then
   log "Verifying checksum..."
-  ( cd "$TMP" && grep " ${BUNDLE}\$" SHA256SUMS.txt | sha256sum -c - ) \
-    || die "Checksum verification failed for ${BUNDLE}."
+  ( cd "$(dirname "$BUNDLE_TGZ")" && sha256sum -c SHA256SUMS.txt ) \
+    || die "Checksum verification failed."
 else
-  err "SHA256SUMS.txt not found in release; skipping checksum verification."
+  err "SHA256SUMS.txt not found in artifact; skipping checksum verification."
 fi
 
 log "Preparing ${TARGET_DIR} ..."
 $SUDO mkdir -p "$TARGET_DIR"/{config,workspace,pgdata}
-$SUDO tar -xzf "$TMP/$BUNDLE" -C "$TARGET_DIR"
+$SUDO tar -xzf "$BUNDLE_TGZ" -C "$TARGET_DIR"
 
 if [ ! -f "$TARGET_DIR/.env" ]; then
   log "Creating $TARGET_DIR/.env from the template..."
@@ -67,7 +76,7 @@ if [ ! -f "$TARGET_DIR/.env" ]; then
   PG_USER="${POSTGRES_USER:-dck}"
   PG_DB="${POSTGRES_DB:-dck_agentic}"
   IMG="${CANVAS_IMAGE:-ghcr.io/${OWNER}/dck-agentic}"
-  TAG="${CANVAS_IMAGE_TAG:-${VERSION#dck-v}}"
+  TAG="${CANVAS_IMAGE_TAG:-latest}"
   $SUDO sed -i \
     -e "s|^CANVAS_IMAGE=.*|CANVAS_IMAGE=${IMG}|" \
     -e "s|^CANVAS_IMAGE_TAG=.*|CANVAS_IMAGE_TAG=${TAG}|" \

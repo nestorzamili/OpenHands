@@ -13,8 +13,6 @@
 name: DCK Docker
 
 on:
-  push:
-    branches: [dev]
   workflow_dispatch:
     inputs:
       image:
@@ -103,9 +101,16 @@ jobs:
           TAGS=""
           add_tag() { TAGS="${TAGS:+${TAGS},}${IMAGE}:${1}-${ARCH}"; }
 
-          # Every build publishes an immutable sha tag plus the rolling latest.
+          # Immutable sha tag on every build.
           add_tag "sha-${SHORT_SHA}"
-          add_tag "latest"
+
+          # Branch-tracking tags: main → `latest` (what prod pins), dev → `dev`
+          # (staging). Keeping them distinct stops the two branches from
+          # clobbering each other's rolling tag.
+          case "$RELEVANT_REF" in
+            refs/heads/main) add_tag "latest" ;;
+            refs/heads/dev)  add_tag "dev" ;;
+          esac
 
           # Manual extra tag
           if [ -n "${{ inputs.tag }}" ]; then

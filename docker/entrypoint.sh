@@ -357,6 +357,44 @@ case "$AUTOMATION_DB_URL" in
 esac
 # <<< docker-automation-db-policy
 
+# ── Auto-migrate the automation schema (idempotent) ──────────────────────────
+# PostgreSQL needs alembic run explicitly (the backend auto-migrates SQLite
+# only). `alembic upgrade head` is a no-op when current. pg8000 is the sync
+# driver (pinned at build time); the automation migrations/env.py reads
+# AUTOMATION_DB_URL from the environment and builds a sync engine, so the
+# migration subprocess must see the pg8000 URL (not asyncpg).
+# AGENT_CANVAS_SKIP_DB_MIGRATE=1 opts out.
+if [ "${AGENT_CANVAS_SKIP_DB_MIGRATE:-0}" != "1" ]; then
+  log "Applying automation schema migrations (alembic upgrade head)..."
+  AUTOMATION_DB_SYNC_URL="${AUTOMATION_DB_URL/postgresql+asyncpg:\/\//postgresql+pg8000://}"
+  if env AUTOMATION_DB_URL="$AUTOMATION_DB_SYNC_URL" python - <<'PYEOF'
+import sys
+from pathlib import Path
+
+try:
+    from alembic import command
+    from alembic.config import Config
+    import openhands.automation.app as appmod
+except Exception as exc:
+    print(f"[auto-migrate] import failed: {exc}", file=sys.stderr)
+    sys.exit(3)
+
+migrations_path = Path(appmod.__file__).parent / "migrations"
+cfg = Config()
+cfg.set_main_option("script_location", str(migrations_path))
+command.upgrade(cfg, "head")
+print("[auto-migrate] schema is up to date")
+PYEOF
+  then
+    log "Automation schema migrations applied."
+  else
+    log_error "Automation schema migration failed. Refusing to start the automation server with an unmigrated database."
+    exit 1
+  fi
+else
+  log "AGENT_CANVAS_SKIP_DB_MIGRATE=1 set; skipping automation schema migration."
+fi
+
 # The automation server uses uvicorn. Set AUTOMATION_PORT via its CLI.
 if command -v uvicorn >/dev/null 2>&1; then
   uvicorn openhands.automation.app:app \

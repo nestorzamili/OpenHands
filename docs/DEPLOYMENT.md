@@ -67,58 +67,44 @@ as `dck-agentic` under the repository owner's namespace
 release. Set `CANVAS_IMAGE` in `.env` to your owner's path. The VM only
 pulls — it never builds.
 
-### 2. Prepare the release directory on the VM
+### 2. First-run bootstrap (one command)
+
+Download and run `scripts/dck-vm-bootstrap.sh` on the VM. It lays out
+`/opt/dck-agentic`, fetches the deploy bundle from the GitHub Release, fixes
+bind-mount ownership, writes `.env` (generating a Postgres password), and starts
+the stack:
 
 ```bash
-sudo mkdir -p /opt/dck-agentic/{config,workspace,pgdata}
+curl -fsSL "https://raw.githubusercontent.com/<owner>/OpenHands/<tag>/scripts/dck-vm-bootstrap.sh" \
+  | OWNER=<owner> VERSION=<tag> bash
+# e.g. OWNER=dck-ai VERSION=dck-v1.2.3
+```
+
+The script is idempotent: re-running never clobbers an existing `.env` and only
+re-applies ownership + `pull`/`up`. The automation schema migrates
+automatically inside the canvas container on startup — no separate step.
+
+Review `/opt/dck-agentic/.env` afterwards (especially `AUTOMATION_BASE_URL` and
+`CANVAS_IMAGE`), then re-run `docker compose up -d` if you changed anything.
+
+> The script fixes bind-mount ownership to the canvas UID (10001 by default,
+> `CANVAS_UID` to override). Verify with
+> `docker run --rm --entrypoint id ghcr.io/<owner>/dck-agentic:latest openhands`.
+
+### 3. Routine updates
+
+```bash
 cd /opt/dck-agentic
-
-# Copy docker-compose.yml and the tracked workspace content (skills, AGENTS.md)
-# from a checkout of this repo, then create .env from the template:
-cp /path/to/repo/docker-compose.yml .
-cp -r /path/to/repo/workspace/.agents workspace/
-cp /path/to/repo/workspace/AGENTS.md workspace/
-cp /path/to/repo/.env.production.sample .env
-$EDITOR .env           # fill POSTGRES_PASSWORD, AUTOMATION_DB_URL, CANVAS_IMAGE_TAG
-chmod 600 .env
-
-# Ownership: the canvas container runs as the `openhands` user; postgres runs
-# as its own user. Match the bind-mount owners so neither hits a permission
-# error. The canvas image pre-creates its dirs as openhands (UID 10001 in the
-# agent-server base image) — align config/ and workspace/ to it:
-sudo chown -R 10001:10001 config workspace
-# pgdata is initialized by the postgres image on first boot; leave it to root
-# until first `up`, then postgres chowns its own data dir.
+docker compose pull && docker compose up -d
 ```
 
-> Verify the `openhands` UID in your image with
-> `docker run --rm --entrypoint id ghcr.io/<owner>/dck-agentic:latest openhands`
-> and adjust the `chown` if it differs.
+Bump `CANVAS_IMAGE_TAG` in `.env` first to pin a specific release. Migrations
+re-apply automatically and are a no-op when the schema is current.
 
-### 3. Create the DCK Postgres + migrate the automation schema
-
-Pull and start Postgres first; `POSTGRES_DB=dck_agentic` creates the database on
-the initial `pgdata` init, so no manual `CREATE DATABASE` is needed:
-
-```bash
-docker compose pull
-docker compose up -d postgres
-docker compose exec postgres pg_isready -U dck -d dck_agentic
-```
-
-The automation backend auto-migrates SQLite only — PostgreSQL needs the schema
-applied once. Start the full stack, then run the idempotent migration:
-
-```bash
-docker compose up -d
-# scripts/migrate-automation-db.sh installs pg8000 in the canvas container,
-# converts the asyncpg URL to a sync driver, and runs the bundled alembic head.
-CONTAINER=dck-agentic-canvas \
-  AUTOMATION_DB_URL="postgresql+asyncpg://dck:<pass>@postgres:5432/dck_agentic" \
-  /path/to/repo/scripts/migrate-automation-db.sh
-# → prints MIGRATION_OK
-docker compose exec postgres psql -U dck -d dck_agentic -c '\dt'   # tables present
-```
+> **Out-of-band migration (rare).** The migration is automatic; to run it
+> manually (e.g. with `AGENT_CANVAS_SKIP_DB_MIGRATE=1` set on the container),
+> use `scripts/migrate-automation-db.sh` with `CONTAINER=dck-agentic-canvas` and
+> `AUTOMATION_DB_URL` set.
 
 ### 4. First-run admin
 

@@ -218,3 +218,50 @@ jobs:
               "${IMAGE}:${MANIFEST_TAG}-arm64"
             docker buildx imagetools inspect "${IMAGE}:${MANIFEST_TAG}"
           done
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Release bundle — only on dck-v* tags.
+  #
+  # Packages the small set of files the VM needs (compose, workspace content,
+  # .env template, bootstrap + migrate scripts) into a tarball and attaches it
+  # to a GitHub Release. scripts/dck-vm-bootstrap.sh downloads this bundle so
+  # the VM never needs a full repo checkout (deploy decision 3=c).
+  # ───────────────────────────────────────────────────────────────────────────
+  release-bundle:
+    name: Publish deploy bundle
+    needs: merge-manifests
+    if: startsWith(github.ref, 'refs/tags/dck-v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Build deploy bundle
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/}"
+          STAGE="dck-agentic-deploy"
+          mkdir -p "$STAGE/workspace"
+          # Only the files a release directory needs — see docs/DEPLOYMENT.md.
+          cp docker-compose.yml "$STAGE/"
+          cp .env.production.sample "$STAGE/"
+          cp -r workspace/.agents "$STAGE/workspace/"
+          cp workspace/AGENTS.md "$STAGE/workspace/"
+          mkdir -p "$STAGE/scripts"
+          cp scripts/migrate-automation-db.sh "$STAGE/scripts/"
+          cp scripts/dck-vm-bootstrap.sh "$STAGE/scripts/"
+          tar -czf "dck-agentic-deploy-${VERSION}.tar.gz" -C "$STAGE" .
+          # Stable alias so the bootstrap can fetch a tag-independent name too.
+          cp "dck-agentic-deploy-${VERSION}.tar.gz" "dck-agentic-deploy.tar.gz"
+          sha256sum dck-agentic-deploy*.tar.gz > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Attach bundle to the GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dck-agentic-deploy-*.tar.gz
+            dck-agentic-deploy.tar.gz
+            SHA256SUMS.txt
+          fail_on_unmatched_files: true

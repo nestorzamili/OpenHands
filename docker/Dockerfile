@@ -127,8 +127,11 @@ RUN if command -v apt-get >/dev/null 2>&1; then \
 # just as the local Canvas launcher does. --no-cache / --no-cache-dir keep the
 # downloaded wheels and build cache out of this layer (saves hundreds of MB in
 # the ~1.2GB install layer) without changing what ends up installed.
-RUN uv pip install --system --no-cache "openhands-automation==${AUTOMATION_VERSION}" "openhands-tools==${AGENT_SERVER_VERSION}" 2>/dev/null \
-    || pip install --no-cache-dir "openhands-automation==${AUTOMATION_VERSION}" "openhands-tools==${AGENT_SERVER_VERSION}"
+# pg8000 is the sync driver the entrypoint's auto-migrate step uses for alembic
+# (asyncpg can't drive alembic's sync engine); pinned and installed at build
+# time so startup never needs network to migrate.
+RUN uv pip install --system --no-cache "openhands-automation==${AUTOMATION_VERSION}" "openhands-tools==${AGENT_SERVER_VERSION}" "pg8000==1.31.5" 2>/dev/null \
+    || pip install --no-cache-dir "openhands-automation==${AUTOMATION_VERSION}" "openhands-tools==${AGENT_SERVER_VERSION}" "pg8000==1.31.5"
 
 RUN if [ -n "${AGENT_SERVER_SDK_GIT_REF}" ]; then \
       BASE_GIT_URL="git+https://github.com/OpenHands/software-agent-sdk@${AGENT_SERVER_SDK_GIT_REF}" && \

@@ -83,10 +83,18 @@ jobs:
         id: config
         run: |
           # Single source of truth for version pins — no hardcoded values here.
-          AGENT_SERVER_VERSION=$(node -p "require('./config/defaults.json').versions.agentServer")
-          AGENT_SERVER_IMAGE_BASE=$(node -p "require('./config/defaults.json').images.agentServer")
-          AUTOMATION_VERSION=$(node -p "require('./config/defaults.json').versions.automation")
-          AGENT_CANVAS_VERSION=$(node -p "require('./package.json').version")
+          # Read with jq by absolute path so this never depends on node's module
+          # resolution or the current working directory.
+          cfg="${GITHUB_WORKSPACE}/config/defaults.json"
+          pkg="${GITHUB_WORKSPACE}/package.json"
+          if [ ! -f "$cfg" ] || [ ! -f "$pkg" ]; then
+            echo "::error::Missing $cfg or $pkg — checkout did not provide the repo files."
+            exit 1
+          fi
+          AGENT_SERVER_VERSION=$(jq -r '.versions.agentServer' "$cfg")
+          AGENT_SERVER_IMAGE_BASE=$(jq -r '.images.agentServer' "$cfg")
+          AUTOMATION_VERSION=$(jq -r '.versions.automation' "$cfg")
+          AGENT_CANVAS_VERSION=$(jq -r '.version' "$pkg")
           echo "agent_server_version=$AGENT_SERVER_VERSION" >> "$GITHUB_OUTPUT"
           echo "default_agent_server_image=${AGENT_SERVER_IMAGE_BASE}:${AGENT_SERVER_VERSION}-python" >> "$GITHUB_OUTPUT"
           echo "default_automation_version=$AUTOMATION_VERSION" >> "$GITHUB_OUTPUT"

@@ -19,7 +19,8 @@ Welcome to the internal **DCK Agentic** workspace. This repository is organized 
    - Secrets come from the portal Secret Manager and are materialized into gitignored `.env` at deploy time; never commit or log values.
    - Deleting an app means `docker compose down -v --rmi local`. Verify `git status` shows only intended files after every task.
 2. **Network & Database Connectivity**:
-   - Host system services (PostgreSQL on port 5432, internal APIs) are reachable from within containers via `host.docker.internal:<port>`.
+   - The dedicated DCK PostgreSQL cluster is the `postgres` service on the shared `dck` Docker network (not host-published). Webgen apps join the `dck` network (`external: true, name: dck`) and connect via the service name `postgres:5432` (one database per app, `dck_<app>`).
+   - Other host services (e.g. the existing `redis-shared` on port 6379) are reachable from within containers via `host.docker.internal:<port>` — add `extra_hosts: ["host.docker.internal:host-gateway"]` to the app service when Redis is needed.
 3. **Quality & Verification**:
    - Verify every Docker stack with `docker compose up -d --build` followed by `docker compose ps` and endpoint health checks.
    - For all user-facing `webgen/` output (UI, layout, copy, code), apply the vendored `antislop` skills in `.agents/skills/` and pass anti-slop's Delivery Gate (PASS/FAIL report) before reporting a scaffold or deploy as done. See the `web-generator` skill §0.

@@ -124,13 +124,15 @@ RUN if command -v apt-get >/dev/null 2>&1; then \
 
 # Install automation server and the tool models its SDK clients deserialize.
 # Match openhands-tools to the SDK already provided by the agent-server image,
-# just as the local Canvas launcher does.
-RUN uv pip install --system "openhands-automation==${AUTOMATION_VERSION}" "openhands-tools==${AGENT_SERVER_VERSION}" 2>/dev/null \
+# just as the local Canvas launcher does. --no-cache / --no-cache-dir keep the
+# downloaded wheels and build cache out of this layer (saves hundreds of MB in
+# the ~1.2GB install layer) without changing what ends up installed.
+RUN uv pip install --system --no-cache "openhands-automation==${AUTOMATION_VERSION}" "openhands-tools==${AGENT_SERVER_VERSION}" 2>/dev/null \
     || pip install --no-cache-dir "openhands-automation==${AUTOMATION_VERSION}" "openhands-tools==${AGENT_SERVER_VERSION}"
 
 RUN if [ -n "${AGENT_SERVER_SDK_GIT_REF}" ]; then \
       BASE_GIT_URL="git+https://github.com/OpenHands/software-agent-sdk@${AGENT_SERVER_SDK_GIT_REF}" && \
-      uv pip install --system --force-reinstall \
+      uv pip install --system --no-cache --force-reinstall \
         "${BASE_GIT_URL}#subdirectory=openhands-sdk" \
         "${BASE_GIT_URL}#subdirectory=openhands-tools" \
         "${BASE_GIT_URL}#subdirectory=openhands-workspace"; \
@@ -144,6 +146,9 @@ COPY --from=frontend-build /build/build /opt/agent-canvas/frontend
 COPY scripts/static-server.mjs /opt/agent-canvas/static-server.mjs
 COPY scripts/bind-host.mjs /opt/agent-canvas/bind-host.mjs
 COPY scripts/proxy-utils.mjs /opt/agent-canvas/proxy-utils.mjs
+# portal-auth.mjs is imported by static-server.mjs; the portal login gate
+# (AGENT_CANVAS_PORTAL_AUTH) fails to start without it.
+COPY scripts/portal-auth.mjs /opt/agent-canvas/portal-auth.mjs
 COPY --from=frontend-build /build/node_modules/httpxy /opt/agent-canvas/node_modules/httpxy
 COPY --from=frontend-build /build/node_modules/sirv /opt/agent-canvas/node_modules/sirv
 COPY --from=frontend-build /build/node_modules/@polka /opt/agent-canvas/node_modules/@polka

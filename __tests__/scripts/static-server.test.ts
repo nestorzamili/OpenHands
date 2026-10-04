@@ -9,6 +9,7 @@ import {
   serializeForInlineScript,
   startStaticServer,
 } from "../../scripts/static-server.mjs";
+import { createRouter } from "../../scripts/proxy-utils.mjs";
 
 describe("static-server.mjs", () => {
   const servers: Server[] = [];
@@ -1035,5 +1036,67 @@ describe("static-server.mjs", () => {
     expect(response.body).toContain("Bad Gateway");
     expect(response.body).toContain("Invalid URL");
     expect(server.listening).toBe(true);
+  });
+
+  // Regression guard for the DCK production deployment, which serves Canvas at
+  // the ROOT path (VITE_BASE_PATH=/ → static-server --base-path /). Root base
+  // path must NOT shadow the proxied backend routes: the request dispatcher
+  // checks routes before the SPA static fallback, so /api/* still reaches the
+  // upstream while unmatched navigations fall through to index.html. If this
+  // ordering ever regressed, every /api call would be answered with the SPA
+  // HTML and the frontend would break against its own backend.
+  // Regression guard for the DCK production deployment, which serves Canvas at
+  // the ROOT path (VITE_BASE_PATH=/ → static-server --base-path /). Root base
+  // path must NOT shadow the proxied backend routes: the dispatcher checks
+  // `route(url)` before the SPA static fallback (see startStaticServer), so
+  // /api/* reaches the upstream while unmatched navigations fall through to
+  // index.html. If that ordering regressed, every /api call would be answered
+  // with the SPA HTML and the frontend would break against its own backend.
+  describe("root base path with proxied routes (DCK deployment)", () => {
+    // The dispatch primitive: the router resolves a backend for proxied
+    // prefixes regardless of base path, and returns null (→ SPA fallback) for
+    // everything else. startStaticServer consults this before handleStatic.
+    it("routes proxied prefixes to a backend and leaves app paths for the SPA", () => {
+      const route = createRouter({
+        "/api/automation": "http://127.0.0.1:18001",
+        "/api": "http://127.0.0.1:18000",
+        "/sockets": "http://127.0.0.1:18000",
+        "/vscode": "http://127.0.0.1:8001",
+      });
+
+      // Longest-prefix wins, and subpaths match.
+      expect(route("/api/automation/runs")).toBe("http://127.0.0.1:18001");
+      expect(route("/api/conversations")).toBe("http://127.0.0.1:18000");
+      expect(route("/sockets")).toBe("http://127.0.0.1:18000");
+      expect(route("/vscode/?tkn=x")).toBe("http://127.0.0.1:8001");
+
+      // Root and app navigations have no backend → SPA fallback.
+      expect(route("/")).toBeNull();
+      expect(route("/settings/some/route")).toBeNull();
+      // A path that merely starts with an unrelated segment is not a false
+      // match (e.g. /apiary must not hit the /api route).
+      expect(route("/apiary")).toBeNull();
+    });
+
+    // The static side of the same invariant: with base path "/", an unmatched
+    // navigation falls through to index.html rather than 404ing.
+    it("serves the SPA index.html at the root base path", async () => {
+      const buildDir = mkdtempSync(path.join(tmpdir(), "agent-canvas-build-"));
+      tempDirs.push(buildDir);
+      writeFileSync(
+        path.join(buildDir, "index.html"),
+        "<html><head></head><body>canvas-root</body></html>",
+      );
+
+      const origin = await startServer(buildDir, { basePath: "/" });
+
+      const rootRes = await fetch(`${origin}/`);
+      expect(rootRes.status).toBe(200);
+      expect(await rootRes.text()).toContain("canvas-root");
+
+      const deepRes = await fetch(`${origin}/settings/some/route`);
+      expect(deepRes.status).toBe(200);
+      expect(await deepRes.text()).toContain("canvas-root");
+    });
   });
 });

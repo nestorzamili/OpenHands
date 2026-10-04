@@ -37,3 +37,8 @@ Thumbs.db
 artifacts/
 *.tgz
 *.log
+
+# Local runtime scratch (dev stacks, local docker-compose test dirs, state).
+# Mirrors the repo .gitignore; keeps bind-mounted state (pgdata owned by the
+# postgres UID, etc.) out of the Docker build context.
+.tmp/

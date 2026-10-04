@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
-CONTAINER="${CONTAINER:-openhands-canvas}"
+CONTAINER="${CONTAINER:-dck-agentic-canvas}"
 
 if [ -z "${AUTOMATION_DB_URL:-}" ]; then
   echo "AUTOMATION_DB_URL is not set." >&2

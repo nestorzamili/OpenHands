@@ -1,0 +1,220 @@
+---
+# DCK Agentic production image.
+#
+# Separate from the upstream `docker.yml` (which publishes
+# ghcr.io/openhands/agent-canvas under the Cloud subpath `/canvas`). This
+# workflow publishes the DCK deployment image as `dck-agentic` to GHCR under
+# the repository owner's namespace (ghcr.io/<owner>/dck-agentic), with Canvas
+# served at the ROOT path (VITE_BASE_PATH=/), so it is reachable at
+# https://agent.dckautoposting.com/ with no /canvas prefix.
+#
+# Kept as its own file so selective upstream merges never touch it and the
+# DCK image config never leaks back into the OpenHands image.
+name: DCK Docker
+
+on:
+  push:
+    branches: [dev]
+    tags:
+      - "dck-v*"
+  workflow_dispatch:
+    inputs:
+      image:
+        description: >-
+          GHCR image name. Leave blank to use ghcr.io/<owner>/dck-agentic
+          (owner = the GitHub account/org running this workflow).
+        type: string
+        default: ""
+      tag:
+        description: Extra tag to publish (in addition to sha + latest)
+        type: string
+        default: ""
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  # Image name is just `dck-agentic`; the ghcr.io/<owner>/ prefix is derived
+  # from the repository owner so forks/orgs publish under their own namespace
+  # with no hardcoded account. An explicit `image` input still wins.
+  IMAGE: ${{ inputs.image != '' && inputs.image || format('ghcr.io/{0}/dck-agentic', github.repository_owner) }}
+  RELEVANT_SHA: ${{ github.sha }}
+  RELEVANT_REF: ${{ github.ref }}
+  # Canvas at the root path for the DCK deployment (overrides the /canvas
+  # default baked into config/defaults.json for the upstream image).
+  DCK_BASE_PATH: "/"
+
+jobs:
+  build-and-push-image:
+    name: Build & Push (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+            platform: linux/amd64
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            platform: linux/arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+
+    env:
+      ARCH: ${{ matrix.arch }}
+      PLATFORM: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Read defaults from config/defaults.json
+        id: config
+        run: |
+          # Single source of truth for version pins — no hardcoded values here.
+          AGENT_SERVER_VERSION=$(node -p "require('./config/defaults.json').versions.agentServer")
+          AGENT_SERVER_IMAGE_BASE=$(node -p "require('./config/defaults.json').images.agentServer")
+          AUTOMATION_VERSION=$(node -p "require('./config/defaults.json').versions.automation")
+          AGENT_CANVAS_VERSION=$(node -p "require('./package.json').version")
+          echo "agent_server_version=$AGENT_SERVER_VERSION" >> "$GITHUB_OUTPUT"
+          echo "default_agent_server_image=${AGENT_SERVER_IMAGE_BASE}:${AGENT_SERVER_VERSION}-python" >> "$GITHUB_OUTPUT"
+          echo "default_automation_version=$AUTOMATION_VERSION" >> "$GITHUB_OUTPUT"
+          echo "agent_canvas_version=$AGENT_CANVAS_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Compute tags
+        id: prep
+        run: |
+          SHORT_SHA=$(echo "$RELEVANT_SHA" | cut -c1-7)
+          echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+
+          TAGS=""
+          add_tag() { TAGS="${TAGS:+${TAGS},}${IMAGE}:${1}-${ARCH}"; }
+
+          # SHA tag (always)
+          add_tag "sha-${SHORT_SHA}"
+
+          # Branch build → `latest` (dev is the DCK release branch)
+          if [[ "$RELEVANT_REF" == refs/heads/* ]]; then
+            add_tag "latest"
+          fi
+
+          # dck-vX.Y.Z tag → version + latest
+          if [[ "$RELEVANT_REF" == refs/tags/dck-v* ]]; then
+            VERSION="${RELEVANT_REF#refs/tags/dck-v}"
+            add_tag "$VERSION"
+            add_tag "latest"
+          fi
+
+          # Manual extra tag
+          if [ -n "${{ inputs.tag }}" ]; then
+            add_tag "${{ inputs.tag }}"
+          fi
+
+          echo "tags=$TAGS" >> "$GITHUB_OUTPUT"
+          echo "Tags: $TAGS"
+
+      - name: Build & Push (${{ matrix.arch }})
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: ${{ matrix.platform }}
+          push: true
+          tags: ${{ steps.prep.outputs.tags }}
+          build-args: |
+            AGENT_SERVER_IMAGE=${{ steps.config.outputs.default_agent_server_image }}
+            AGENT_SERVER_VERSION=${{ steps.config.outputs.agent_server_version }}
+            AUTOMATION_VERSION=${{ steps.config.outputs.default_automation_version }}
+            AGENT_CANVAS_VERSION=${{ steps.config.outputs.agent_canvas_version }}
+            OPENHANDS_BUILD_GIT_SHA=${{ env.RELEVANT_SHA }}
+            OPENHANDS_BUILD_GIT_REF=${{ env.RELEVANT_REF }}
+            VITE_BASE_PATH=${{ env.DCK_BASE_PATH }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+
+      - name: Save build info for consolidation
+        env:
+          TAGS: ${{ steps.prep.outputs.tags }}
+        run: |
+          mkdir -p build-info
+          jq -n \
+            --arg arch "${{ matrix.arch }}" \
+            --arg image "$IMAGE" \
+            --arg short_sha "${{ steps.prep.outputs.short_sha }}" \
+            --arg tags "$TAGS" \
+            '{arch: $arch, image: $image, short_sha: $short_sha, tags: $tags}' \
+            > "build-info/${{ matrix.arch }}.json"
+          cat "build-info/${{ matrix.arch }}.json"
+
+      - name: Upload build info artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: dck-build-info-${{ matrix.arch }}
+          path: build-info/${{ matrix.arch }}.json
+          retention-days: 1
+
+  merge-manifests:
+    name: Merge Multi-Arch Manifests
+    needs: build-and-push-image
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download build info artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: dck-build-info-*
+          merge-multiple: true
+          path: build-info
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and push multi-arch manifests
+        run: |
+          if [[ ! -f build-info/amd64.json ]] || [[ ! -f build-info/arm64.json ]]; then
+            echo "::error::Missing architecture builds (need both amd64.json and arm64.json)"
+            exit 1
+          fi
+
+          AMD64_TAGS_CSV=$(jq -r '.tags' build-info/amd64.json)
+          declare -A SEEN=()
+
+          IFS=',' read -ra AMD64_TAGS <<< "$AMD64_TAGS_CSV"
+          for AMD64_IMAGE_TAG in "${AMD64_TAGS[@]}"; do
+            [ -z "$AMD64_IMAGE_TAG" ] && continue
+            TAG_NAME=${AMD64_IMAGE_TAG#${IMAGE}:}
+            [[ "$TAG_NAME" == *-amd64 ]] || continue
+            MANIFEST_TAG=${TAG_NAME%-amd64}
+            [ -n "${SEEN[$MANIFEST_TAG]+x}" ] && continue
+            SEEN[$MANIFEST_TAG]=1
+
+            echo "Creating multi-arch manifest: ${IMAGE}:${MANIFEST_TAG}"
+            docker buildx imagetools create -t "${IMAGE}:${MANIFEST_TAG}" \
+              "${IMAGE}:${MANIFEST_TAG}-amd64" \
+              "${IMAGE}:${MANIFEST_TAG}-arm64"
+            docker buildx imagetools inspect "${IMAGE}:${MANIFEST_TAG}"
+          done

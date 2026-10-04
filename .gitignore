@@ -66,5 +66,9 @@ build-fresh/
 /resources/bin-*/
 /resources/node-*/
 
-# DCK deployment runtime (secrets + state, recreated by `docker compose`)
+# DCK deployment runtime (secrets + state, recreated by `docker compose`).
+# On the VM all three live under /opt/dck-agentic/; mirrored here so a repo
+# checkout used as the release dir never commits state. .env.production.sample
+# is the committed template; the real .env is covered by the `.env` rule above.
 /config/
+/pgdata/

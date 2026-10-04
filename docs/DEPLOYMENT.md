@@ -131,6 +131,58 @@ login portal (per-user accounts); credentials and sessions persist under
 key is auto-generated and persisted (`api-key.txt`) — it is injected into the
 HTML but served only to logged-in users, so you never paste it by hand.
 
+### 5. Configure the LLM / agent credentials (from the web)
+
+The engine ships no model credentials. On a container backend there is no host
+CLI login to auto-detect, so every credential is entered **from the web UI** and
+saved as a server-side encrypted secret (under `./config`, keyed by
+`OH_SECRET_KEY`). Nothing is pasted on the VM shell.
+
+**Claude via ACP, using a Pro/Max subscription (no API key, no Claude Code on
+the VM).** The DCK image's base (`ghcr.io/openhands/agent-server`) already
+pre-installs the ACP CLI wrappers (`@agentclientprotocol/claude-agent-acp`
+etc.), and the SDK rewrites the default `npx -y <pkg>` launch to that pinned
+in-image binary — so the VM never installs or runs Claude Code itself.
+Authentication rides on a single secret, `CLAUDE_CODE_OAUTH_TOKEN`:
+
+1. **Generate the token once, on a machine that already has Claude Code + a
+   Pro/Max login** (your laptop — not the VM):
+   ```bash
+   claude setup-token      # opens a browser, prints a long-lived OAuth token
+   ```
+   Copy the printed token.
+2. **Paste it into the web UI** — either path saves the same global secret:
+   - **Onboarding**: pick agent **Claude Code** → the **Set up credentials**
+     step (required on a container backend) → fill `CLAUDE_CODE_OAUTH_TOKEN`.
+   - **Settings → Secrets** (`/settings/secrets`) → **Add a secret**: Name
+     `CLAUDE_CODE_OAUTH_TOKEN` (exact, uppercase — the name *is* the env var the
+     agent-server exports into the ACP subprocess), Value = the token.
+3. Start a conversation with the Claude Code agent. The agent-server resolves
+   the secret and exports it to the ACP subprocess; your subscription session is
+   used.
+
+> [!IMPORTANT]
+> Do **not** also set `ANTHROPIC_API_KEY` or `ANTHROPIC_BASE_URL` when using the
+> OAuth token. The SDK strips both when `CLAUDE_CODE_OAUTH_TOKEN` is present, and
+> a stray base URL silently breaks the token's bearer auth. The UI warns on this
+> conflict — keep only the OAuth token set.
+
+**Other options (also entirely web-based):**
+
+- **Anthropic API key** instead of a subscription: Settings → LLM → auth type
+  *API key* → Anthropic, or save `ANTHROPIC_API_KEY` under Secrets. Most robust
+  (no CLI anywhere), but billed per token rather than via a subscription.
+- **ChatGPT subscription** (OpenAI): Settings → LLM → auth type *ChatGPT
+  subscription* runs a device-code login in the browser — no CLI needed.
+- **Codex / Gemini ACP**: analogous to Claude — paste `CODEX_AUTH_JSON` /
+  `GOOGLE_APPLICATION_CREDENTIALS_JSON` (+ project/location) under Secrets.
+
+> [!NOTE]
+> The ACP wrappers are pre-installed in the image, so an ACP conversation does
+> not need the VM to reach the npm registry at runtime. If you ever switch to a
+> base image that lacks them, the default `npx -y <pkg>` launch would require
+> outbound npm access from the container.
+
 ### Managing the service
 
 ```bash

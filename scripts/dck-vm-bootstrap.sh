@@ -9,9 +9,9 @@
 # (gh auth login) or GH_TOKEN set with repo + actions:read scope.
 #
 # Usage:
-#   OWNER=dck-ai bash dck-vm-bootstrap.sh
+#   OWNER=pribadiintan bash dck-vm-bootstrap.sh
 #
-# Env: OWNER (required), REPO (default OpenHands), WORKFLOW (default
+# Env: OWNER (required), REPO (default dck-agentic), WORKFLOW (default
 #      dck-docker.yml), RUN_ID (optional specific run; default latest success),
 #      TARGET_DIR (default /opt/dck-agentic), CANVAS_UID (default 10001:10001),
 #      POSTGRES_USER/PASSWORD/DB, CANVAS_IMAGE/CANVAS_IMAGE_TAG.
@@ -21,7 +21,7 @@ log() { printf '\033[32m[dck-bootstrap]\033[0m %s\n' "$*"; }
 err() { printf '\033[31m[dck-bootstrap] ERROR:\033[0m %s\n' "$*" >&2; }
 die() { err "$*"; exit 1; }
 
-REPO="${REPO:-OpenHands}"
+REPO="${REPO:-dck-agentic}"
 WORKFLOW="${WORKFLOW:-dck-docker.yml}"
 TARGET_DIR="${TARGET_DIR:-/opt/dck-agentic}"
 CANVAS_UID="${CANVAS_UID:-10001:10001}"
@@ -53,9 +53,13 @@ log "Downloading deploy bundle from run ${RUN_ID}..."
 gh run download "$RUN_ID" --repo "$SLUG" --pattern 'dck-agentic-deploy-*' --dir "$TMP" \
   || die "Failed to download the deploy bundle artifact from run ${RUN_ID}."
 
-# gh extracts each artifact into its own subdir; find the tarball.
+# gh extracts each artifact into its own subdir named after the artifact
+# (dck-agentic-deploy-<sha>); find the tarball and derive the short SHA so the
+# image tag defaults to the exact build this bundle came from.
 BUNDLE_TGZ="$(find "$TMP" -name 'dck-agentic-deploy.tar.gz' | head -1)"
 [ -n "$BUNDLE_TGZ" ] || die "Bundle tarball not found in the downloaded artifact."
+ARTIFACT_DIR_NAME="$(basename "$(dirname "$BUNDLE_TGZ")")"
+BUNDLE_SHA="${ARTIFACT_DIR_NAME#dck-agentic-deploy-}"
 SUMS="$(dirname "$BUNDLE_TGZ")/SHA256SUMS.txt"
 if [ -f "$SUMS" ]; then
   log "Verifying checksum..."
@@ -76,7 +80,15 @@ if [ ! -f "$TARGET_DIR/.env" ]; then
   PG_USER="${POSTGRES_USER:-dck}"
   PG_DB="${POSTGRES_DB:-dck_agentic}"
   IMG="${CANVAS_IMAGE:-ghcr.io/${OWNER}/dck-agentic}"
-  TAG="${CANVAS_IMAGE_TAG:-latest}"
+  # Default the image tag to this bundle's build (sha-<short>), keeping image
+  # and deploy files in lockstep. Override with CANVAS_IMAGE_TAG.
+  if [ -n "${CANVAS_IMAGE_TAG:-}" ]; then
+    TAG="$CANVAS_IMAGE_TAG"
+  elif [ -n "$BUNDLE_SHA" ]; then
+    TAG="sha-${BUNDLE_SHA}"
+  else
+    TAG="latest"
+  fi
   $SUDO sed -i \
     -e "s|^CANVAS_IMAGE=.*|CANVAS_IMAGE=${IMG}|" \
     -e "s|^CANVAS_IMAGE_TAG=.*|CANVAS_IMAGE_TAG=${TAG}|" \

@@ -25,6 +25,10 @@ on:
         description: Extra tag to publish (in addition to sha + latest)
         type: string
         default: ""
+      deploy:
+        description: Deploy to the VM over SSH after build
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -246,6 +250,7 @@ jobs:
           cp workspace/AGENTS.md "$STAGE/workspace/"
           cp scripts/migrate-automation-db.sh "$STAGE/scripts/"
           cp scripts/dck-vm-bootstrap.sh "$STAGE/scripts/"
+          cp scripts/dck-deploy.sh "$STAGE/scripts/"
           tar -czf "dck-agentic-deploy.tar.gz" -C "$STAGE" .
           sha256sum dck-agentic-deploy.tar.gz > SHA256SUMS.txt
           cat SHA256SUMS.txt
@@ -259,3 +264,37 @@ jobs:
             SHA256SUMS.txt
           retention-days: 30
 
+  deploy:
+    name: Deploy to VM over SSH
+    needs: merge-manifests
+    if: inputs.deploy
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Compute image tag
+        id: tag
+        run: echo "sha=sha-$(echo "${GITHUB_SHA}" | cut -c1-7)" >> "$GITHUB_OUTPUT"
+
+      - name: Parse SSH target
+        id: ssh
+        env:
+          TARGET: ${{ secrets.VM_SSH_TARGET }}
+        run: |
+          uh="${TARGET%:*}"
+          p="${TARGET##*:}"
+          [ "$p" = "$TARGET" ] && p=22
+          echo "user_host=$uh" >> "$GITHUB_OUTPUT"
+          echo "port=$p" >> "$GITHUB_OUTPUT"
+          echo "host=${uh##*@}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up SSH
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "${{ secrets.VM_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "${{ steps.ssh.outputs.port }}" "${{ steps.ssh.outputs.host }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Deploy over SSH
+        run: |
+          ssh -i ~/.ssh/deploy_key -p "${{ steps.ssh.outputs.port }}" \
+            "${{ steps.ssh.outputs.user_host }}" \
+            "bash /opt/dck-agentic/scripts/dck-deploy.sh '${{ steps.tag.outputs.sha }}'"

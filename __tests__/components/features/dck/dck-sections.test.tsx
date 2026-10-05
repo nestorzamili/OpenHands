@@ -52,6 +52,27 @@ vi.mock("@openhands/typescript-client/clients", async (importOriginal) => ({
       }
       throw new Error("not found");
     });
+
+    downloadTextFile = vi.fn(async (path: string) => {
+      if (path === "/projects/.dck/modules.json") {
+        return JSON.stringify({
+          modules: [
+            {
+              id: "custom-email",
+              name: "Email Campaigns",
+              slug: "email",
+              iconName: "mail",
+              description: "Drip sequences",
+              promptTemplate: "Draft an email campaign for the brand.",
+              order: 0,
+            },
+          ],
+        });
+      }
+      throw new Error("not found");
+    });
+
+    uploadTextFile = vi.fn(async () => ({ success: true }));
   },
 }));
 
@@ -110,7 +131,7 @@ afterEach(() => {
 });
 
 describe("DckModulesSection", () => {
-  it("renders all five module cards with a count (no inline project list)", async () => {
+  it("renders the built-in module cards plus any custom modules", async () => {
     renderWithProviders(<DckModulesSection />);
 
     for (const id of ["webgen", "research", "analytics", "content"]) {
@@ -119,13 +140,35 @@ describe("DckModulesSection", () => {
       ).toBeInTheDocument();
     }
 
+    // Custom module from the mocked .dck/modules.json renders as a card too.
+    expect(
+      await screen.findByTestId("dck-module-card-custom-email"),
+    ).toBeInTheDocument();
+
     // Count is shown; the per-project detail now lives on the module page, so
     // the home card renders no project rows.
     expect(
       await screen.findByTestId("dck-module-count-webgen"),
     ).toHaveTextContent("1 project");
     expect(screen.queryByTestId("dck-project-row")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("dck-project-link")).not.toBeInTheDocument();
+  });
+
+  it("exposes a Manage modules entry point that opens the manager", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<DckModulesSection />);
+
+    await user.click(await screen.findByTestId("dck-manage-modules"));
+
+    expect(
+      await screen.findByTestId("dck-module-manager"),
+    ).toBeInTheDocument();
+    // Built-in modules show a read-only badge; custom modules get edit controls.
+    expect(
+      screen.getByTestId("dck-module-builtin-badge-webgen"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("dck-module-edit-custom-email"),
+    ).toBeInTheDocument();
   });
 
   it("links View all to the module detail page", async () => {

@@ -1,6 +1,8 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
+import { Settings2 } from "lucide-react";
 import { useSearchSubdirs } from "#/hooks/query/use-search-subdirs";
+import { useDckCustomModules } from "#/hooks/query/use-dck-custom-modules";
 import { NavigationLink } from "#/components/shared/navigation-link";
 import { I18nKey } from "#/i18n/declaration";
 import {
@@ -11,7 +13,7 @@ import {
 import type { AppConversation } from "#/api/conversation-service/agent-server-conversation-service.types";
 import {
   DCK_COPY,
-  getDckModules,
+  mergeDckModules,
   conversationsForBase,
   dckModulePath,
   formatProjectCount,
@@ -22,6 +24,7 @@ import {
   useOpenConversation,
 } from "#/components/features/dck/use-dck-conversations";
 import { WebgenNewProjectDialog } from "#/components/features/dck/webgen-new-project-dialog";
+import { DckModuleManager } from "#/components/features/dck/dck-module-manager";
 import {
   buildWebgenScaffoldPrompt,
   type WebgenNewProjectSpec,
@@ -119,9 +122,15 @@ function ConversationsCard({
 }
 
 export function DckModulesSection() {
+  const { t } = useTranslation("openhands");
   const conversations = useAllConversations();
   const { createScoped, isCreating } = useOpenConversation();
-  const modules = getDckModules();
+  const { modules: customModules } = useDckCustomModules();
+  const modules = React.useMemo(
+    () => mergeDckModules(customModules),
+    [customModules],
+  );
+  const [showModuleManager, setShowModuleManager] = React.useState(false);
   const createNew = (workingDir: string, promptTemplate?: string) =>
     void createScoped(workingDir, promptTemplate ?? "");
 
@@ -141,9 +150,20 @@ export function DckModulesSection() {
       data-testid="dck-modules-section"
       className={`${extensionModuleCardGridContainerClassName} flex w-full flex-col gap-3`}
     >
-      <h2 className="text-base font-semibold text-contrast">
-        {DCK_COPY.modules}
-      </h2>
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-base font-semibold text-contrast">
+          {DCK_COPY.modules}
+        </h2>
+        <button
+          type="button"
+          onClick={() => setShowModuleManager(true)}
+          data-testid="dck-manage-modules"
+          className="flex shrink-0 items-center gap-1 text-xs font-medium text-text-secondary hover:text-contrast"
+        >
+          <Settings2 size={14} aria-hidden />
+          {t(I18nKey.DCK$MANAGE_MODULES)}
+        </button>
+      </div>
       <div className={extensionModuleCardGridClassName}>
         {modules.map((module) => {
           if (module.kind === "projects") {
@@ -185,6 +205,9 @@ export function DckModulesSection() {
             setShowWebgenDialog(false);
           }}
         />
+      )}
+      {showModuleManager && (
+        <DckModuleManager onClose={() => setShowModuleManager(false)} />
       )}
     </section>
   );

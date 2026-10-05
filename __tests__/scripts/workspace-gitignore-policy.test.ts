@@ -7,11 +7,11 @@ import { describe, expect, it } from "vitest";
 
 /**
  * Policy: generated per-module DCK project content (webgen apps, research
- * reports, content artifacts, analytics scripts, dashboard scaffolds) must be
- * git-ignored so each project keeps its own commits/repo and never pollutes
- * this repo's history. The shared DCK infrastructure we DO track — the module
- * `.gitkeep` placeholders, the skills under `workspace/.agents`, and
- * `workspace/AGENTS.md` — must stay tracked.
+ * reports, content artifacts, analytics scripts) must be git-ignored so each
+ * project keeps its own commits/repo and never pollutes this repo's history.
+ * The shared DCK infrastructure we DO track — the module `.gitkeep`
+ * placeholders, the skills under `workspace/.agents`, and `workspace/AGENTS.md`
+ * — must stay tracked.
  *
  * We assert the real behavior via `git check-ignore` against the committed
  * `.gitignore` rather than re-implementing glob matching.
@@ -40,7 +40,6 @@ describe("workspace .gitignore policy", () => {
     "workspace/research/2026-01-01_trends_report.md",
     "workspace/analytics/eda.py",
     "workspace/content/2026-01-01_ig_captions.md",
-    "workspace/dashboards/foo/manifest.json",
   ];
 
   it.each(generatedProjectPaths)("ignores generated project path %s", (p) => {
@@ -55,7 +54,6 @@ describe("workspace .gitignore policy", () => {
     "workspace/research/.gitkeep",
     "workspace/content/.gitkeep",
     "workspace/analytics/.gitkeep",
-    "workspace/dashboards/.gitkeep",
   ];
 
   it.each(trackedInfraPaths)("keeps DCK infrastructure %s tracked", (p) => {

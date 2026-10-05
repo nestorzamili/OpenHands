@@ -21,9 +21,11 @@ import {
   DCK_COPY,
   conversationWorkingDir,
   conversationsForBase,
-  getDckModuleById,
+  findDckModuleById,
+  mergeDckModules,
   type DckModule,
 } from "#/dck/modules";
+import { useDckCustomModules } from "#/hooks/query/use-dck-custom-modules";
 import type { AppConversation } from "#/api/conversation-service/agent-server-conversation-service.types";
 
 function ListState({
@@ -396,5 +398,10 @@ export function ModuleDetailView({
 
 export default function ModuleDetail() {
   const { moduleId } = useParams();
-  return <ModuleDetailView dckModule={getDckModuleById(moduleId)} />;
+  const { modules: customModules } = useDckCustomModules();
+  const merged = React.useMemo(
+    () => mergeDckModules(customModules),
+    [customModules],
+  );
+  return <ModuleDetailView dckModule={findDckModuleById(merged, moduleId)} />;
 }

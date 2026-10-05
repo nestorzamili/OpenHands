@@ -6,16 +6,21 @@ import {
   DCK_STATUS_LABEL_KEYS,
   conversationsForBase,
   deriveProjectStatus,
+  findDckModuleById,
   flattenConversationPages,
   formatProjectCount,
   getDckModules,
   getDckWorkspaceRoot,
+  isBuiltinModuleId,
   latestConversationForPath,
+  mergeDckModules,
   normalizeModulePath,
   projectLastTouched,
   relatedConversationCount,
+  resolveModuleIcon,
   workingDirMatchesBase,
 } from "#/dck/modules";
+import type { DckCustomModule } from "#/dck/module-config";
 
 function makeConversation(
   overrides: Partial<AppConversation> & { id: string },
@@ -35,7 +40,7 @@ describe("DCK module registry", () => {
     vi.unstubAllEnvs();
   });
 
-  it("declares the four DCK modules with slugs, workspace paths, and skills", () => {
+  it("declares the four built-in DCK modules with slugs, workspace paths, and skills", () => {
     vi.stubEnv("VITE_DCK_WORKSPACE_ROOT", "");
     const modules = getDckModules();
     expect(modules.map((module) => module.id)).toEqual([
@@ -48,9 +53,23 @@ describe("DCK module registry", () => {
       modules.every(
         (module) =>
           module.workspacePath === `/projects/${module.slug}` &&
-          module.skillName,
+          module.skillName &&
+          module.source === "builtin",
       ),
     ).toBe(true);
+  });
+
+  it("resolves a Lucide component for each built-in icon name, with a fallback", () => {
+    for (const module of getDckModules()) {
+      expect(typeof resolveModuleIcon(module.iconName)).toBe("object");
+    }
+    // Unknown icon name falls back to the default rather than undefined.
+    expect(resolveModuleIcon("not-a-real-icon")).toBe(resolveModuleIcon("blocks"));
+  });
+
+  it("recognizes built-in module ids", () => {
+    expect(isBuiltinModuleId("webgen")).toBe(true);
+    expect(isBuiltinModuleId("custom-abc")).toBe(false);
   });
 
   it("defaults the workspace root to /projects for the Docker mount", () => {
@@ -72,7 +91,7 @@ describe("DCK module registry", () => {
     content: ["content", "marketing", "seo", "blog", "social"],
   };
 
-  it("seeds every module prompt with a skill trigger keyword", () => {
+  it("seeds every built-in module prompt with a skill trigger keyword", () => {
     for (const module of DCK_MODULES) {
       const triggers = MODULE_SKILL_TRIGGERS[module.id];
       expect(triggers, `missing triggers for ${module.id}`).toBeDefined();
@@ -83,6 +102,34 @@ describe("DCK module registry", () => {
         `prompt for ${module.id} contains no skill trigger (${triggers.join(", ")})`,
       ).toBe(true);
     }
+  });
+
+  it("merges custom conversation modules after the built-ins", () => {
+    vi.stubEnv("VITE_DCK_WORKSPACE_ROOT", "");
+    const custom: DckCustomModule[] = [
+      {
+        id: "custom-1",
+        name: "Email Campaigns",
+        slug: "email",
+        iconName: "mail",
+        description: "Drip sequences",
+        promptTemplate: "Draft an email campaign.",
+        order: 0,
+      },
+    ];
+    const merged = mergeDckModules(custom);
+    expect(merged.map((module) => module.id)).toEqual([
+      "webgen",
+      "research",
+      "analytics",
+      "content",
+      "custom-1",
+    ]);
+    const customModule = merged.find((module) => module.id === "custom-1");
+    expect(customModule?.source).toBe("custom");
+    expect(customModule?.kind).toBe("conversations");
+    expect(customModule?.workspacePath).toBe("/projects/email");
+    expect(findDckModuleById(merged, "custom-1")?.name).toBe("Email Campaigns");
   });
 });
 

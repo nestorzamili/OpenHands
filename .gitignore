@@ -43,11 +43,11 @@ workspace/**/node_modules/
 workspace/**/.next/
 
 # Generated per-module projects and artifacts (webgen apps, research reports,
-# powerbi models, analytics scripts, dashboard scaffolds). Each project gets
-# its own commits/repo, so generated content must never pollute this repo's
-# history. Strategy: ignore everything under each module directory, then
-# re-include the shared DCK infrastructure we DO track — the `.gitkeep`
-# placeholders, the skills under workspace/.agents, and workspace/AGENTS.md.
+# analytics scripts, content drafts). Each project gets its own commits/repo,
+# so generated content must never pollute this repo's history. Strategy: ignore
+# everything under each module directory, then re-include the shared DCK
+# infrastructure we DO track — the `.gitkeep` placeholders, the skills under
+# workspace/.agents, and workspace/AGENTS.md.
 workspace/*/**
 !workspace/.agents/
 !workspace/.agents/**

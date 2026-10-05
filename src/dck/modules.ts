@@ -1,10 +1,43 @@
 import type { LucideIcon } from "lucide-react";
-import { Globe, LineChart, PenLine, Search } from "lucide-react";
+import {
+  Blocks,
+  Globe,
+  LineChart,
+  Mail,
+  Megaphone,
+  PenLine,
+  Rocket,
+  Search,
+  Sparkles,
+} from "lucide-react";
 import type { AppConversation } from "#/api/conversation-service/agent-server-conversation-service.types";
 import { ExecutionStatus } from "#/types/agent-server/core/base/common";
 import type { DckProjectMeta } from "#/dck/project-metadata";
+import type { DckCustomModule } from "#/dck/module-config";
 
 export type DckModuleKind = "projects" | "conversations";
+
+export type DckModuleSource = "builtin" | "custom";
+
+export const DCK_MODULE_ICONS: Record<string, LucideIcon> = {
+  globe: Globe,
+  search: Search,
+  "line-chart": LineChart,
+  "pen-line": PenLine,
+  blocks: Blocks,
+  mail: Mail,
+  megaphone: Megaphone,
+  rocket: Rocket,
+  sparkles: Sparkles,
+};
+
+export const DEFAULT_DCK_MODULE_ICON = "blocks";
+
+export function resolveModuleIcon(iconName: string): LucideIcon {
+  return (
+    DCK_MODULE_ICONS[iconName] ?? DCK_MODULE_ICONS[DEFAULT_DCK_MODULE_ICON]
+  );
+}
 
 /**
  * Root under which DCK module directories live, as seen by the active
@@ -22,15 +55,15 @@ export function getDckWorkspaceRoot(): string {
 export interface DckModule {
   id: string;
   name: string;
-  /** Directory name under the workspace root (e.g. `webgen`). */
   slug: string;
-  /** Absolute path for the active backend: `<workspaceRoot>/<slug>`. */
   workspacePath: string;
   skillName: string;
   kind: DckModuleKind;
   icon: LucideIcon;
+  iconName: string;
   description: string;
   promptTemplate: string;
+  source: DckModuleSource;
 }
 
 interface DckModuleDef {
@@ -39,19 +72,19 @@ interface DckModuleDef {
   slug: string;
   skillName: string;
   kind: DckModuleKind;
-  icon: LucideIcon;
+  iconName: string;
   description: string;
   promptTemplate: string;
 }
 
-const DCK_MODULE_DEFS: DckModuleDef[] = [
+const DCK_BUILTIN_MODULE_DEFS: DckModuleDef[] = [
   {
     id: "webgen",
     name: "Web Generator",
     slug: "webgen",
     skillName: "web-generator",
     kind: "projects",
-    icon: Globe,
+    iconName: "globe",
     description: "",
     promptTemplate:
       "Scaffold a new containerized Next.js fullstack app under webgen/ following the web-generator standard. Ask me for the app name and whether it needs a database or auth before scaffolding.",
@@ -62,7 +95,7 @@ const DCK_MODULE_DEFS: DckModuleDef[] = [
     slug: "research",
     skillName: "social-trends-researcher",
     kind: "conversations",
-    icon: Search,
+    iconName: "search",
     description: "Deep literature synthesis with cited reports",
     promptTemplate:
       "Run a social media and trending research brief, preferring the built-in research-brief and news-digest skills, and save the report under research/. Ask me for the topic and time window first.",
@@ -73,7 +106,7 @@ const DCK_MODULE_DEFS: DckModuleDef[] = [
     slug: "analytics",
     skillName: "data-analytics",
     kind: "conversations",
-    icon: LineChart,
+    iconName: "line-chart",
     description: "SQL exploration, charts, and Power BI / DAX modeling",
     promptTemplate:
       "Run an exploratory data analysis: query the host PostgreSQL database with SQL, produce charts, and write insights under analytics/. I may also ask for Power BI DAX measures or Power Query (M). Ask me which dataset or question to analyze first.",
@@ -84,24 +117,74 @@ const DCK_MODULE_DEFS: DckModuleDef[] = [
     slug: "content",
     skillName: "content-creator",
     kind: "conversations",
-    icon: PenLine,
+    iconName: "pen-line",
     description: "Marketing and social content, calendars, and SEO copy",
     promptTemplate:
       "Help me produce marketing content: social captions and scripts, a content calendar, or SEO blog copy, saving outputs under content/. Ask me about the brand, channel, and goal first.",
   },
 ];
 
+export const DCK_BUILTIN_MODULE_IDS: readonly string[] =
+  DCK_BUILTIN_MODULE_DEFS.map((def) => def.id);
+
+export function isBuiltinModuleId(id: string): boolean {
+  return DCK_BUILTIN_MODULE_IDS.includes(id);
+}
+
+function resolveModule(
+  def: DckModuleDef,
+  root: string,
+  source: DckModuleSource,
+): DckModule {
+  return {
+    ...def,
+    icon: resolveModuleIcon(def.iconName),
+    workspacePath: `${root}/${def.slug}`,
+    source,
+  };
+}
+
+function customModuleToDef(custom: DckCustomModule): DckModuleDef {
+  return {
+    id: custom.id,
+    name: custom.name,
+    slug: custom.slug,
+    skillName: "",
+    kind: "conversations",
+    iconName: custom.iconName,
+    description: custom.description,
+    promptTemplate: custom.promptTemplate,
+  };
+}
+
+export function getBuiltinDckModules(): DckModule[] {
+  const root = getDckWorkspaceRoot();
+  return DCK_BUILTIN_MODULE_DEFS.map((def) =>
+    resolveModule(def, root, "builtin"),
+  );
+}
+
 /**
- * The module registry with `workspacePath` resolved against the active
+ * Merge the built-in modules (first, fixed order) with the custom modules the
+ * user authored. Custom entries whose id collides with a built-in are dropped
+ * by the parser, so built-ins always win.
+ */
+export function mergeDckModules(custom: DckCustomModule[]): DckModule[] {
+  const root = getDckWorkspaceRoot();
+  const builtins = getBuiltinDckModules();
+  const customModules = custom.map((entry) =>
+    resolveModule(customModuleToDef(entry), root, "custom"),
+  );
+  return [...builtins, ...customModules];
+}
+
+/**
+ * The built-in module registry with `workspacePath` resolved against the active
  * workspace root. Exposed as a getter so a changed `VITE_DCK_WORKSPACE_ROOT`
  * (or test override) is reflected without recomputing at module load.
  */
 export function getDckModules(): DckModule[] {
-  const root = getDckWorkspaceRoot();
-  return DCK_MODULE_DEFS.map((def) => ({
-    ...def,
-    workspacePath: `${root}/${def.slug}`,
-  }));
+  return getBuiltinDckModules();
 }
 
 export const DCK_MODULES: DckModule[] = getDckModules();
@@ -109,6 +192,14 @@ export const DCK_MODULES: DckModule[] = getDckModules();
 export function getDckModuleById(id: string | undefined): DckModule | null {
   if (!id) return null;
   return getDckModules().find((module) => module.id === id) ?? null;
+}
+
+export function findDckModuleById(
+  modules: DckModule[],
+  id: string | undefined,
+): DckModule | null {
+  if (!id) return null;
+  return modules.find((module) => module.id === id) ?? null;
 }
 
 export function dckModulePath(id: string): string {

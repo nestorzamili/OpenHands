@@ -1,15 +1,4 @@
 ---
-# DCK Agentic production image.
-#
-# Separate from the upstream `docker.yml` (which publishes
-# ghcr.io/openhands/agent-canvas under the Cloud subpath `/canvas`). This
-# workflow publishes the DCK deployment image as `dck-agentic` to GHCR under
-# the repository owner's namespace (ghcr.io/<owner>/dck-agentic), with Canvas
-# served at the ROOT path (VITE_BASE_PATH=/), so it is reachable at
-# https://agent.dckautoposting.com/ with no /canvas prefix.
-#
-# Kept as its own file so selective upstream merges never touch it and the
-# DCK image config never leaks back into the OpenHands image.
 name: DCK Docker
 
 on:
@@ -17,12 +6,11 @@ on:
     inputs:
       image:
         description: >-
-          GHCR image name. Leave blank to use ghcr.io/<owner>/dck-agentic
-          (owner = the GitHub account/org running this workflow).
+          GHCR image name. Leave blank to use ghcr.io/<owner>/dck-agentic.
         type: string
         default: ""
       tag:
-        description: Extra tag to publish (in addition to sha + latest)
+        description: Extra tag to publish (in addition to sha-<short>)
         type: string
         default: ""
       deploy:
@@ -39,14 +27,9 @@ permissions:
   packages: write
 
 env:
-  # Image name is just `dck-agentic`; the ghcr.io/<owner>/ prefix is derived
-  # from the repository owner so forks/orgs publish under their own namespace
-  # with no hardcoded account. An explicit `image` input still wins.
   IMAGE: ${{ inputs.image != '' && inputs.image || format('ghcr.io/{0}/dck-agentic', github.repository_owner) }}
   RELEVANT_SHA: ${{ github.sha }}
   RELEVANT_REF: ${{ github.ref }}
-  # Canvas at the root path for the DCK deployment (overrides the /canvas
-  # default baked into config/defaults.json for the upstream image).
   DCK_BASE_PATH: "/"
 
 jobs:
@@ -86,9 +69,6 @@ jobs:
       - name: Read defaults from config/defaults.json
         id: config
         run: |
-          # Single source of truth for version pins — no hardcoded values here.
-          # Read with jq by absolute path so this never depends on node's module
-          # resolution or the current working directory.
           cfg="${GITHUB_WORKSPACE}/config/defaults.json"
           pkg="${GITHUB_WORKSPACE}/package.json"
           if [ ! -f "$cfg" ] || [ ! -f "$pkg" ]; then
@@ -113,18 +93,8 @@ jobs:
           TAGS=""
           add_tag() { TAGS="${TAGS:+${TAGS},}${IMAGE}:${1}-${ARCH}"; }
 
-          # Immutable sha tag on every build.
           add_tag "sha-${SHORT_SHA}"
 
-          # Branch-tracking tags: main → `latest` (what prod pins), dev → `dev`
-          # (staging). Keeping them distinct stops the two branches from
-          # clobbering each other's rolling tag.
-          case "$RELEVANT_REF" in
-            refs/heads/main) add_tag "latest" ;;
-            refs/heads/dev)  add_tag "dev" ;;
-          esac
-
-          # Manual extra tag
           if [ -n "${{ inputs.tag }}" ]; then
             add_tag "${{ inputs.tag }}"
           fi
@@ -216,53 +186,11 @@ jobs:
             [ -n "${SEEN[$MANIFEST_TAG]+x}" ] && continue
             SEEN[$MANIFEST_TAG]=1
 
-            echo "Creating multi-arch manifest: ${IMAGE}:${MANIFEST_TAG}"
             docker buildx imagetools create -t "${IMAGE}:${MANIFEST_TAG}" \
               "${IMAGE}:${MANIFEST_TAG}-amd64" \
               "${IMAGE}:${MANIFEST_TAG}-arm64"
             docker buildx imagetools inspect "${IMAGE}:${MANIFEST_TAG}"
           done
-
-  # ───────────────────────────────────────────────────────────────────────────
-  # Deploy bundle — the files the VM needs (compose, workspace content, .env
-  # template, bootstrap + migrate scripts), published as a workflow artifact
-  # (no GitHub Release). The VM pulls it with the GitHub API via the bootstrap
-  # script. Named by short SHA so each build is identifiable.
-  # ───────────────────────────────────────────────────────────────────────────
-  deploy-bundle:
-    name: Build deploy bundle artifact
-    needs: merge-manifests
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Assemble bundle
-        id: bundle
-        run: |
-          SHORT_SHA=$(echo "${GITHUB_SHA}" | cut -c1-7)
-          echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
-          STAGE="dck-agentic-deploy"
-          mkdir -p "$STAGE/workspace" "$STAGE/scripts"
-          cp docker-compose.yml "$STAGE/"
-          cp .env.production.sample "$STAGE/"
-          cp -r workspace/.agents "$STAGE/workspace/"
-          cp workspace/AGENTS.md "$STAGE/workspace/"
-          cp scripts/migrate-automation-db.sh "$STAGE/scripts/"
-          cp scripts/dck-vm-bootstrap.sh "$STAGE/scripts/"
-          cp scripts/dck-deploy.sh "$STAGE/scripts/"
-          tar -czf "dck-agentic-deploy.tar.gz" -C "$STAGE" .
-          sha256sum dck-agentic-deploy.tar.gz > SHA256SUMS.txt
-          cat SHA256SUMS.txt
-
-      - name: Upload deploy bundle artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: dck-agentic-deploy-${{ steps.bundle.outputs.short_sha }}
-          path: |
-            dck-agentic-deploy.tar.gz
-            SHA256SUMS.txt
-          retention-days: 30
 
   deploy:
     name: Deploy to VM over SSH
@@ -270,9 +198,24 @@ jobs:
     if: inputs.deploy
     runs-on: ubuntu-24.04
     steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
       - name: Compute image tag
         id: tag
         run: echo "sha=sha-$(echo "${GITHUB_SHA}" | cut -c1-7)" >> "$GITHUB_OUTPUT"
+
+      - name: Stage deploy files
+        run: |
+          STAGE=stage
+          mkdir -p "$STAGE/workspace" "$STAGE/scripts"
+          cp docker-compose.yml "$STAGE/"
+          cp .env.production.sample "$STAGE/"
+          cp -r workspace/.agents "$STAGE/workspace/"
+          cp workspace/AGENTS.md "$STAGE/workspace/"
+          cp scripts/migrate-automation-db.sh "$STAGE/scripts/"
+          cp scripts/dck-deploy.sh "$STAGE/scripts/"
+          tar -czf deploy.tar.gz -C "$STAGE" .
 
       - name: Parse SSH target
         id: ssh
@@ -293,8 +236,14 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -p "${{ steps.ssh.outputs.port }}" "${{ steps.ssh.outputs.host }}" >> ~/.ssh/known_hosts 2>/dev/null
 
+      - name: Copy deploy files to VM
+        run: |
+          scp -i ~/.ssh/deploy_key -P "${{ steps.ssh.outputs.port }}" \
+            deploy.tar.gz "${{ steps.ssh.outputs.user_host }}:/tmp/dck-deploy.tar.gz"
+
       - name: Deploy over SSH
         run: |
           ssh -i ~/.ssh/deploy_key -p "${{ steps.ssh.outputs.port }}" \
             "${{ steps.ssh.outputs.user_host }}" \
-            "bash /opt/dck-agentic/scripts/dck-deploy.sh '${{ steps.tag.outputs.sha }}'"
+            "set -e; rm -rf /tmp/dck-staging; mkdir -p /tmp/dck-staging; tar -xzf /tmp/dck-deploy.tar.gz -C /tmp/dck-staging; rm -f /tmp/dck-deploy.tar.gz; IMAGE_OWNER='${{ github.repository_owner }}' bash /tmp/dck-staging/scripts/dck-deploy.sh '${{ steps.tag.outputs.sha }}' /tmp/dck-staging; rm -rf /tmp/dck-staging"
+

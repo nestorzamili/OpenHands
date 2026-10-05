@@ -114,6 +114,7 @@ describe("DCK module registry", () => {
         iconName: "mail",
         description: "Drip sequences",
         promptTemplate: "Draft an email campaign.",
+        skillName: "",
         order: 0,
       },
     ];

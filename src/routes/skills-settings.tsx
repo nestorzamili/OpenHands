@@ -21,6 +21,7 @@ import {
   type SkillFilterState,
 } from "#/components/features/skills/skill-filter";
 import { SkillsToolbar } from "#/components/features/skills/skills-toolbar";
+import { DckSkillManager } from "#/components/features/dck/dck-skill-manager";
 import { useSettings } from "#/hooks/query/use-settings";
 import { useSkills } from "#/hooks/query/use-skills";
 import { useSkillEnablement } from "#/hooks/use-skill-enablement";
@@ -54,6 +55,7 @@ function SkillsSettingsScreen() {
     null,
   );
   const [showAddSkillModal, setShowAddSkillModal] = React.useState(false);
+  const [showSkillManager, setShowSkillManager] = React.useState(false);
   const [isFiltersModalOpen, setIsFiltersModalOpen] = React.useState(false);
 
   const isLoading = settingsLoading || skillsLoading || !settings;
@@ -153,15 +155,26 @@ function SkillsSettingsScreen() {
                 {t(I18nKey.SETTINGS$SKILLS_NEW_CONVERSATION_NOTICE)}
               </div>
             </div>
-            <BrandButton
-              type="button"
-              variant="secondary"
-              testId="skills-add-skill-button"
-              className="flex-shrink-0 whitespace-nowrap"
-              onClick={() => setShowAddSkillModal(true)}
-            >
-              {t(I18nKey.SETTINGS$SKILLS_ADD_BUTTON)}
-            </BrandButton>
+            <div className="flex flex-shrink-0 items-center gap-2">
+              <BrandButton
+                type="button"
+                variant="secondary"
+                testId="skills-new-skill-button"
+                className="whitespace-nowrap"
+                onClick={() => setShowSkillManager(true)}
+              >
+                {t(I18nKey.DCK$MANAGE_SKILLS)}
+              </BrandButton>
+              <BrandButton
+                type="button"
+                variant="secondary"
+                testId="skills-add-skill-button"
+                className="whitespace-nowrap"
+                onClick={() => setShowAddSkillModal(true)}
+              >
+                {t(I18nKey.SETTINGS$SKILLS_ADD_BUTTON)}
+              </BrandButton>
+            </div>
           </div>
 
           {isLoading ? (
@@ -278,6 +291,10 @@ function SkillsSettingsScreen() {
 
         {showAddSkillModal && (
           <AddSkillModal onClose={() => setShowAddSkillModal(false)} />
+        )}
+
+        {showSkillManager && (
+          <DckSkillManager onClose={() => setShowSkillManager(false)} />
         )}
       </main>
     </div>

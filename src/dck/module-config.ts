@@ -9,6 +9,8 @@ export interface DckCustomModule {
   iconName: string;
   description: string;
   promptTemplate: string;
+  /** Optional project/public skill linked to this module. */
+  skillName: string;
   order: number;
 }
 
@@ -104,6 +106,7 @@ export function parseDckModulesConfig(
       iconName: coerceString(record.iconName) ?? "",
       description: coerceString(record.description) ?? "",
       promptTemplate,
+      skillName: coerceString(record.skillName) ?? "",
       order: coerceOrder(record.order) ?? index,
     });
   });
@@ -123,6 +126,7 @@ export function serializeDckModulesConfig(modules: DckCustomModule[]): string {
     iconName: module.iconName,
     description: module.description,
     promptTemplate: module.promptTemplate,
+    skillName: module.skillName,
     order: index,
   }));
   return `${JSON.stringify({ modules: normalized }, null, 2)}\n`;
@@ -134,6 +138,7 @@ export interface CustomModuleDraft {
   iconName: string;
   description: string;
   promptTemplate: string;
+  skillName: string;
 }
 
 export interface ValidateCustomModuleOptions {
@@ -199,6 +204,33 @@ export function validateCustomModuleDraft(
 export function makeCustomModuleId(): string {
   const random = Math.random().toString(36).slice(2, 10);
   return `custom-${Date.now().toString(36)}-${random}`;
+}
+
+/**
+ * Ensure a module's opening prompt will auto-activate its linked skill: if the
+ * prompt does not already contain one of the skill's triggers (case-insensitive),
+ * append a short sentence naming the first trigger. Skills activate from trigger
+ * keywords in the first message, so this is what wires a module to its skill.
+ */
+export function composePromptWithSkillTrigger(
+  promptTemplate: string,
+  triggers: readonly string[],
+): string {
+  const prompt = promptTemplate.trim();
+  const usableTriggers = triggers
+    .map((trigger) => trigger.trim())
+    .filter((trigger) => trigger.length > 0);
+  if (usableTriggers.length === 0) return prompt;
+
+  const lowered = prompt.toLowerCase();
+  const alreadyPresent = usableTriggers.some((trigger) =>
+    lowered.includes(trigger.toLowerCase()),
+  );
+  if (alreadyPresent) return prompt;
+
+  const trigger = usableTriggers[0];
+  const suffix = `Use the ${trigger} skill for this.`;
+  return prompt.length > 0 ? `${prompt}\n\n${suffix}` : suffix;
 }
 
 /**

@@ -107,6 +107,7 @@ describe("useDckCustomModules", () => {
         iconName: "mail",
         description: "",
         promptTemplate: "Write a report.",
+        skillName: "",
         order: 0,
       });
     });

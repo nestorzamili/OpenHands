@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildModuleFolderDeleteCommand,
+  composePromptWithSkillTrigger,
   parseDckModulesConfig,
   serializeDckModulesConfig,
   validateCustomModuleDraft,
@@ -17,6 +18,7 @@ function module(overrides: Partial<DckCustomModule>): DckCustomModule {
     iconName: "mail",
     description: "",
     promptTemplate: "Draft an email.",
+    skillName: "",
     order: 0,
     ...overrides,
   };
@@ -122,6 +124,7 @@ describe("validateCustomModuleDraft", () => {
     iconName: "mail",
     description: "",
     promptTemplate: "Draft an email.",
+    skillName: "",
   };
 
   it("accepts a valid draft", () => {
@@ -169,5 +172,34 @@ describe("buildModuleFolderDeleteCommand", () => {
     expect(command).toContain("rm -rf /projects/email");
     expect(command).toContain("Email");
     expect(command).toContain("irreversible");
+  });
+});
+
+describe("composePromptWithSkillTrigger", () => {
+  it("appends the first trigger when the prompt lacks any", () => {
+    const result = composePromptWithSkillTrigger("Write a report.", [
+      "analytics",
+      "sql",
+    ]);
+    expect(result).toBe("Write a report.\n\nUse the analytics skill for this.");
+  });
+
+  it("leaves the prompt unchanged when a trigger is already present", () => {
+    const result = composePromptWithSkillTrigger(
+      "Run an analytics pass on the data.",
+      ["analytics"],
+    );
+    expect(result).toBe("Run an analytics pass on the data.");
+  });
+
+  it("matches triggers case-insensitively", () => {
+    const result = composePromptWithSkillTrigger("Do some ANALYTICS now.", [
+      "analytics",
+    ]);
+    expect(result).toBe("Do some ANALYTICS now.");
+  });
+
+  it("returns the prompt unchanged when there are no triggers", () => {
+    expect(composePromptWithSkillTrigger("Hello.", [])).toBe("Hello.");
   });
 });

@@ -16,12 +16,14 @@ import {
 } from "#/dck/modules";
 import {
   buildModuleFolderDeleteCommand,
+  composePromptWithSkillTrigger,
   makeCustomModuleId,
   validateCustomModuleDraft,
   type CustomModuleDraft,
   type DckCustomModule,
 } from "#/dck/module-config";
 import { useDckCustomModules } from "#/hooks/query/use-dck-custom-modules";
+import { useProjectSkills } from "#/hooks/query/use-project-skills";
 import {
   useAllConversations,
   useOpenConversation,
@@ -35,6 +37,7 @@ const EMPTY_DRAFT: CustomModuleDraft = {
   iconName: DEFAULT_DCK_MODULE_ICON,
   description: "",
   promptTemplate: "",
+  skillName: "",
 };
 
 type Mode =
@@ -139,6 +142,7 @@ function ModuleForm({
   initialDraft,
   reservedSlugs,
   existingSlugs,
+  skillOptions,
   isSaving,
   onCancel,
   onSubmit,
@@ -146,6 +150,7 @@ function ModuleForm({
   initialDraft: CustomModuleDraft;
   reservedSlugs: string[];
   existingSlugs: string[];
+  skillOptions: { name: string }[];
   isSaving: boolean;
   onCancel: () => void;
   onSubmit: (draft: CustomModuleDraft) => void;
@@ -280,6 +285,26 @@ function ModuleForm({
         )}
       </label>
 
+      <label className={labelClass}>
+        {t(I18nKey.DCK$MODULE_FORM_SKILL_LABEL)}
+        <select
+          data-testid="dck-module-form-skill"
+          value={draft.skillName}
+          onChange={(event) => setField("skillName", event.target.value)}
+          className={fieldClass}
+        >
+          <option value="">{t(I18nKey.DCK$MODULE_FORM_SKILL_NONE)}</option>
+          {skillOptions.map((skill) => (
+            <option key={skill.name} value={skill.name}>
+              {skill.name}
+            </option>
+          ))}
+        </select>
+        <span className="text-xs font-normal text-text-tertiary">
+          {t(I18nKey.DCK$MODULE_FORM_SKILL_HINT)}
+        </span>
+      </label>
+
       <div className="flex justify-end gap-2">
         <BrandButton
           type="button"
@@ -364,6 +389,7 @@ function DeleteModuleConfirm({
 export function DckModuleManager({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation("openhands");
   const { modules, isSaving, upsert, remove, move } = useDckCustomModules();
+  const { skills } = useProjectSkills();
   const conversations = useAllConversations();
   const { prefillAndOpen } = useOpenConversation();
   const [mode, setMode] = React.useState<Mode>({ kind: "list" });
@@ -371,6 +397,13 @@ export function DckModuleManager({ onClose }: { onClose: () => void }) {
     null,
   );
   const [isDeleting, setIsDeleting] = React.useState(false);
+
+  const skillOptions = skills.map((skill) => ({ name: skill.name }));
+  const triggersBySkill = React.useMemo(() => {
+    const map = new Map<string, string[]>();
+    skills.forEach((skill) => map.set(skill.name, skill.triggers));
+    return map;
+  }, [skills]);
 
   const builtins = React.useMemo(() => getBuiltinDckModules(), []);
   const root = getDckWorkspaceRoot();
@@ -406,6 +439,7 @@ export function DckModuleManager({ onClose }: { onClose: () => void }) {
         iconName: module.iconName,
         description: module.description,
         promptTemplate: module.promptTemplate,
+        skillName: module.skillName,
       },
     });
 
@@ -420,13 +454,22 @@ export function DckModuleManager({ onClose }: { onClose: () => void }) {
     const existing = editingId
       ? modules.find((module) => module.id === editingId)
       : undefined;
+    const skillName = draft.skillName.trim();
+    const basePrompt = draft.promptTemplate.trim();
+    const promptTemplate = skillName
+      ? composePromptWithSkillTrigger(
+          basePrompt,
+          triggersBySkill.get(skillName) ?? [],
+        )
+      : basePrompt;
     const next: DckCustomModule = {
       id: existing?.id ?? makeCustomModuleId(),
       name: draft.name.trim(),
       slug: draft.slug.trim().toLowerCase(),
       iconName: draft.iconName,
       description: draft.description.trim(),
-      promptTemplate: draft.promptTemplate.trim(),
+      promptTemplate,
+      skillName,
       order: existing?.order ?? modules.length,
     };
     try {
@@ -479,6 +522,7 @@ export function DckModuleManager({ onClose }: { onClose: () => void }) {
             initialDraft={mode.draft}
             reservedSlugs={builtinSlugs}
             existingSlugs={existingSlugsExcluding(mode.editingId)}
+            skillOptions={skillOptions}
             isSaving={isSaving}
             onCancel={() => setMode({ kind: "list" })}
             onSubmit={handleSubmit}

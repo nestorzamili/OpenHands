@@ -10,6 +10,7 @@ import {
   getLockedCloudAuthMode,
   getLockedCloudHost,
   isAuthRequired,
+  isManagedLocalBackend,
   isSameCloudHost,
   isAuthRequiredAndMissing,
 } from "#/api/agent-server-config";
@@ -301,5 +302,52 @@ describe("getAgentServerSessionApiKey runtime-injection fallback", () => {
     setInjectedKey(12345);
 
     expect(getAgentServerSessionApiKey()).toBeNull();
+  });
+});
+
+describe("isManagedLocalBackend", () => {
+  function setInjectedKey(value: unknown) {
+    (
+      window as unknown as Record<string, unknown>
+    ).__AGENT_CANVAS_SESSION_API_KEY__ = value;
+  }
+
+  it("is true when a session key is injected and no base URL is configured", () => {
+    vi.stubEnv("VITE_SESSION_API_KEY", "");
+    vi.stubEnv("VITE_BACKEND_BASE_URL", "");
+    setInjectedKey("runtime-injected-key");
+
+    expect(isManagedLocalBackend()).toBe(true);
+  });
+
+  it("is true when the session key is baked in via env", () => {
+    vi.stubEnv("VITE_SESSION_API_KEY", "baked-key");
+    vi.stubEnv("VITE_BACKEND_BASE_URL", "");
+
+    expect(isManagedLocalBackend()).toBe(true);
+  });
+
+  it("is false when a custom base URL is configured", () => {
+    vi.stubEnv("VITE_SESSION_API_KEY", "baked-key");
+    vi.stubEnv("VITE_BACKEND_BASE_URL", "https://agent.example.com");
+
+    expect(isManagedLocalBackend()).toBe(false);
+  });
+
+  it("is false when no session key is available", () => {
+    vi.stubEnv("VITE_SESSION_API_KEY", "");
+    vi.stubEnv("VITE_BACKEND_BASE_URL", "");
+
+    expect(isManagedLocalBackend()).toBe(false);
+  });
+
+  it("is false when the deployment is locked to Cloud", () => {
+    vi.stubEnv("VITE_SESSION_API_KEY", "baked-key");
+    vi.stubEnv("VITE_BACKEND_BASE_URL", "");
+    (
+      window as unknown as Record<string, unknown>
+    ).__AGENT_CANVAS_LOCK_TO_CLOUD__ = "https://app.all-hands.dev";
+
+    expect(isManagedLocalBackend()).toBe(false);
   });
 });

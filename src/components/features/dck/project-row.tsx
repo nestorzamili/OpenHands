@@ -13,6 +13,23 @@ import {
 } from "#/dck/modules";
 import { useDckProjectMeta } from "#/hooks/query/use-dck-project-meta";
 import type { DckProjectMeta } from "#/dck/project-metadata";
+import {
+  getBrowserOrigin,
+  getDckProjectLinks,
+  type DckProjectLinkKind,
+} from "./project-links";
+
+const LINK_LABEL_KEY: Record<DckProjectLinkKind, I18nKey> = {
+  live: I18nKey.DCK$LIVE_LINK,
+  preview: I18nKey.DCK$PREVIEW_LINK,
+  local: I18nKey.DCK$LOCALHOST_PORT,
+};
+
+const LINK_ARIA_KEY: Record<DckProjectLinkKind, I18nKey> = {
+  live: I18nKey.DCK$OPEN_LIVE_LINK,
+  preview: I18nKey.DCK$OPEN_PREVIEW_LINK,
+  local: I18nKey.DCK$OPEN_PROJECT_LINK,
+};
 
 export interface ProjectEntry {
   name: string;
@@ -82,22 +99,33 @@ export function ProjectRow({
           )}
         </span>
       </button>
-      {meta?.url && meta.port !== null && (
-        <a
-          href={meta.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={(event) => event.stopPropagation()}
-          data-testid="dck-project-link"
-          aria-label={t(I18nKey.DCK$OPEN_PROJECT_LINK, {
-            name: entry.name,
-            url: meta.url,
-          })}
-          className="shrink-0 text-xs font-medium text-indigo-400 hover:text-indigo-300"
-        >
-          {t(I18nKey.DCK$LOCALHOST_PORT, { port: meta.port })}
-        </a>
-      )}
+      {(() => {
+        const links = getDckProjectLinks(meta, getBrowserOrigin());
+        if (links.length === 0) return null;
+        return (
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-x-2 gap-y-1">
+            {links.map((link) => (
+              <a
+                key={link.kind}
+                href={link.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(event) => event.stopPropagation()}
+                data-testid={`dck-project-link-${link.kind}`}
+                aria-label={t(LINK_ARIA_KEY[link.kind], {
+                  name: entry.name,
+                  url: link.url,
+                })}
+                className="text-xs font-medium text-indigo-400 hover:text-indigo-300"
+              >
+                {link.kind === "local"
+                  ? t(LINK_LABEL_KEY.local, { port: meta?.port })
+                  : t(LINK_LABEL_KEY[link.kind])}
+              </a>
+            ))}
+          </div>
+        );
+      })()}
       {renderActions?.(meta)}
     </div>
   );

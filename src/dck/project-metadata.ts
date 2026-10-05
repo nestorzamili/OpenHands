@@ -12,9 +12,9 @@ export interface DckProjectMeta {
   port: number | null;
   stack: string | null;
   url: string | null;
-  /** Last agent-verified container state, or null if never deployed/checked. */
+  previewPath: string | null;
+  subdomain: string | null;
   lastStatus: DckAppRuntimeStatus | null;
-  /** ISO timestamp of that verification, or null. */
   lastCheckedAt: string | null;
 }
 
@@ -57,6 +57,39 @@ export function projectUrlForPort(port: number | null): string | null {
   return port === null ? null : `http://localhost:${port}`;
 }
 
+function normalizePreviewPath(previewPath: string | null): string | null {
+  if (previewPath === null) return null;
+  const trimmed = previewPath.trim();
+  if (trimmed.length === 0) return null;
+  const withLeadingSlash = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+  return withLeadingSlash.endsWith("/")
+    ? withLeadingSlash
+    : `${withLeadingSlash}/`;
+}
+
+function normalizeOrigin(origin: string | null): string | null {
+  if (!origin) return null;
+  const trimmed = origin.trim().replace(/\/+$/, "");
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+export function buildPreviewUrl(
+  previewPath: string | null,
+  origin: string | null,
+): string | null {
+  const path = normalizePreviewPath(previewPath);
+  const base = normalizeOrigin(origin);
+  if (!path || !base) return null;
+  return `${base}${path}`;
+}
+
+export function buildPublishedUrl(subdomain: string | null): string | null {
+  if (subdomain === null) return null;
+  const trimmed = subdomain.trim().replace(/\/+$/, "");
+  if (trimmed.length === 0) return null;
+  return `https://${trimmed}/`;
+}
+
 export function parseDckProjectMeta(raw: string | null): DckProjectMeta | null {
   if (!raw) return null;
 
@@ -75,6 +108,8 @@ export function parseDckProjectMeta(raw: string | null): DckProjectMeta | null {
   const name = coerceString(record.name);
   const port = coercePort(record.port);
   const stack = coerceString(record.stack);
+  const previewPath = coerceString(record.previewPath);
+  const subdomain = coerceString(record.subdomain);
   const lastStatus = coerceRuntimeStatus(record.lastStatus);
   const lastCheckedAt = coerceString(record.lastCheckedAt);
 
@@ -83,6 +118,8 @@ export function parseDckProjectMeta(raw: string | null): DckProjectMeta | null {
     port,
     stack,
     url: projectUrlForPort(port),
+    previewPath,
+    subdomain,
     lastStatus,
     lastCheckedAt,
   };

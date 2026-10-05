@@ -14,8 +14,25 @@ import type { DckProjectMeta } from "#/dck/project-metadata";
 import { DckProjectStatusBadge } from "./dck-project-status-badge";
 import type { ProjectEntry } from "./project-row";
 import { WebgenLifecycleActions } from "./webgen-lifecycle-actions";
+import {
+  getBrowserOrigin,
+  getDckProjectLinks,
+  type DckProjectLinkKind,
+} from "./project-links";
 
 const CELL = "px-3 py-2 align-middle";
+
+const LINK_LABEL_KEY: Record<DckProjectLinkKind, I18nKey> = {
+  live: I18nKey.DCK$LIVE_LINK,
+  preview: I18nKey.DCK$PREVIEW_LINK,
+  local: I18nKey.DCK$LOCALHOST_PORT,
+};
+
+const LINK_ARIA_KEY: Record<DckProjectLinkKind, I18nKey> = {
+  live: I18nKey.DCK$OPEN_LIVE_LINK,
+  preview: I18nKey.DCK$OPEN_PREVIEW_LINK,
+  local: I18nKey.DCK$OPEN_PROJECT_LINK,
+};
 
 function WebgenProjectTableRow({
   entry,
@@ -71,24 +88,35 @@ function WebgenProjectTableRow({
         </button>
       </td>
       <td className={CELL}>
-        {meta?.url && meta.port !== null ? (
-          <a
-            href={meta.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            data-testid="dck-project-link"
-            aria-label={t(I18nKey.DCK$OPEN_PROJECT_LINK, {
-              name: entry.name,
-              url: meta.url,
-            })}
-            className="inline-flex items-center gap-1 text-xs font-medium text-indigo-400 hover:text-indigo-300"
-          >
-            {t(I18nKey.DCK$LOCALHOST_PORT, { port: meta.port })}
-            <ExternalLink className="size-3" aria-hidden />
-          </a>
-        ) : (
-          <span className="text-xs text-text-tertiary">—</span>
-        )}
+        {(() => {
+          const links = getDckProjectLinks(meta, getBrowserOrigin());
+          if (links.length === 0) {
+            return <span className="text-xs text-text-tertiary">—</span>;
+          }
+          return (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              {links.map((link) => (
+                <a
+                  key={link.kind}
+                  href={link.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  data-testid={`dck-project-link-${link.kind}`}
+                  aria-label={t(LINK_ARIA_KEY[link.kind], {
+                    name: entry.name,
+                    url: link.url,
+                  })}
+                  className="inline-flex items-center gap-1 text-xs font-medium text-indigo-400 hover:text-indigo-300"
+                >
+                  {link.kind === "local"
+                    ? t(LINK_LABEL_KEY.local, { port: meta?.port })
+                    : t(LINK_LABEL_KEY[link.kind])}
+                  <ExternalLink className="size-3" aria-hidden />
+                </a>
+              ))}
+            </div>
+          );
+        })()}
       </td>
       <td className={CELL}>
         <span
@@ -123,6 +151,12 @@ function WebgenProjectTableRow({
   );
 }
 
+/**
+ * Webgen project list rendered as a table: status badge (with the last
+ * agent-verified time), name, live URL, conversation count, last activity,
+ * and the Docker lifecycle menu. Each row reads its own `.dck.json` metadata
+ * via `useDckProjectMeta`.
+ */
 /**
  * Webgen project list rendered as a table: status badge (with the last
  * agent-verified time), name, live URL, conversation count, last activity,

@@ -175,6 +175,8 @@ describe("deriveProjectStatus", () => {
     port: 3000,
     stack: "nextjs",
     url: null,
+    previewPath: null,
+    subdomain: null,
     lastStatus: null,
     lastCheckedAt: null,
   };

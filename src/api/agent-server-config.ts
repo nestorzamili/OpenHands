@@ -288,3 +288,19 @@ export function isAuthRequiredAndMissing(): boolean {
   if (!isAuthRequired()) return false;
   return !getAgentServerSessionApiKey();
 }
+
+/**
+ * True for a deployment that fully owns a single local backend — the session
+ * API key is baked/injected and no explicit backend base URL is configured, so
+ * the host (serving origin) and credential are both deployment-managed. This
+ * is the DCK portal-login topology: `docker/entrypoint.sh` injects the session
+ * key, `VITE_BACKEND_BASE_URL` is unset so `getAgentServerBaseUrl()` resolves
+ * to `window.location.origin`, and the user must never be shown host or
+ * API-key fields. Locked-to-Cloud deployments are excluded: there the only
+ * valid backend is the configured Cloud host.
+ */
+export function isManagedLocalBackend(): boolean {
+  if (getLockedCloudHost()) return false;
+  if (getConfiguredBaseUrl()) return false;
+  return getBakedSessionApiKey() !== null;
+}

@@ -7,6 +7,7 @@ import {
   getAgentServerFormDefaults,
   getLockedCloudHost,
   isAuthRequired,
+  isManagedLocalBackend,
   isSameCloudHost,
 } from "#/api/agent-server-config";
 import { DEFAULT_LOCAL_BACKEND_NAME } from "#/api/backend-registry/default-backend";
@@ -162,13 +163,16 @@ export function CheckBackendStep({
     : (healthByBackendId[backend.id]?.lastError ?? null);
   const [configurationOpen, setConfigurationOpen] = React.useState(false);
 
+  const managed = !treatAsNoBackend && isManagedLocalBackend();
+
   React.useEffect(() => {
     if (isConnected === true) {
       setConfigurationOpen(false);
     }
   }, [isConnected]);
 
-  const hideConfigurationFields = isConnected === true && !configurationOpen;
+  const hideConfigurationFields =
+    managed || (isConnected === true && !configurationOpen);
 
   const handleConnected = React.useCallback(
     (
@@ -258,7 +262,7 @@ export function CheckBackendStep({
         />
       )}
 
-      {isConnected === true ? (
+      {!managed && isConnected === true ? (
         <button
           type="button"
           onClick={() => setConfigurationOpen((open) => !open)}

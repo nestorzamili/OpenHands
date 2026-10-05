@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { parseDckProjectMeta, projectUrlForPort } from "#/dck/project-metadata";
+import {
+  buildPreviewUrl,
+  buildPublishedUrl,
+  parseDckProjectMeta,
+  projectUrlForPort,
+} from "#/dck/project-metadata";
 
 describe("parseDckProjectMeta", () => {
   it("parses a complete .dck.json and derives the localhost url", () => {
@@ -11,6 +16,8 @@ describe("parseDckProjectMeta", () => {
       port: 3000,
       stack: "nextjs",
       url: "http://localhost:3000",
+      previewPath: null,
+      subdomain: null,
       lastStatus: null,
       lastCheckedAt: null,
     });
@@ -25,9 +32,38 @@ describe("parseDckProjectMeta", () => {
       port: 3100,
       stack: "nextjs",
       url: "http://localhost:3100",
+      previewPath: null,
+      subdomain: null,
       lastStatus: null,
       lastCheckedAt: null,
     });
+  });
+
+  it("parses the preview path and published subdomain when present", () => {
+    const result = parseDckProjectMeta(
+      JSON.stringify({
+        name: "shop",
+        port: 3100,
+        stack: "nextjs",
+        previewPath: "/preview/shop",
+        subdomain: "shop.dckautoposting.com",
+      }),
+    );
+    expect(result?.previewPath).toBe("/preview/shop");
+    expect(result?.subdomain).toBe("shop.dckautoposting.com");
+  });
+
+  it("coerces blank or non-string preview/subdomain values to null", () => {
+    const result = parseDckProjectMeta(
+      JSON.stringify({
+        name: "shop",
+        port: 3100,
+        previewPath: "   ",
+        subdomain: 123,
+      }),
+    );
+    expect(result?.previewPath).toBeNull();
+    expect(result?.subdomain).toBeNull();
   });
 
   it("parses the agent-written runtime status and verification timestamp", () => {
@@ -58,6 +94,8 @@ describe("parseDckProjectMeta", () => {
       port: null,
       stack: null,
       url: null,
+      previewPath: null,
+      subdomain: null,
       lastStatus: null,
       lastCheckedAt: null,
     });
@@ -85,5 +123,45 @@ describe("projectUrlForPort", () => {
     [null, null],
   ])("maps port %s to %s", (port, expected) => {
     expect(projectUrlForPort(port)).toBe(expected);
+  });
+});
+
+describe("buildPreviewUrl", () => {
+  it("composes the preview path against the browser origin with a single trailing slash", () => {
+    expect(
+      buildPreviewUrl("/preview/shop", "https://agent.dckautoposting.com"),
+    ).toBe("https://agent.dckautoposting.com/preview/shop/");
+  });
+
+  it("adds a leading slash and strips a trailing origin slash", () => {
+    expect(
+      buildPreviewUrl("preview/shop/", "https://agent.dckautoposting.com/"),
+    ).toBe("https://agent.dckautoposting.com/preview/shop/");
+  });
+
+  it("returns null when the path or origin is missing", () => {
+    expect(buildPreviewUrl(null, "https://agent.dckautoposting.com")).toBeNull();
+    expect(buildPreviewUrl("   ", "https://agent.dckautoposting.com")).toBeNull();
+    expect(buildPreviewUrl("/preview/shop", null)).toBeNull();
+    expect(buildPreviewUrl("/preview/shop", "   ")).toBeNull();
+  });
+});
+
+describe("buildPublishedUrl", () => {
+  it("wraps a full subdomain FQDN in https with a trailing slash", () => {
+    expect(buildPublishedUrl("shop.dckautoposting.com")).toBe(
+      "https://shop.dckautoposting.com/",
+    );
+  });
+
+  it("strips any trailing slash from the stored subdomain", () => {
+    expect(buildPublishedUrl("shop.dckautoposting.com/")).toBe(
+      "https://shop.dckautoposting.com/",
+    );
+  });
+
+  it("returns null for a missing or blank subdomain", () => {
+    expect(buildPublishedUrl(null)).toBeNull();
+    expect(buildPublishedUrl("   ")).toBeNull();
   });
 });

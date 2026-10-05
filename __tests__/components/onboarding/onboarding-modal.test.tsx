@@ -1262,4 +1262,55 @@ describe("OnboardingModal", () => {
       ).toBe("true");
     });
   });
+
+  describe("managed local backend (portal deployment)", () => {
+    function enterManagedMode() {
+      window.localStorage.clear();
+      vi.stubEnv("VITE_BACKEND_BASE_URL", "");
+      vi.stubEnv("VITE_SESSION_API_KEY", "");
+      (
+        window as unknown as Record<string, unknown>
+      ).__AGENT_CANVAS_SESSION_API_KEY__ = "injected-portal-key";
+      __resetActiveStoreForTests();
+    }
+
+    afterEach(() => {
+      delete (window as unknown as Record<string, unknown>)
+        .__AGENT_CANVAS_SESSION_API_KEY__;
+    });
+
+    it("skips the backend step without ever showing credential fields when healthy", async () => {
+      enterManagedMode();
+
+      renderModal();
+
+      await waitForConfiguredBackendToBeSkipped();
+      expect(screen.queryByTestId("onboarding-backend-host")).toBeNull();
+      expect(screen.queryByTestId("onboarding-backend-api-key")).toBeNull();
+    });
+
+    it("shows a status-only backend step with no form or configuration toggle when unhealthy", async () => {
+      enterManagedMode();
+      getServerInfoMock.mockReset();
+      getServerInfoMock.mockRejectedValue(new Error("Failed to fetch"));
+
+      renderModal();
+
+      await waitFor(() => {
+        expect(
+          screen.getByTestId("onboarding-step-check-backend"),
+        ).toBeInTheDocument();
+        expect(
+          screen.getByTestId("onboarding-backend-disconnected"),
+        ).toBeInTheDocument();
+      });
+
+      expect(screen.queryByTestId("onboarding-backend-host")).toBeNull();
+      expect(screen.queryByTestId("onboarding-backend-api-key")).toBeNull();
+      expect(
+        screen.queryByTestId("onboarding-backend-show-configuration"),
+      ).toBeNull();
+      expect(screen.getByTestId("onboarding-backend-next")).toBeInTheDocument();
+    });
+  });
 });

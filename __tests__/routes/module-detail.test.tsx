@@ -138,7 +138,7 @@ describe("ModuleDetailView projects list", () => {
     expect(await screen.findByTestId("dck-project-row")).toHaveTextContent(
       "shop",
     );
-    const link = await screen.findByTestId("dck-project-link");
+    const link = await screen.findByTestId("dck-project-link-local");
     expect(link).toHaveAttribute("href", "http://localhost:3100");
   });
 

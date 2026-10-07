@@ -6,6 +6,34 @@ import type { AppConversation } from "#/api/conversation-service/agent-server-co
 import AgentServerConversationService from "#/api/conversation-service/agent-server-conversation-service.api";
 import { renderWithProviders } from "test-utils";
 import { DckModulesSection } from "#/components/features/dck/dck-modules-section";
+import { getDckModuleAgentProfilesStorageKey } from "#/hooks/use-dck-module-agent-profiles";
+
+const mockAgentProfiles = vi.hoisted(() => ({
+  data: {
+    profiles: [
+      {
+        id: "active-profile",
+        name: "Default",
+        agent_kind: "openhands",
+        revision: 1,
+        llm_profile_ref: "gpt",
+        mcp_server_refs: null,
+      },
+      {
+        id: "research-profile",
+        name: "Research Agent",
+        agent_kind: "openhands",
+        revision: 1,
+        llm_profile_ref: "gpt",
+        mcp_server_refs: null,
+      },
+    ],
+    active_agent_profile_id: "active-profile",
+  },
+}));
+vi.mock("#/hooks/query/use-agent-profiles", () => ({
+  useAgentProfiles: () => ({ data: mockAgentProfiles.data, isLoading: false }),
+}));
 
 vi.mock(
   "#/api/conversation-service/agent-server-conversation-service.api",
@@ -18,6 +46,7 @@ const mockCreateConversation = vi.fn(
   async (_payload: {
     workingDir?: string;
     query?: string;
+    agentProfileId?: string;
     entryPoint?: string;
   }) => ({
     conversation_id: "conv-new",
@@ -117,6 +146,9 @@ const researchConversation = makeConversation({
 
 beforeEach(() => {
   vi.stubEnv("VITE_DCK_WORKSPACE_ROOT", "");
+  window.localStorage.removeItem(
+    getDckModuleAgentProfilesStorageKey("test-backend", null),
+  );
   mockCreateConversation.mockClear();
   vi.mocked(
     AgentServerConversationService.searchConversations,
@@ -159,13 +191,13 @@ describe("DckModulesSection", () => {
 
     await user.click(await screen.findByTestId("dck-manage-modules"));
 
-    expect(
-      await screen.findByTestId("dck-module-manager"),
-    ).toBeInTheDocument();
-    // Built-in modules show a read-only badge; custom modules get edit controls.
+    expect(await screen.findByTestId("dck-module-manager")).toBeInTheDocument();
+    // Built-ins can be customized without gaining destructive controls.
     expect(
       screen.getByTestId("dck-module-builtin-badge-webgen"),
     ).toBeInTheDocument();
+    expect(screen.getByTestId("dck-module-edit-webgen")).toBeInTheDocument();
+    expect(screen.queryByTestId("dck-module-delete-webgen")).toBeNull();
     expect(
       screen.getByTestId("dck-module-edit-custom-email"),
     ).toBeInTheDocument();
@@ -202,6 +234,130 @@ describe("DckModulesSection", () => {
     await waitFor(() => {
       expect(navigate).toHaveBeenCalledWith("/conversations/conv-new");
     });
+  });
+
+  it("stores a module profile choice and passes it only when launching that module", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<DckModulesSection />);
+
+    const researchCard = await screen.findByTestId("dck-module-card-research");
+    await user.selectOptions(
+      within(researchCard).getByTestId(
+        "dck-module-agent-profile-selector-research",
+      ),
+      "research-profile",
+    );
+    await user.click(within(researchCard).getByRole("button"));
+
+    await waitFor(() =>
+      expect(mockCreateConversation).toHaveBeenCalledTimes(1),
+    );
+    expect(mockCreateConversation.mock.calls[0][0]).toMatchObject({
+      workingDir: "/projects/research",
+      agentProfileId: "research-profile",
+    });
+    expect(
+      JSON.parse(
+        window.localStorage.getItem(
+          getDckModuleAgentProfilesStorageKey("test-backend", null),
+        ) ?? "{}",
+      ),
+    ).toEqual({ research: "research-profile" });
+    expect(mockAgentProfiles.data.active_agent_profile_id).toBe(
+      "active-profile",
+    );
+  });
+
+  it("uses the card's shared profile preference in the module edit form", async () => {
+    const user = userEvent.setup();
+    const storageKey = getDckModuleAgentProfilesStorageKey(
+      "test-backend",
+      null,
+    );
+    window.localStorage.setItem(
+      storageKey,
+      JSON.stringify({ research: "research-profile" }),
+    );
+    renderWithProviders(<DckModulesSection />);
+
+    await user.click(await screen.findByTestId("dck-manage-modules"));
+    const manager = await screen.findByTestId("dck-module-manager");
+    await user.click(within(manager).getByTestId("dck-module-edit-research"));
+
+    const profileSelector = within(manager).getByTestId(
+      "dck-module-agent-profile-selector-research",
+    ) as HTMLSelectElement;
+    expect(profileSelector).toHaveValue("research-profile");
+    const followActiveValue = profileSelector.options[0].value;
+    await user.selectOptions(profileSelector, followActiveValue);
+    expect(JSON.parse(window.localStorage.getItem(storageKey) ?? "{}")).toEqual(
+      { research: "research-profile" },
+    );
+
+    await user.click(within(manager).getByTestId("dck-module-form-save"));
+
+    await waitFor(() =>
+      expect(
+        JSON.parse(window.localStorage.getItem(storageKey) ?? "{}"),
+      ).toEqual({}),
+    );
+    expect(mockAgentProfiles.data.active_agent_profile_id).toBe(
+      "active-profile",
+    );
+  });
+
+  it("removes a stale profile ID and requires an explicit follow-active choice", async () => {
+    const user = userEvent.setup();
+    const storageKey = getDckModuleAgentProfilesStorageKey(
+      "test-backend",
+      null,
+    );
+    window.localStorage.setItem(
+      storageKey,
+      JSON.stringify({ research: "deleted-profile" }),
+    );
+    renderWithProviders(<DckModulesSection />);
+
+    const researchCard = await screen.findByTestId("dck-module-card-research");
+    const selector = within(researchCard).getByTestId(
+      "dck-module-agent-profile-selector-research",
+    ) as HTMLSelectElement;
+    const createButton = within(researchCard).getByRole("button");
+
+    await waitFor(() =>
+      expect(
+        JSON.parse(window.localStorage.getItem(storageKey) ?? "{}"),
+      ).toEqual({ research: null }),
+    );
+    expect(selector).not.toHaveValue("deleted-profile");
+    expect(
+      screen.getByTestId("dck-module-agent-profile-warning-research"),
+    ).toBeInTheDocument();
+    expect(createButton).toBeDisabled();
+    await user.click(createButton);
+    expect(mockCreateConversation).not.toHaveBeenCalled();
+
+    const followActiveValue = selector.options[0].value;
+    await user.selectOptions(selector, followActiveValue);
+    expect(selector).toHaveValue(followActiveValue);
+    expect(
+      screen.queryByTestId("dck-module-agent-profile-warning-research"),
+    ).not.toBeInTheDocument();
+    expect(createButton).toBeEnabled();
+    await user.click(createButton);
+
+    await waitFor(() =>
+      expect(mockCreateConversation).toHaveBeenCalledTimes(1),
+    );
+    const payload = mockCreateConversation.mock.calls[0][0];
+    expect(payload.workingDir).toBe("/projects/research");
+    expect(payload).not.toHaveProperty("agentProfileId");
+    expect(mockAgentProfiles.data.active_agent_profile_id).toBe(
+      "active-profile",
+    );
+    expect(JSON.parse(window.localStorage.getItem(storageKey) ?? "{}")).toEqual(
+      {},
+    );
   });
 
   it("opens the webgen spec dialog instead of creating immediately", async () => {

@@ -781,6 +781,51 @@ describe("useCreateConversation", () => {
     expect(call?.[0]?.agentProfileId).toBe("profile-luna");
   });
 
+  it("preserves an explicitly selected local default profile id", async () => {
+    listAgentProfilesMock.mockResolvedValue({
+      profiles: [
+        {
+          id: "profile-default-selected",
+          name: "default",
+          agent_kind: "openhands",
+          revision: 1,
+          llm_profile_ref: "gpt",
+          mcp_server_refs: null,
+        },
+      ],
+      active_agent_profile_id: "profile-default-selected",
+    });
+    listLlmProfilesMock.mockResolvedValue({
+      profiles: [{ name: "gpt" }],
+      active_profile: "gpt",
+    });
+    const createConversationSpy = vi
+      .spyOn(AgentServerConversationService, "createConversation")
+      .mockResolvedValue({
+        id: "task-id",
+        app_conversation_id: "conv-explicit-default",
+        agent_server_url: "http://agent-server.local",
+      } as never);
+
+    const { result } = renderHook(() => useCreateConversation(), {
+      wrapper: ({ children }) => (
+        <QueryClientProvider client={new QueryClient()}>
+          {children}
+        </QueryClientProvider>
+      ),
+    });
+
+    await result.current.mutateAsync({
+      query: "module launch",
+      agentProfileId: "profile-default-selected",
+    });
+
+    expect(createConversationSpy.mock.lastCall?.[0]).toMatchObject({
+      agentProfileId: "profile-default-selected",
+      agentProfileKind: "openhands",
+    });
+  });
+
   it("keeps the named profile path on cloud regardless of the active LLM profile (#16539)", async () => {
     // The dropdown override is local-only, like the other downgrades: cloud
     // has no agent_settings payload to fall back to.

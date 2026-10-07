@@ -3,7 +3,7 @@ import { renderHook, waitFor, act } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { useDckCustomModules } from "#/hooks/query/use-dck-custom-modules";
+import { useDckModulesConfig } from "#/hooks/query/use-dck-modules-config";
 
 const downloadTextFileMock = vi.fn();
 const uploadTextFileMock = vi.fn();
@@ -48,7 +48,7 @@ function configJson(
   });
 }
 
-describe("useDckCustomModules", () => {
+describe("useDckModulesConfig", () => {
   beforeEach(() => {
     vi.stubEnv("VITE_DCK_WORKSPACE_ROOT", "");
     downloadTextFileMock.mockReset();
@@ -64,7 +64,7 @@ describe("useDckCustomModules", () => {
   it("returns an empty list when the config file is missing", async () => {
     downloadTextFileMock.mockRejectedValue(new Error("not found"));
 
-    const { result } = renderHook(() => useDckCustomModules(), {
+    const { result } = renderHook(() => useDckModulesConfig(), {
       wrapper: makeWrapper(),
     });
 
@@ -80,7 +80,7 @@ describe("useDckCustomModules", () => {
       configJson([{ id: "custom-1", name: "Email", slug: "email" }]),
     );
 
-    const { result } = renderHook(() => useDckCustomModules(), {
+    const { result } = renderHook(() => useDckModulesConfig(), {
       wrapper: makeWrapper(),
     });
 
@@ -94,7 +94,7 @@ describe("useDckCustomModules", () => {
   it("upserts a new module and writes the serialized config to the .dck dir", async () => {
     downloadTextFileMock.mockResolvedValue(configJson([]));
 
-    const { result } = renderHook(() => useDckCustomModules(), {
+    const { result } = renderHook(() => useDckModulesConfig(), {
       wrapper: makeWrapper(),
     });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
@@ -123,6 +123,47 @@ describe("useDckCustomModules", () => {
     });
   });
 
+  it("persists only changed built-in fields and preserves custom modules", async () => {
+    downloadTextFileMock.mockResolvedValue(
+      JSON.stringify({
+        ...JSON.parse(
+          configJson([{ id: "custom-1", name: "Email", slug: "email" }]),
+        ),
+        builtinOverrides: [],
+      }),
+    );
+
+    const { result } = renderHook(() => useDckModulesConfig(), {
+      wrapper: makeWrapper(),
+    });
+    await waitFor(() => expect(result.current.modules).toHaveLength(1));
+
+    await act(async () => {
+      await result.current.upsertBuiltinOverride("research", {
+        name: "Desk Research",
+        iconName: "search",
+        description: "",
+        promptTemplate: "Investigate the topic.",
+        skillName: "",
+      });
+    });
+
+    const [text] = uploadTextFileMock.mock.calls[0];
+    expect(JSON.parse(text)).toMatchObject({
+      modules: [{ id: "custom-1", slug: "email" }],
+      builtinOverrides: [
+        {
+          id: "research",
+          name: "Desk Research",
+          description: "",
+          promptTemplate: "Investigate the topic.",
+          skillName: "",
+        },
+      ],
+    });
+    expect(JSON.parse(text).builtinOverrides[0]).not.toHaveProperty("iconName");
+  });
+
   it("removes a module", async () => {
     downloadTextFileMock.mockResolvedValue(
       configJson([
@@ -131,7 +172,7 @@ describe("useDckCustomModules", () => {
       ]),
     );
 
-    const { result } = renderHook(() => useDckCustomModules(), {
+    const { result } = renderHook(() => useDckModulesConfig(), {
       wrapper: makeWrapper(),
     });
     await waitFor(() => expect(result.current.modules).toHaveLength(2));
@@ -154,7 +195,7 @@ describe("useDckCustomModules", () => {
       ]),
     );
 
-    const { result } = renderHook(() => useDckCustomModules(), {
+    const { result } = renderHook(() => useDckModulesConfig(), {
       wrapper: makeWrapper(),
     });
     await waitFor(() => expect(result.current.modules).toHaveLength(2));
@@ -176,7 +217,7 @@ describe("useDckCustomModules", () => {
       orgId: "org-1",
     });
 
-    renderHook(() => useDckCustomModules(), { wrapper: makeWrapper() });
+    renderHook(() => useDckModulesConfig(), { wrapper: makeWrapper() });
     await new Promise((r) => {
       setTimeout(r, 10);
     });

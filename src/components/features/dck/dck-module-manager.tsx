@@ -1,8 +1,10 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronUp, ChevronDown, Pencil, Trash2, Plus } from "lucide-react";
+import type { AgentProfileSummary } from "#/api/agent-profiles-service/agent-profiles-service.api";
 import { ModalBackdrop } from "#/components/shared/modals/modal-backdrop";
 import { BrandButton } from "#/components/features/settings/brand-button";
+import { DckModuleAgentProfileSelector } from "#/components/features/dck/dck-module-agent-profile-selector";
 import { I18nKey } from "#/i18n/declaration";
 import { cn } from "#/utils/utils";
 import { displayErrorToast } from "#/utils/custom-toast-handlers";
@@ -11,6 +13,7 @@ import {
   DEFAULT_DCK_MODULE_ICON,
   getBuiltinDckModules,
   getDckWorkspaceRoot,
+  isBuiltinModuleId,
   resolveModuleIcon,
   type DckModule,
 } from "#/dck/modules";
@@ -22,8 +25,13 @@ import {
   type CustomModuleDraft,
   type DckCustomModule,
 } from "#/dck/module-config";
-import { useDckCustomModules } from "#/hooks/query/use-dck-custom-modules";
+import { useDckModulesConfig } from "#/hooks/query/use-dck-modules-config";
 import { useProjectSkills } from "#/hooks/query/use-project-skills";
+import {
+  isDckModuleAgentProfileSelectionBlocked,
+  resolveDckModuleAgentProfileSelection,
+  type DckModuleAgentProfileSelection,
+} from "#/hooks/use-dck-module-agent-profiles";
 import {
   useAllConversations,
   useOpenConversation,
@@ -42,11 +50,28 @@ const EMPTY_DRAFT: CustomModuleDraft = {
 
 type Mode =
   | { kind: "list" }
-  | { kind: "form"; editingId: string | null; draft: CustomModuleDraft };
+  | {
+      kind: "form";
+      moduleId: string;
+      editingId: string | null;
+      draft: CustomModuleDraft;
+    };
+
+interface DckModuleManagerProps {
+  onClose: () => void;
+  profiles: readonly AgentProfileSummary[];
+  activeAgentProfileId: string | null;
+  profileAssignments: Record<string, string | null>;
+  isCheckingAgentProfiles: boolean;
+  setAgentProfileForModule: (
+    moduleId: string,
+    profileId: string | null,
+  ) => void;
+}
 
 function ModuleRow({
   module,
-  readOnly,
+  isBuiltin,
   canMoveUp,
   canMoveDown,
   onEdit,
@@ -56,7 +81,7 @@ function ModuleRow({
   disabled,
 }: {
   module: DckModule;
-  readOnly: boolean;
+  isBuiltin: boolean;
   canMoveUp: boolean;
   canMoveDown: boolean;
   onEdit: () => void;
@@ -83,63 +108,74 @@ function ModuleRow({
           </span>
         )}
       </div>
-      {readOnly ? (
+      {isBuiltin && (
         <span
           data-testid={`dck-module-builtin-badge-${module.id}`}
           className="shrink-0 rounded bg-surface px-1.5 py-0.5 text-xs uppercase tracking-wide text-text-tertiary"
         >
           {t(I18nKey.DCK$MODULE_BUILTIN_BADGE)}
         </span>
-      ) : (
-        <div className="flex shrink-0 items-center gap-1">
-          <button
-            type="button"
-            disabled={disabled || !canMoveUp}
-            onClick={onMoveUp}
-            data-testid={`dck-module-move-up-${module.id}`}
-            aria-label={t(I18nKey.DCK$MODULE_MOVE_UP)}
-            className="rounded p-1 text-text-secondary hover:text-contrast disabled:opacity-30"
-          >
-            <ChevronUp size={16} aria-hidden />
-          </button>
-          <button
-            type="button"
-            disabled={disabled || !canMoveDown}
-            onClick={onMoveDown}
-            data-testid={`dck-module-move-down-${module.id}`}
-            aria-label={t(I18nKey.DCK$MODULE_MOVE_DOWN)}
-            className="rounded p-1 text-text-secondary hover:text-contrast disabled:opacity-30"
-          >
-            <ChevronDown size={16} aria-hidden />
-          </button>
-          <button
-            type="button"
-            disabled={disabled}
-            onClick={onEdit}
-            data-testid={`dck-module-edit-${module.id}`}
-            aria-label={t(I18nKey.DCK$MODULE_EDIT)}
-            className="rounded p-1 text-text-secondary hover:text-contrast disabled:opacity-50"
-          >
-            <Pencil size={16} aria-hidden />
-          </button>
+      )}
+      <div className="flex shrink-0 items-center gap-1">
+        {!isBuiltin && (
+          <>
+            <button
+              type="button"
+              disabled={disabled || !canMoveUp}
+              onClick={onMoveUp}
+              data-testid={`dck-module-move-up-${module.id}`}
+              aria-label={t(I18nKey.DCK$MODULE_MOVE_UP)}
+              className="rounded p-2 text-text-secondary hover:text-contrast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-contrast/30 disabled:opacity-30"
+            >
+              <ChevronUp size={16} aria-hidden />
+            </button>
+            <button
+              type="button"
+              disabled={disabled || !canMoveDown}
+              onClick={onMoveDown}
+              data-testid={`dck-module-move-down-${module.id}`}
+              aria-label={t(I18nKey.DCK$MODULE_MOVE_DOWN)}
+              className="rounded p-2 text-text-secondary hover:text-contrast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-contrast/30 disabled:opacity-30"
+            >
+              <ChevronDown size={16} aria-hidden />
+            </button>
+          </>
+        )}
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={onEdit}
+          data-testid={`dck-module-edit-${module.id}`}
+          aria-label={t(I18nKey.DCK$MODULE_EDIT)}
+          className="rounded p-2 text-text-secondary hover:text-contrast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-contrast/30 disabled:opacity-50"
+        >
+          <Pencil size={16} aria-hidden />
+        </button>
+        {!isBuiltin && (
           <button
             type="button"
             disabled={disabled}
             onClick={onDelete}
             data-testid={`dck-module-delete-${module.id}`}
             aria-label={t(I18nKey.DCK$MODULE_DELETE)}
-            className="rounded p-1 text-status-error hover:opacity-80 disabled:opacity-50"
+            className="rounded p-2 text-status-error hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-contrast/30 disabled:opacity-50"
           >
             <Trash2 size={16} aria-hidden />
           </button>
-        </div>
-      )}
+        )}
+      </div>
     </li>
   );
 }
 
 function ModuleForm({
+  moduleId,
   initialDraft,
+  isEditing,
+  profiles,
+  activeAgentProfileId,
+  initialProfileSelection,
+  isCheckingAgentProfiles,
   reservedSlugs,
   existingSlugs,
   skillOptions,
@@ -147,17 +183,44 @@ function ModuleForm({
   onCancel,
   onSubmit,
 }: {
+  moduleId: string;
   initialDraft: CustomModuleDraft;
+  isEditing: boolean;
+  profiles: readonly AgentProfileSummary[];
+  activeAgentProfileId: string | null;
+  initialProfileSelection: DckModuleAgentProfileSelection;
+  isCheckingAgentProfiles: boolean;
   reservedSlugs: string[];
   existingSlugs: string[];
   skillOptions: { name: string }[];
   isSaving: boolean;
   onCancel: () => void;
-  onSubmit: (draft: CustomModuleDraft) => void;
+  onSubmit: (
+    draft: CustomModuleDraft,
+    profileIdDraft: string | null | undefined,
+  ) => void;
 }) {
   const { t } = useTranslation("openhands");
   const [draft, setDraft] = React.useState<CustomModuleDraft>(initialDraft);
   const [showErrors, setShowErrors] = React.useState(false);
+  const [profileIdDraft, setProfileIdDraft] = React.useState<
+    string | null | undefined
+  >(undefined);
+
+  const profileSelection =
+    profileIdDraft === undefined
+      ? initialProfileSelection
+      : profileIdDraft === null
+        ? { status: "follow-active" as const }
+        : resolveDckModuleAgentProfileSelection(
+            moduleId,
+            { [moduleId]: profileIdDraft },
+            profiles,
+            isCheckingAgentProfiles,
+          );
+  const isProfileDraftBlocked =
+    profileIdDraft !== undefined &&
+    isDckModuleAgentProfileSelectionBlocked(profileSelection);
 
   const validation = validateCustomModuleDraft(draft, {
     reservedSlugs,
@@ -173,11 +236,12 @@ function ModuleForm({
       setShowErrors(true);
       return;
     }
-    onSubmit(draft);
+    if (isProfileDraftBlocked) return;
+    onSubmit(draft, profileIdDraft);
   };
 
   const fieldClass =
-    "w-full rounded-lg border border-border bg-base px-3 py-2 text-sm text-contrast";
+    "w-full rounded-lg border border-border bg-base px-3 py-2 text-sm text-contrast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-contrast/30";
   const labelClass = "flex flex-col gap-1 text-xs font-medium text-contrast";
   const errorClass = "text-xs text-status-error";
 
@@ -210,10 +274,15 @@ function ModuleForm({
           data-testid="dck-module-form-slug"
           value={draft.slug}
           onChange={(event) => setField("slug", event.target.value)}
-          className={fieldClass}
+          readOnly={isEditing}
+          className={cn(fieldClass, isEditing && "bg-base-secondary")}
         />
         <span className="text-xs font-normal text-text-tertiary">
-          {t(I18nKey.DCK$MODULE_FORM_SLUG_HINT)}
+          {t(
+            isEditing
+              ? I18nKey.DCK$MODULE_FORM_SLUG_FIXED_HINT
+              : I18nKey.DCK$MODULE_FORM_SLUG_HINT,
+          )}
         </span>
         {showErrors && validation.errors.slug && (
           <span data-testid="dck-module-form-slug-error" className={errorClass}>
@@ -227,6 +296,8 @@ function ModuleForm({
         <div
           className="flex flex-wrap gap-2"
           data-testid="dck-module-form-icons"
+          role="group"
+          aria-label={t(I18nKey.DCK$MODULE_FORM_ICON_LABEL)}
         >
           {ICON_NAMES.map((iconName) => {
             const Icon = resolveModuleIcon(iconName);
@@ -237,12 +308,11 @@ function ModuleForm({
                 type="button"
                 data-testid={`dck-module-form-icon-${iconName}`}
                 aria-pressed={selected}
+                aria-label={`${t(I18nKey.DCK$MODULE_FORM_ICON_LABEL)}: ${iconName}`}
                 onClick={() => setField("iconName", iconName)}
                 className={cn(
-                  "rounded-lg border p-2 text-text-secondary hover:text-contrast",
-                  selected
-                    ? "border-indigo-400 text-contrast"
-                    : "border-border",
+                  "rounded-lg border p-2 text-text-secondary hover:text-contrast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-contrast/30",
+                  selected ? "border-accent text-contrast" : "border-border",
                 )}
               >
                 <Icon size={18} aria-hidden />
@@ -305,7 +375,18 @@ function ModuleForm({
         </span>
       </label>
 
-      <div className="flex justify-end gap-2">
+      <DckModuleAgentProfileSelector
+        moduleId={moduleId}
+        profiles={profiles}
+        activeAgentProfileId={activeAgentProfileId}
+        selection={profileSelection}
+        disabled={isSaving}
+        onChange={(_selectedModuleId, profileId) =>
+          setProfileIdDraft(profileId)
+        }
+      />
+
+      <div className="sticky bottom-0 flex justify-end gap-2 border-t border-border bg-base-secondary py-3">
         <BrandButton
           type="button"
           variant="secondary"
@@ -319,7 +400,7 @@ function ModuleForm({
           type="submit"
           variant="primary"
           testId="dck-module-form-save"
-          isDisabled={isSaving}
+          isDisabled={isSaving || isProfileDraftBlocked}
         >
           {t(I18nKey.DCK$MODULE_FORM_SAVE)}
         </BrandButton>
@@ -346,7 +427,7 @@ function DeleteModuleConfirm({
     <ModalBackdrop onClose={isDeleting ? undefined : onCancel}>
       <div
         data-testid="dck-module-delete-confirm"
-        className="flex w-[28rem] max-w-[90vw] flex-col gap-4 rounded-xl border border-border bg-base-secondary p-4"
+        className="flex w-full max-w-md flex-col gap-4 rounded-xl border border-border bg-base-secondary p-4"
       >
         <p className="text-sm text-contrast">
           {t(I18nKey.DCK$MODULE_DELETE_CONFIRM, { name: module.name })}
@@ -386,9 +467,24 @@ function DeleteModuleConfirm({
   );
 }
 
-export function DckModuleManager({ onClose }: { onClose: () => void }) {
+export function DckModuleManager({
+  onClose,
+  profiles,
+  activeAgentProfileId,
+  profileAssignments,
+  isCheckingAgentProfiles,
+  setAgentProfileForModule,
+}: DckModuleManagerProps) {
   const { t } = useTranslation("openhands");
-  const { modules, isSaving, upsert, remove, move } = useDckCustomModules();
+  const {
+    modules,
+    builtinOverrides,
+    isSaving,
+    upsert,
+    upsertBuiltinOverride,
+    remove,
+    move,
+  } = useDckModulesConfig();
   const { skills } = useProjectSkills();
   const conversations = useAllConversations();
   const { prefillAndOpen } = useOpenConversation();
@@ -405,7 +501,10 @@ export function DckModuleManager({ onClose }: { onClose: () => void }) {
     return map;
   }, [skills]);
 
-  const builtins = React.useMemo(() => getBuiltinDckModules(), []);
+  const builtins = React.useMemo(
+    () => getBuiltinDckModules(builtinOverrides),
+    [builtinOverrides],
+  );
   const root = getDckWorkspaceRoot();
   const builtinSlugs = React.useMemo(
     () => builtins.map((module) => module.slug),
@@ -417,7 +516,7 @@ export function DckModuleManager({ onClose }: { onClose: () => void }) {
     name: module.name,
     slug: module.slug,
     workspacePath: `${root}/${module.slug}`,
-    skillName: "",
+    skillName: module.skillName,
     kind: "conversations",
     icon: resolveModuleIcon(module.iconName),
     iconName: module.iconName,
@@ -427,11 +526,17 @@ export function DckModuleManager({ onClose }: { onClose: () => void }) {
   }));
 
   const openCreate = () =>
-    setMode({ kind: "form", editingId: null, draft: EMPTY_DRAFT });
-
-  const openEdit = (module: DckCustomModule) =>
     setMode({
       kind: "form",
+      moduleId: makeCustomModuleId(),
+      editingId: null,
+      draft: EMPTY_DRAFT,
+    });
+
+  const openEdit = (module: DckModule) =>
+    setMode({
+      kind: "form",
+      moduleId: module.id,
       editingId: module.id,
       draft: {
         name: module.name,
@@ -448,12 +553,17 @@ export function DckModuleManager({ onClose }: { onClose: () => void }) {
       .filter((module) => module.id !== editingId)
       .map((module) => module.slug);
 
-  const handleSubmit = async (draft: CustomModuleDraft) => {
+  const editingBuiltin =
+    mode.kind === "form"
+      ? builtins.find((module) => module.id === mode.editingId)
+      : undefined;
+
+  const handleSubmit = async (
+    draft: CustomModuleDraft,
+    profileIdDraft: string | null | undefined,
+  ) => {
     if (mode.kind !== "form") return;
     const editingId = mode.editingId;
-    const existing = editingId
-      ? modules.find((module) => module.id === editingId)
-      : undefined;
     const skillName = draft.skillName.trim();
     const basePrompt = draft.promptTemplate.trim();
     const promptTemplate = skillName
@@ -462,18 +572,34 @@ export function DckModuleManager({ onClose }: { onClose: () => void }) {
           triggersBySkill.get(skillName) ?? [],
         )
       : basePrompt;
-    const next: DckCustomModule = {
-      id: existing?.id ?? makeCustomModuleId(),
-      name: draft.name.trim(),
-      slug: draft.slug.trim().toLowerCase(),
-      iconName: draft.iconName,
-      description: draft.description.trim(),
-      promptTemplate,
-      skillName,
-      order: existing?.order ?? modules.length,
-    };
     try {
-      await upsert(next);
+      if (editingId && isBuiltinModuleId(editingId)) {
+        await upsertBuiltinOverride(editingId, {
+          name: draft.name.trim(),
+          iconName: draft.iconName,
+          description: draft.description.trim(),
+          promptTemplate,
+          skillName,
+        });
+      } else {
+        const existing = editingId
+          ? modules.find((module) => module.id === editingId)
+          : undefined;
+        const next: DckCustomModule = {
+          id: mode.moduleId,
+          name: draft.name.trim(),
+          slug: draft.slug.trim().toLowerCase(),
+          iconName: draft.iconName,
+          description: draft.description.trim(),
+          promptTemplate,
+          skillName,
+          order: existing?.order ?? modules.length,
+        };
+        await upsert(next);
+      }
+      if (profileIdDraft !== undefined) {
+        setAgentProfileForModule(mode.moduleId, profileIdDraft);
+      }
       setMode({ kind: "list" });
     } catch {
       displayErrorToast(t(I18nKey.DCK$MODULE_SAVE_ERROR));
@@ -502,42 +628,64 @@ export function DckModuleManager({ onClose }: { onClose: () => void }) {
     }
   };
 
+  const dialogTitleKey =
+    mode.kind === "form"
+      ? mode.editingId
+        ? I18nKey.DCK$MODULE_EDIT
+        : I18nKey.DCK$MODULE_ADD
+      : I18nKey.DCK$MODULE_MANAGER_TITLE;
+
   return (
-    <ModalBackdrop onClose={onClose}>
+    <ModalBackdrop onClose={onClose} aria-label={t(dialogTitleKey)}>
       <div
         data-testid="dck-module-manager"
-        className="flex max-h-[85vh] w-[34rem] max-w-[92vw] flex-col gap-4 overflow-y-auto rounded-xl border border-border bg-base-secondary p-5"
+        className="flex max-h-[85dvh] w-[34rem] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-xl border border-border bg-base-secondary"
       >
-        <header className="flex flex-col gap-1">
+        <header className="flex shrink-0 flex-col gap-1 border-b border-border px-5 py-4">
           <h2 className="text-lg font-semibold text-contrast">
-            {t(I18nKey.DCK$MODULE_MANAGER_TITLE)}
+            {t(dialogTitleKey)}
           </h2>
-          <p className="text-xs text-text-tertiary">
-            {t(I18nKey.DCK$MODULE_MANAGER_DESCRIPTION)}
-          </p>
+          {mode.kind === "list" && (
+            <p className="text-xs text-text-tertiary">
+              {t(I18nKey.DCK$MODULE_MANAGER_DESCRIPTION)}
+            </p>
+          )}
         </header>
 
-        {mode.kind === "form" ? (
-          <ModuleForm
-            initialDraft={mode.draft}
-            reservedSlugs={builtinSlugs}
-            existingSlugs={existingSlugsExcluding(mode.editingId)}
-            skillOptions={skillOptions}
-            isSaving={isSaving}
-            onCancel={() => setMode({ kind: "list" })}
-            onSubmit={handleSubmit}
-          />
-        ) : (
-          <>
+        <div className="min-h-0 flex-1 overflow-y-auto p-5">
+          {mode.kind === "form" ? (
+            <ModuleForm
+              moduleId={mode.moduleId}
+              initialDraft={mode.draft}
+              isEditing={mode.editingId !== null}
+              profiles={profiles}
+              activeAgentProfileId={activeAgentProfileId}
+              initialProfileSelection={resolveDckModuleAgentProfileSelection(
+                mode.moduleId,
+                profileAssignments,
+                profiles,
+                isCheckingAgentProfiles,
+              )}
+              isCheckingAgentProfiles={isCheckingAgentProfiles}
+              reservedSlugs={builtinSlugs.filter(
+                (slug) => slug !== editingBuiltin?.slug,
+              )}
+              existingSlugs={existingSlugsExcluding(mode.editingId)}
+              skillOptions={skillOptions}
+              isSaving={isSaving}
+              onCancel={() => setMode({ kind: "list" })}
+              onSubmit={handleSubmit}
+            />
+          ) : (
             <ul className="flex flex-col gap-2">
               {builtins.map((module) => (
                 <ModuleRow
                   key={module.id}
                   module={module}
-                  readOnly
+                  isBuiltin
                   canMoveUp={false}
                   canMoveDown={false}
-                  onEdit={() => {}}
+                  onEdit={() => openEdit(module)}
                   onDelete={() => {}}
                   onMoveUp={() => {}}
                   onMoveDown={() => {}}
@@ -548,12 +696,10 @@ export function DckModuleManager({ onClose }: { onClose: () => void }) {
                 <ModuleRow
                   key={module.id}
                   module={module}
-                  readOnly={false}
+                  isBuiltin={false}
                   canMoveUp={index > 0}
                   canMoveDown={index < customAsModules.length - 1}
-                  onEdit={() =>
-                    openEdit(modules.find((entry) => entry.id === module.id)!)
-                  }
+                  onEdit={() => openEdit(module)}
                   onDelete={() => setDeletingModule(module)}
                   onMoveUp={() => void move(module.id, -1)}
                   onMoveDown={() => void move(module.id, 1)}
@@ -561,28 +707,30 @@ export function DckModuleManager({ onClose }: { onClose: () => void }) {
                 />
               ))}
             </ul>
+          )}
+        </div>
 
-            <div className="flex justify-between gap-2">
-              <BrandButton
-                type="button"
-                variant="secondary"
-                testId="dck-module-add"
-                startContent={<Plus size={16} aria-hidden />}
-                onClick={openCreate}
-                isDisabled={isSaving}
-              >
-                {t(I18nKey.DCK$MODULE_ADD)}
-              </BrandButton>
-              <BrandButton
-                type="button"
-                variant="primary"
-                testId="dck-module-manager-close"
-                onClick={onClose}
-              >
-                {t(I18nKey.DCK$MODULE_FORM_CANCEL)}
-              </BrandButton>
-            </div>
-          </>
+        {mode.kind === "list" && (
+          <div className="flex shrink-0 justify-between gap-2 border-t border-border px-5 py-4">
+            <BrandButton
+              type="button"
+              variant="secondary"
+              testId="dck-module-add"
+              startContent={<Plus size={16} aria-hidden />}
+              onClick={openCreate}
+              isDisabled={isSaving}
+            >
+              {t(I18nKey.DCK$MODULE_ADD)}
+            </BrandButton>
+            <BrandButton
+              type="button"
+              variant="primary"
+              testId="dck-module-manager-close"
+              onClick={onClose}
+            >
+              {t(I18nKey.BUTTON$CLOSE)}
+            </BrandButton>
+          </div>
         )}
       </div>
 

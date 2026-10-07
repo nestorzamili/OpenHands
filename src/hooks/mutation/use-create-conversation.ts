@@ -146,6 +146,7 @@ export const useCreateConversation = () => {
       // `useLlmProfiles()` render snapshot, which a fast send can outrun.
       let fetchedActiveLlmProfile: string | null = null;
       if (
+        !agentProfileId &&
         !isCloud &&
         resolvedAgentProfile?.name === WELL_KNOWN_DEFAULT_AGENT_PROFILE_NAME &&
         resolvedAgentProfile?.agent_kind === "openhands"
@@ -169,6 +170,7 @@ export const useCreateConversation = () => {
         // resolves `default` server-side via agent_profile_id (validated below).
         prefersAgentSettingsFallback = true;
       } else if (
+        !agentProfileId &&
         resolvedAgentProfile?.agent_kind === "openhands" &&
         resolvedAgentProfile.llm_profile_ref
       ) {

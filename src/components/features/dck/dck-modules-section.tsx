@@ -2,7 +2,14 @@ import React from "react";
 import { useTranslation } from "react-i18next";
 import { Settings2 } from "lucide-react";
 import { useSearchSubdirs } from "#/hooks/query/use-search-subdirs";
-import { useDckCustomModules } from "#/hooks/query/use-dck-custom-modules";
+import { useDckModulesConfig } from "#/hooks/query/use-dck-modules-config";
+import { useAgentProfiles } from "#/hooks/query/use-agent-profiles";
+import {
+  getDckModuleAgentProfileIdForLaunch,
+  isDckModuleAgentProfileSelectionBlocked,
+  resolveDckModuleAgentProfileSelection,
+  useDckModuleAgentProfiles,
+} from "#/hooks/use-dck-module-agent-profiles";
 import { NavigationLink } from "#/components/shared/navigation-link";
 import { I18nKey } from "#/i18n/declaration";
 import {
@@ -10,6 +17,7 @@ import {
   extensionModuleCardGridContainerClassName,
   extensionModuleCardSurfaceClassName,
 } from "#/utils/extension-module-card-classes";
+import { displayErrorToast } from "#/utils/custom-toast-handlers";
 import type { AppConversation } from "#/api/conversation-service/agent-server-conversation-service.types";
 import {
   DCK_COPY,
@@ -25,6 +33,7 @@ import {
 } from "#/components/features/dck/use-dck-conversations";
 import { WebgenNewProjectDialog } from "#/components/features/dck/webgen-new-project-dialog";
 import { DckModuleManager } from "#/components/features/dck/dck-module-manager";
+import { DckModuleAgentProfileSelector } from "#/components/features/dck/dck-module-agent-profile-selector";
 import {
   buildWebgenScaffoldPrompt,
   type WebgenNewProjectSpec,
@@ -47,10 +56,14 @@ function ProjectsCard({
   module,
   onNewProject,
   isCreating,
+  profileSelectionBlocked,
+  profileSelector,
 }: {
   module: DckModule;
   onNewProject: () => void;
   isCreating: boolean;
+  profileSelectionBlocked: boolean;
+  profileSelector: React.ReactNode;
 }) {
   const { t } = useTranslation("openhands");
   const subdirs = useSearchSubdirs(module.workspacePath);
@@ -60,10 +73,11 @@ function ProjectsCard({
     <ModuleCardShell
       module={module}
       count={formatProjectCount(count)}
+      profileSelector={profileSelector}
       action={
         <button
           type="button"
-          disabled={isCreating}
+          disabled={isCreating || profileSelectionBlocked}
           onClick={onNewProject}
           className="shrink-0 text-xs font-medium text-indigo-400 hover:text-indigo-300 disabled:opacity-50"
         >
@@ -85,11 +99,21 @@ function ConversationsCard({
   conversations,
   createNew,
   isCreating,
+  profileSelectionBlocked,
+  profileSelector,
+  agentProfileId,
 }: {
   module: DckModule;
   conversations: AppConversation[];
-  createNew: (workingDir: string, promptTemplate?: string) => void;
+  createNew: (
+    workingDir: string,
+    promptTemplate?: string,
+    agentProfileId?: string,
+  ) => void;
   isCreating: boolean;
+  profileSelectionBlocked: boolean;
+  profileSelector: React.ReactNode;
+  agentProfileId?: string;
 }) {
   const { t } = useTranslation("openhands");
   const count = React.useMemo(
@@ -101,11 +125,18 @@ function ConversationsCard({
     <ModuleCardShell
       module={module}
       count={formatProjectCount(count)}
+      profileSelector={profileSelector}
       action={
         <button
           type="button"
-          disabled={isCreating}
-          onClick={() => createNew(module.workspacePath, module.promptTemplate)}
+          disabled={isCreating || profileSelectionBlocked}
+          onClick={() =>
+            createNew(
+              module.workspacePath,
+              module.promptTemplate,
+              agentProfileId,
+            )
+          }
           className="shrink-0 text-xs font-medium text-indigo-400 hover:text-indigo-300 disabled:opacity-50"
         >
           {t(I18nKey.COMMON$NEW_CONVERSATION)}
@@ -125,19 +156,59 @@ export function DckModulesSection() {
   const { t } = useTranslation("openhands");
   const conversations = useAllConversations();
   const { createScoped, isCreating } = useOpenConversation();
-  const { modules: customModules } = useDckCustomModules();
+  const { modules: customModules, builtinOverrides } = useDckModulesConfig();
+  const agentProfilesQuery = useAgentProfiles();
+  const agentProfiles = agentProfilesQuery.data?.profiles ?? [];
+  const isCheckingAgentProfiles = Boolean(
+    agentProfilesQuery.isLoading || agentProfilesQuery.isFetching,
+  );
+  const agentProfilesVerified =
+    Boolean(agentProfilesQuery.data) &&
+    !isCheckingAgentProfiles &&
+    !agentProfilesQuery.isError;
+  const { assignments, setAgentProfileForModule } = useDckModuleAgentProfiles(
+    agentProfiles,
+    agentProfilesVerified,
+  );
+  const activeAgentProfileId =
+    agentProfilesQuery.data?.active_agent_profile_id ?? null;
   const modules = React.useMemo(
-    () => mergeDckModules(customModules),
-    [customModules],
+    () => mergeDckModules(customModules, builtinOverrides),
+    [customModules, builtinOverrides],
   );
   const [showModuleManager, setShowModuleManager] = React.useState(false);
-  const createNew = (workingDir: string, promptTemplate?: string) =>
-    void createScoped(workingDir, promptTemplate ?? "");
+  const createNew = (
+    workingDir: string,
+    promptTemplate?: string,
+    agentProfileId?: string,
+  ) => void createScoped(workingDir, promptTemplate ?? "", agentProfileId);
 
   // Webgen uses a spec dialog (name/description/DB/auth) before creating a
   // conversation, so the first message carries the spec and the agent starts
   // scaffolding without a round-trip of clarifying questions.
   const webgenModule = modules.find((module) => module.id === "webgen") ?? null;
+  const webgenProfileSelection = webgenModule
+    ? resolveDckModuleAgentProfileSelection(
+        webgenModule.id,
+        assignments,
+        agentProfiles,
+        isCheckingAgentProfiles,
+      )
+    : null;
+  const webgenAgentProfileId = webgenProfileSelection
+    ? getDckModuleAgentProfileIdForLaunch(webgenProfileSelection)
+    : undefined;
+  const webgenProfileSelectionBlocked = webgenProfileSelection
+    ? isDckModuleAgentProfileSelectionBlocked(webgenProfileSelection)
+    : false;
+  const webgenProfileSelectionBlockedMessage =
+    webgenProfileSelection?.status === "unavailable"
+      ? t(I18nKey.DCK$MODULE_AGENT_PROFILE_STALE)
+      : webgenProfileSelection?.status === "checking"
+        ? t(I18nKey.DCK$MODULE_AGENT_PROFILE_CHECKING, {
+            id: webgenProfileSelection.profileId,
+          })
+        : undefined;
   const [showWebgenDialog, setShowWebgenDialog] = React.useState(false);
   const webgenSubdirs = useSearchSubdirs(webgenModule?.workspacePath ?? null);
   const existingWebgenNames = React.useMemo(
@@ -166,16 +237,43 @@ export function DckModulesSection() {
       </div>
       <div className={extensionModuleCardGridClassName}>
         {modules.map((module) => {
+          const profileSelection = resolveDckModuleAgentProfileSelection(
+            module.id,
+            assignments,
+            agentProfiles,
+            isCheckingAgentProfiles,
+          );
+          const moduleAgentProfileId =
+            getDckModuleAgentProfileIdForLaunch(profileSelection);
+          const profileSelectionBlocked =
+            isDckModuleAgentProfileSelectionBlocked(profileSelection);
+          const profileSelector = (
+            <DckModuleAgentProfileSelector
+              moduleId={module.id}
+              profiles={agentProfiles}
+              activeAgentProfileId={activeAgentProfileId}
+              selection={profileSelection}
+              disabled={isCreating}
+              onChange={setAgentProfileForModule}
+            />
+          );
+
           if (module.kind === "projects") {
             return (
               <ProjectsCard
                 key={module.id}
                 module={module}
+                profileSelector={profileSelector}
+                profileSelectionBlocked={profileSelectionBlocked}
                 onNewProject={
                   module.id === "webgen"
                     ? () => setShowWebgenDialog(true)
                     : () =>
-                        createNew(module.workspacePath, module.promptTemplate)
+                        createNew(
+                          module.workspacePath,
+                          module.promptTemplate,
+                          moduleAgentProfileId,
+                        )
                 }
                 isCreating={isCreating}
               />
@@ -187,7 +285,10 @@ export function DckModulesSection() {
               module={module}
               conversations={conversations}
               createNew={createNew}
+              agentProfileId={moduleAgentProfileId}
+              profileSelector={profileSelector}
               isCreating={isCreating}
+              profileSelectionBlocked={profileSelectionBlocked}
             />
           );
         })}
@@ -196,18 +297,35 @@ export function DckModulesSection() {
         <WebgenNewProjectDialog
           existingNames={existingWebgenNames}
           isSubmitting={isCreating}
+          profileSelectionBlocked={webgenProfileSelectionBlocked}
+          profileSelectionBlockedMessage={webgenProfileSelectionBlockedMessage}
           onCancel={() => setShowWebgenDialog(false)}
           onSubmit={(spec: WebgenNewProjectSpec) => {
+            if (webgenProfileSelectionBlocked) {
+              displayErrorToast(
+                webgenProfileSelectionBlockedMessage ??
+                  t(I18nKey.DCK$MODULE_AGENT_PROFILE_STALE),
+              );
+              return;
+            }
             void createScoped(
               webgenModule.workspacePath,
               buildWebgenScaffoldPrompt(spec),
+              webgenAgentProfileId,
             );
             setShowWebgenDialog(false);
           }}
         />
       )}
       {showModuleManager && (
-        <DckModuleManager onClose={() => setShowModuleManager(false)} />
+        <DckModuleManager
+          onClose={() => setShowModuleManager(false)}
+          profiles={agentProfiles}
+          activeAgentProfileId={activeAgentProfileId}
+          profileAssignments={assignments}
+          isCheckingAgentProfiles={isCheckingAgentProfiles}
+          setAgentProfileForModule={setAgentProfileForModule}
+        />
       )}
     </section>
   );
@@ -217,11 +335,13 @@ function ModuleCardShell({
   module,
   count,
   action,
+  profileSelector,
   children,
 }: {
   module: DckModule;
   count: string | null;
   action: React.ReactNode;
+  profileSelector: React.ReactNode;
   children: React.ReactNode;
 }) {
   const Icon = module.icon;
@@ -250,6 +370,7 @@ function ModuleCardShell({
           {count}
         </p>
       )}
+      {profileSelector}
       <div className="flex min-h-0 flex-col">{children}</div>
     </section>
   );

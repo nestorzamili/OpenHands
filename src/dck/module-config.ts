@@ -14,6 +14,15 @@ export interface DckCustomModule {
   order: number;
 }
 
+export interface DckBuiltinModuleOverride {
+  id: string;
+  name?: string;
+  iconName?: string;
+  description?: string;
+  promptTemplate?: string;
+  skillName?: string;
+}
+
 export const DCK_MODULE_SLUG_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
 const SLUG_MAX_LENGTH = 64;
 const NAME_MAX_LENGTH = 64;
@@ -118,7 +127,65 @@ export function parseDckModulesConfig(
     .map((module, index) => ({ ...module, order: index }));
 }
 
-export function serializeDckModulesConfig(modules: DckCustomModule[]): string {
+export function parseDckBuiltinModuleOverrides(
+  raw: string | null,
+  builtinIds: readonly string[],
+): DckBuiltinModuleOverride[] {
+  if (!raw || builtinIds.length === 0) return [];
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+
+  if (
+    typeof parsed !== "object" ||
+    parsed === null ||
+    !Array.isArray((parsed as { builtinOverrides?: unknown }).builtinOverrides)
+  ) {
+    return [];
+  }
+
+  const allowedIds = new Set(builtinIds);
+  const seenIds = new Set<string>();
+  const fields = [
+    "name",
+    "iconName",
+    "description",
+    "promptTemplate",
+    "skillName",
+  ] as const;
+  const requiredFields = new Set(["name", "iconName", "promptTemplate"]);
+
+  return (parsed as { builtinOverrides: unknown[] }).builtinOverrides.flatMap(
+    (entry) => {
+      if (typeof entry !== "object" || entry === null) return [];
+      const record = entry as Record<string, unknown>;
+      const id = coerceString(record.id);
+      if (!id || !allowedIds.has(id) || seenIds.has(id)) return [];
+
+      const override: DckBuiltinModuleOverride = { id };
+      fields.forEach((field) => {
+        const value = record[field];
+        if (typeof value !== "string") return;
+        const normalized = value.trim();
+        if (requiredFields.has(field) && normalized.length === 0) return;
+        override[field] = normalized;
+      });
+
+      if (Object.keys(override).length === 1) return [];
+      seenIds.add(id);
+      return [override];
+    },
+  );
+}
+
+export function serializeDckModulesConfig(
+  modules: DckCustomModule[],
+  builtinOverrides: readonly DckBuiltinModuleOverride[] = [],
+): string {
   const normalized = modules.map((module, index) => ({
     id: module.id,
     name: module.name,
@@ -129,7 +196,23 @@ export function serializeDckModulesConfig(modules: DckCustomModule[]): string {
     skillName: module.skillName,
     order: index,
   }));
-  return `${JSON.stringify({ modules: normalized }, null, 2)}\n`;
+  const normalizedOverrides = builtinOverrides.map((override) => ({
+    id: override.id,
+    ...(override.name !== undefined && { name: override.name }),
+    ...(override.iconName !== undefined && { iconName: override.iconName }),
+    ...(override.description !== undefined && {
+      description: override.description,
+    }),
+    ...(override.promptTemplate !== undefined && {
+      promptTemplate: override.promptTemplate,
+    }),
+    ...(override.skillName !== undefined && { skillName: override.skillName }),
+  }));
+  return `${JSON.stringify(
+    { modules: normalized, builtinOverrides: normalizedOverrides },
+    null,
+    2,
+  )}\n`;
 }
 
 export interface CustomModuleDraft {

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildModuleFolderDeleteCommand,
   composePromptWithSkillTrigger,
+  parseDckBuiltinModuleOverrides,
   parseDckModulesConfig,
   serializeDckModulesConfig,
   validateCustomModuleDraft,
@@ -29,7 +30,11 @@ describe("parseDckModulesConfig", () => {
     const raw = JSON.stringify({ modules: [module({})] });
     const result = parseDckModulesConfig(raw);
     expect(result).toHaveLength(1);
-    expect(result[0]).toMatchObject({ id: "custom-1", slug: "email", order: 0 });
+    expect(result[0]).toMatchObject({
+      id: "custom-1",
+      slug: "email",
+      order: 0,
+    });
   });
 
   it("parses a bare array too", () => {
@@ -114,6 +119,36 @@ describe("serializeDckModulesConfig", () => {
       ["a", 0],
       ["b", 1],
     ]);
+  });
+
+  it("round-trips sparse built-in overrides without altering custom modules", () => {
+    const override = {
+      id: "research",
+      name: "Desk Research",
+      description: "",
+    };
+    const text = serializeDckModulesConfig([module({})], [override]);
+
+    expect(parseDckModulesConfig(text)).toHaveLength(1);
+    expect(
+      parseDckBuiltinModuleOverrides(text, ["research", "webgen"]),
+    ).toEqual([override]);
+  });
+
+  it("drops duplicate, unknown, and invalid built-in override entries", () => {
+    const raw = JSON.stringify({
+      modules: [],
+      builtinOverrides: [
+        { id: "research", name: "Desk Research" },
+        { id: "research", name: "Duplicate" },
+        { id: "missing", name: "Unknown" },
+        { id: "webgen", name: "  " },
+      ],
+    });
+
+    expect(parseDckBuiltinModuleOverrides(raw, ["research", "webgen"])).toEqual(
+      [{ id: "research", name: "Desk Research" }],
+    );
   });
 });
 

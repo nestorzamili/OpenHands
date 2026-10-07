@@ -13,7 +13,10 @@ import {
 import type { AppConversation } from "#/api/conversation-service/agent-server-conversation-service.types";
 import { ExecutionStatus } from "#/types/agent-server/core/base/common";
 import type { DckProjectMeta } from "#/dck/project-metadata";
-import type { DckCustomModule } from "#/dck/module-config";
+import type {
+  DckBuiltinModuleOverride,
+  DckCustomModule,
+} from "#/dck/module-config";
 
 export type DckModuleKind = "projects" | "conversations";
 
@@ -157,11 +160,21 @@ function customModuleToDef(custom: DckCustomModule): DckModuleDef {
   };
 }
 
-export function getBuiltinDckModules(): DckModule[] {
+export function getBuiltinDckModules(
+  overrides: readonly DckBuiltinModuleOverride[] = [],
+): DckModule[] {
   const root = getDckWorkspaceRoot();
-  return DCK_BUILTIN_MODULE_DEFS.map((def) =>
-    resolveModule(def, root, "builtin"),
+  const overridesById = new Map(
+    overrides.map((override) => [override.id, override]),
   );
+  return DCK_BUILTIN_MODULE_DEFS.map((def) => {
+    const override = overridesById.get(def.id);
+    return resolveModule(
+      override ? { ...def, ...override } : def,
+      root,
+      "builtin",
+    );
+  });
 }
 
 /**
@@ -169,9 +182,12 @@ export function getBuiltinDckModules(): DckModule[] {
  * user authored. Custom entries whose id collides with a built-in are dropped
  * by the parser, so built-ins always win.
  */
-export function mergeDckModules(custom: DckCustomModule[]): DckModule[] {
+export function mergeDckModules(
+  custom: DckCustomModule[],
+  builtinOverrides: readonly DckBuiltinModuleOverride[] = [],
+): DckModule[] {
   const root = getDckWorkspaceRoot();
-  const builtins = getBuiltinDckModules();
+  const builtins = getBuiltinDckModules(builtinOverrides);
   const customModules = custom.map((entry) =>
     resolveModule(customModuleToDef(entry), root, "custom"),
   );

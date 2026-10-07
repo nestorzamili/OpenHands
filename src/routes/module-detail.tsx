@@ -25,8 +25,17 @@ import {
   mergeDckModules,
   type DckModule,
 } from "#/dck/modules";
-import { useDckCustomModules } from "#/hooks/query/use-dck-custom-modules";
+import { useDckModulesConfig } from "#/hooks/query/use-dck-modules-config";
 import type { AppConversation } from "#/api/conversation-service/agent-server-conversation-service.types";
+import { useAgentProfiles } from "#/hooks/query/use-agent-profiles";
+import { DckModuleAgentProfileSelector } from "#/components/features/dck/dck-module-agent-profile-selector";
+import {
+  getDckModuleAgentProfileIdForLaunch,
+  isDckModuleAgentProfileSelectionBlocked,
+  resolveDckModuleAgentProfileSelection,
+  useDckModuleAgentProfiles,
+} from "#/hooks/use-dck-module-agent-profiles";
+import { displayErrorToast } from "#/utils/custom-toast-handlers";
 
 function ListState({
   state,
@@ -253,6 +262,48 @@ export function ModuleDetailView({
   } = useAllConversationsQuery();
   const { openPath, createScoped, prefillAndOpen, isCreating } =
     useOpenConversation();
+  const agentProfilesQuery = useAgentProfiles();
+  const agentProfiles = agentProfilesQuery.data?.profiles ?? [];
+  const isCheckingAgentProfiles = Boolean(
+    agentProfilesQuery.isLoading || agentProfilesQuery.isFetching,
+  );
+  const agentProfilesVerified =
+    Boolean(agentProfilesQuery.data) &&
+    !isCheckingAgentProfiles &&
+    !agentProfilesQuery.isError;
+  const { assignments, setAgentProfileForModule } = useDckModuleAgentProfiles(
+    agentProfiles,
+    agentProfilesVerified,
+  );
+  const activeAgentProfileId =
+    agentProfilesQuery.data?.active_agent_profile_id ?? null;
+  const moduleProfileSelection = dckModule
+    ? resolveDckModuleAgentProfileSelection(
+        dckModule.id,
+        assignments,
+        agentProfiles,
+        isCheckingAgentProfiles,
+      )
+    : { status: "follow-active" as const };
+  const moduleAgentProfileId = getDckModuleAgentProfileIdForLaunch(
+    moduleProfileSelection,
+  );
+  const moduleProfileSelectionBlocked = isDckModuleAgentProfileSelectionBlocked(
+    moduleProfileSelection,
+  );
+  const moduleProfileSelectionBlockedMessage =
+    moduleProfileSelection.status === "unavailable"
+      ? t(I18nKey.DCK$MODULE_AGENT_PROFILE_STALE)
+      : moduleProfileSelection.status === "checking"
+        ? t(I18nKey.DCK$MODULE_AGENT_PROFILE_CHECKING, {
+            id: moduleProfileSelection.profileId,
+          })
+        : undefined;
+  const moduleLaunchOptions = {
+    agentProfileId: moduleAgentProfileId,
+    canCreateNew: !moduleProfileSelectionBlocked,
+    blockedMessage: moduleProfileSelectionBlockedMessage,
+  };
   const [showNewProjectDialog, setShowNewProjectDialog] = React.useState(false);
 
   // Existing webgen project names, used to block duplicate names in the New
@@ -288,20 +339,25 @@ export function ModuleDetailView({
   }
 
   const Icon = dckModule.icon;
-  const open = (path: string) => void openPath(path, conversations, undefined);
+  const open = (path: string) =>
+    void openPath(path, conversations, undefined, moduleLaunchOptions);
   const dispatchLifecycle = (path: string, command: string) =>
-    void prefillAndOpen(path, conversations, command);
+    void prefillAndOpen(path, conversations, command, moduleLaunchOptions);
 
   let headerAction: React.ReactNode = null;
   if (dckModule.kind === "projects") {
     const onNewProject = isWebgenModule
       ? () => setShowNewProjectDialog(true)
       : () =>
-          void createScoped(dckModule.workspacePath, dckModule.promptTemplate);
+          void createScoped(
+            dckModule.workspacePath,
+            dckModule.promptTemplate,
+            moduleAgentProfileId,
+          );
     headerAction = (
       <button
         type="button"
-        disabled={isCreating}
+        disabled={isCreating || moduleProfileSelectionBlocked}
         onClick={onNewProject}
         data-testid="dck-module-new-project"
         className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-indigo-400 hover:text-indigo-300 disabled:opacity-50"
@@ -313,9 +369,13 @@ export function ModuleDetailView({
     headerAction = (
       <button
         type="button"
-        disabled={isCreating}
+        disabled={isCreating || moduleProfileSelectionBlocked}
         onClick={() =>
-          void createScoped(dckModule.workspacePath, dckModule.promptTemplate)
+          void createScoped(
+            dckModule.workspacePath,
+            dckModule.promptTemplate,
+            moduleAgentProfileId,
+          )
         }
         data-testid="dck-module-new-conversation"
         className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-indigo-400 hover:text-indigo-300 disabled:opacity-50"
@@ -351,6 +411,14 @@ export function ModuleDetailView({
             </div>
             {headerAction}
           </div>
+          <DckModuleAgentProfileSelector
+            moduleId={dckModule.id}
+            profiles={agentProfiles}
+            activeAgentProfileId={activeAgentProfileId}
+            selection={moduleProfileSelection}
+            disabled={isCreating}
+            onChange={setAgentProfileForModule}
+          />
           <div className="flex flex-col">
             {dckModule.kind === "projects" && (
               <ModuleProjectsList
@@ -382,11 +450,21 @@ export function ModuleDetailView({
         <WebgenNewProjectDialog
           existingNames={existingWebgenNames}
           isSubmitting={isCreating}
+          profileSelectionBlocked={moduleProfileSelectionBlocked}
+          profileSelectionBlockedMessage={moduleProfileSelectionBlockedMessage}
           onCancel={() => setShowNewProjectDialog(false)}
           onSubmit={(spec: WebgenNewProjectSpec) => {
+            if (moduleProfileSelectionBlocked) {
+              displayErrorToast(
+                moduleProfileSelectionBlockedMessage ??
+                  t(I18nKey.DCK$MODULE_AGENT_PROFILE_STALE),
+              );
+              return;
+            }
             void createScoped(
               dckModule.workspacePath,
               buildWebgenScaffoldPrompt(spec),
+              moduleAgentProfileId,
             );
             setShowNewProjectDialog(false);
           }}
@@ -398,10 +476,10 @@ export function ModuleDetailView({
 
 export default function ModuleDetail() {
   const { moduleId } = useParams();
-  const { modules: customModules } = useDckCustomModules();
+  const { modules: customModules, builtinOverrides } = useDckModulesConfig();
   const merged = React.useMemo(
-    () => mergeDckModules(customModules),
-    [customModules],
+    () => mergeDckModules(customModules, builtinOverrides),
+    [customModules, builtinOverrides],
   );
   return <ModuleDetailView dckModule={findDckModuleById(merged, moduleId)} />;
 }

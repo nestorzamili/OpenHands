@@ -64,7 +64,9 @@ describe("DCK module registry", () => {
       expect(typeof resolveModuleIcon(module.iconName)).toBe("object");
     }
     // Unknown icon name falls back to the default rather than undefined.
-    expect(resolveModuleIcon("not-a-real-icon")).toBe(resolveModuleIcon("blocks"));
+    expect(resolveModuleIcon("not-a-real-icon")).toBe(
+      resolveModuleIcon("blocks"),
+    );
   });
 
   it("recognizes built-in module ids", () => {
@@ -131,6 +133,25 @@ describe("DCK module registry", () => {
     expect(customModule?.kind).toBe("conversations");
     expect(customModule?.workspacePath).toBe("/projects/email");
     expect(findDckModuleById(merged, "custom-1")?.name).toBe("Email Campaigns");
+  });
+
+  it("applies built-in edits while keeping its id, kind, and workspace path stable", () => {
+    vi.stubEnv("VITE_DCK_WORKSPACE_ROOT", "");
+    const merged = mergeDckModules(
+      [],
+      [{ id: "research", name: "Field Research", iconName: "sparkles" }],
+    );
+    const research = merged.find((module) => module.id === "research");
+
+    expect(research).toMatchObject({
+      id: "research",
+      name: "Field Research",
+      slug: "research",
+      workspacePath: "/projects/research",
+      kind: "conversations",
+      source: "builtin",
+      iconName: "sparkles",
+    });
   });
 });
 

@@ -32,6 +32,12 @@ export function useAllConversationsQuery() {
   };
 }
 
+export interface DckConversationLaunchOptions {
+  agentProfileId?: string;
+  canCreateNew?: boolean;
+  blockedMessage?: string;
+}
+
 export function useOpenConversation() {
   const { navigate } = useNavigation();
   const { mutateAsync: createConversation, isPending } =
@@ -45,16 +51,24 @@ export function useOpenConversation() {
       workingDir: string,
       conversations: AppConversation[],
       promptTemplate?: string,
+      options?: DckConversationLaunchOptions,
     ) => {
       const existing = latestConversationForPath(conversations, workingDir);
       if (existing) {
         navigate(`/conversations/${existing.id}`);
         return;
       }
+      if (options?.canCreateNew === false) {
+        if (options.blockedMessage) displayErrorToast(options.blockedMessage);
+        return;
+      }
       try {
         const data = await createConversation({
           workingDir,
           ...(promptTemplate ? { query: promptTemplate } : {}),
+          ...(options?.agentProfileId
+            ? { agentProfileId: options.agentProfileId }
+            : {}),
         });
         navigate(`/conversations/${data.conversation_id}`);
       } catch (error) {
@@ -65,9 +79,13 @@ export function useOpenConversation() {
   );
 
   const createScoped = React.useCallback(
-    async (workingDir: string, query: string) => {
+    async (workingDir: string, query: string, agentProfileId?: string) => {
       try {
-        const data = await createConversation({ workingDir, query });
+        const data = await createConversation({
+          workingDir,
+          query,
+          ...(agentProfileId ? { agentProfileId } : {}),
+        });
         navigate(`/conversations/${data.conversation_id}`);
       } catch (error) {
         displayErrorToast(error instanceof Error ? error.message : null);
@@ -81,6 +99,7 @@ export function useOpenConversation() {
       workingDir: string,
       conversations: AppConversation[],
       command: string,
+      options?: DckConversationLaunchOptions,
     ) => {
       const existing = latestConversationForPath(conversations, workingDir);
       if (existing) {
@@ -88,8 +107,17 @@ export function useOpenConversation() {
         navigate(`/conversations/${existing.id}`);
         return;
       }
+      if (options?.canCreateNew === false) {
+        if (options.blockedMessage) displayErrorToast(options.blockedMessage);
+        return;
+      }
       try {
-        const data = await createConversation({ workingDir });
+        const data = await createConversation({
+          workingDir,
+          ...(options?.agentProfileId
+            ? { agentProfileId: options.agentProfileId }
+            : {}),
+        });
         setMessageToSend(command);
         navigate(`/conversations/${data.conversation_id}`);
       } catch (error) {

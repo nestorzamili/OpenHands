@@ -16,6 +16,10 @@ interface WebgenNewProjectDialogProps {
   existingNames: readonly string[];
   /** True while the conversation is being created after submit. */
   isSubmitting: boolean;
+  /** Prevent starting a conversation until the module profile is resolved. */
+  profileSelectionBlocked?: boolean;
+  /** Localized reason the module profile currently blocks submission. */
+  profileSelectionBlockedMessage?: string;
   onSubmit: (spec: WebgenNewProjectSpec) => void;
   onCancel: () => void;
 }
@@ -30,6 +34,8 @@ interface WebgenNewProjectDialogProps {
 export function WebgenNewProjectDialog({
   existingNames,
   isSubmitting,
+  profileSelectionBlocked = false,
+  profileSelectionBlockedMessage,
   onSubmit,
   onCancel,
 }: WebgenNewProjectDialogProps) {
@@ -47,10 +53,11 @@ export function WebgenNewProjectDialog({
 
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
-    if (!validation.valid || isSubmitting) {
+    if (!validation.valid) {
       setNameTouched(true);
       return;
     }
+    if (isSubmitting || profileSelectionBlocked) return;
     onSubmit({ name: name.trim(), description, needsDatabase, needsAuth });
   };
 
@@ -73,6 +80,15 @@ export function WebgenNewProjectDialog({
           <p className="text-sm text-text-tertiary">
             {t(I18nKey.DCK$NEW_PROJECT_DIALOG_DESCRIPTION)}
           </p>
+          {profileSelectionBlocked && profileSelectionBlockedMessage && (
+            <p
+              data-testid="webgen-new-project-profile-warning"
+              role="alert"
+              className="text-sm text-danger"
+            >
+              {profileSelectionBlockedMessage}
+            </p>
+          )}
         </div>
 
         <SettingsInput
@@ -148,7 +164,9 @@ export function WebgenNewProjectDialog({
             testId="webgen-new-project-submit"
             type="submit"
             variant="primary"
-            isDisabled={!validation.valid || isSubmitting}
+            isDisabled={
+              !validation.valid || isSubmitting || profileSelectionBlocked
+            }
             aria-busy={isSubmitting}
           >
             {t(I18nKey.DCK$NEW_PROJECT_CREATE)}

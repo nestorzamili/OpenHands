@@ -60,9 +60,11 @@ export function makeDefaultLocalBackend(): Backend | null {
 
   if (!host || !apiKey) return null;
 
+  const configuredName = import.meta.env.VITE_DEFAULT_BACKEND_NAME?.trim();
+
   return {
     id: SEEDED_DEFAULT_BACKEND_ID,
-    name: DEFAULT_LOCAL_BACKEND_NAME,
+    name: configuredName || DEFAULT_LOCAL_BACKEND_NAME,
     host,
     apiKey,
     kind: "local",

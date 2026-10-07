@@ -120,6 +120,89 @@ describe("static-server portal auth", () => {
     expect(res.headers.location).toBe("/setup?returnTo=%2F");
   });
 
+  it("preserves a deep link and its backend/org query through portal login", async () => {
+    const { base } = await startPortalServer();
+    await rawRequest(`${base}/api/portal-auth/setup`, "POST", {
+      body: { username: "grok", password: "supersecret1" },
+    });
+
+    const destination = "/conversations/abc?backend=prod&org=org-1";
+    const redirect = await rawRequest(`${base}${destination}`);
+    expect(redirect.status).toBe(302);
+    expect(redirect.headers.location).toBe(
+      `/login?returnTo=${encodeURIComponent(destination)}`,
+    );
+
+    const loginPage = await rawRequest(`${base}${redirect.headers.location}`);
+    expect(loginPage.text).toContain(
+      'name="returnTo" value="/conversations/abc?backend=prod&amp;org=org-1"',
+    );
+    expect(loginPage.text).toContain(
+      "returnTo: f.elements.namedItem('returnTo').value",
+    );
+
+    const login = await rawRequest(`${base}/api/portal-auth/login`, "POST", {
+      body: {
+        username: "grok",
+        password: "supersecret1",
+        returnTo: destination,
+      },
+    });
+    expect(login.status).toBe(200);
+    expect(JSON.parse(login.text).returnTo).toBe(destination);
+  });
+
+  it.each([
+    "https://attacker.example/path",
+    "//attacker.example/path",
+    "/\\\\attacker.example/path",
+  ])(
+    "rejects an external portal login destination: %s",
+    async (destination) => {
+      const { base } = await startPortalServer();
+      await rawRequest(`${base}/api/portal-auth/setup`, "POST", {
+        body: { username: "grok", password: "supersecret1" },
+      });
+
+      const login = await rawRequest(`${base}/api/portal-auth/login`, "POST", {
+        body: {
+          username: "grok",
+          password: "supersecret1",
+          returnTo: destination,
+        },
+      });
+
+      expect(login.status).toBe(200);
+      expect(JSON.parse(login.text).returnTo).toBe("/");
+    },
+  );
+
+  it("carries a deep-link returnTo through first-admin setup", async () => {
+    const { base } = await startPortalServer();
+    const destination = "/conversations/abc?backend=prod&org=org-1";
+    const setupPage = await rawRequest(
+      `${base}/setup?returnTo=${encodeURIComponent(destination)}`,
+    );
+
+    expect(setupPage.status).toBe(200);
+    expect(setupPage.text).toContain(
+      'name="returnTo" value="/conversations/abc?backend=prod&amp;org=org-1"',
+    );
+    expect(setupPage.text).toContain(
+      "returnTo: f.elements.namedItem('returnTo').value",
+    );
+
+    const setup = await rawRequest(`${base}/api/portal-auth/setup`, "POST", {
+      body: {
+        username: "grok",
+        password: "supersecret1",
+        returnTo: destination,
+      },
+    });
+    expect(setup.status).toBe(201);
+    expect(JSON.parse(setup.text).returnTo).toBe(destination);
+  });
+
   it("serves the setup page and creates the first admin, then gates behind login", async () => {
     const { base } = await startPortalServer();
     const setupPage = await rawRequest(`${base}/setup`);

@@ -119,6 +119,7 @@ jobs:
             OPENHANDS_BUILD_GIT_SHA=${{ env.RELEVANT_SHA }}
             OPENHANDS_BUILD_GIT_REF=${{ env.RELEVANT_REF }}
             VITE_BASE_PATH=${{ env.DCK_BASE_PATH }}
+            VITE_DEFAULT_BACKEND_NAME=Production
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: true
@@ -246,4 +247,3 @@ jobs:
           ssh -i ~/.ssh/deploy_key -p "${{ steps.ssh.outputs.port }}" \
             "${{ steps.ssh.outputs.user_host }}" \
             "set -e; rm -rf /tmp/dck-staging; mkdir -p /tmp/dck-staging; tar -xzf /tmp/dck-deploy.tar.gz -C /tmp/dck-staging; rm -f /tmp/dck-deploy.tar.gz; IMAGE_OWNER='${{ github.repository_owner }}' bash /tmp/dck-staging/scripts/dck-deploy.sh '${{ steps.tag.outputs.sha }}' /tmp/dck-staging; rm -rf /tmp/dck-staging"
-

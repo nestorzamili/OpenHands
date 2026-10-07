@@ -44,11 +44,17 @@ describe("package and DCK Docker configuration", () => {
   it("builds and publishes the DCK image with the version from package metadata", () => {
     const packageJson = JSON.parse(read("package.json"));
     const workflow = read(".github/workflows/dck-docker.yml");
+    const dockerfile = read("docker/Dockerfile");
 
     expect(workflow).toContain("file: docker/Dockerfile");
     expect(workflow).toContain("push: true");
     expect(workflow).toContain(
       "AGENT_CANVAS_VERSION=${{ steps.config.outputs.agent_canvas_version }}",
+    );
+    expect(workflow).toContain("VITE_DEFAULT_BACKEND_NAME=Production");
+    expect(dockerfile).toContain('ARG VITE_DEFAULT_BACKEND_NAME=""');
+    expect(dockerfile).toContain(
+      "ENV VITE_DEFAULT_BACKEND_NAME=${VITE_DEFAULT_BACKEND_NAME}",
     );
     expect(workflow).toContain("AGENT_CANVAS_VERSION");
     expect(packageJson.version).toMatch(/^\d+\.\d+\.\d+/);

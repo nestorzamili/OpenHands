@@ -7,6 +7,7 @@ SSH. This guide assumes a fresh VM with nothing set up yet.
 Facts the setup relies on:
 
 - Canvas is served at the root path (`VITE_BASE_PATH=/`, baked by `dck-docker.yml`).
+- The deployment seeds its bundled Agent Server as the **Production** backend on first visit; existing default `Local` entries are renamed while custom labels are preserved.
 - Ingress is published on `127.0.0.1:8010` (pick another port if 8010 is taken).
 - Postgres is dedicated to DCK, internal-only, reached as `postgres:5432` on the
   `dck` network; it holds `dck_agentic` + one `dck_<app>` per webgen app.

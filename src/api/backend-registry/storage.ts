@@ -1,4 +1,5 @@
 import {
+  DEFAULT_LOCAL_BACKEND_NAME,
   SEEDED_DEFAULT_BACKEND_ID,
   makeDefaultLocalBackend,
   makeLockedCloudBackend,
@@ -77,11 +78,18 @@ function syncLauncherDefaultLocalBackend(backends: Backend[]): Backend[] {
       return backend;
     }
 
-    if (backend.apiKey === defaultBackend.apiKey) return backend;
+    const name =
+      backend.name === DEFAULT_LOCAL_BACKEND_NAME
+        ? defaultBackend.name
+        : backend.name;
+    if (backend.apiKey === defaultBackend.apiKey && backend.name === name) {
+      return backend;
+    }
 
     didSync = true;
     return {
       ...backend,
+      name,
       apiKey: defaultBackend.apiKey,
     };
   });

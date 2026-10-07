@@ -85,6 +85,15 @@ describe("backend-registry storage", () => {
     expect(readStoredBackends()).toEqual(result);
   });
 
+  it("uses the configured deployment name for the seeded backend", () => {
+    vi.stubEnv("VITE_DEFAULT_BACKEND_NAME", "Production");
+    vi.stubEnv("VITE_SESSION_API_KEY", "fresh-session-key");
+
+    expect(readStoredBackends()).toMatchObject([
+      { id: "default-local", name: "Production", kind: "local" },
+    ]);
+  });
+
   it("seeds a cookie-auth Cloud backend when locked to the current origin", () => {
     (
       window as unknown as Record<string, unknown>
@@ -235,6 +244,52 @@ describe("backend-registry storage", () => {
 
     expect(readStoredBackends()[0]).toMatchObject({
       id: "default-local",
+      apiKey: "fresh-session-key",
+    });
+  });
+
+  it("renames the legacy default label to the configured deployment name", () => {
+    vi.stubEnv("VITE_DEFAULT_BACKEND_NAME", "Production");
+    vi.stubEnv("VITE_SESSION_API_KEY", "fresh-session-key");
+    window.localStorage.setItem(
+      BACKENDS_STORAGE_KEY,
+      JSON.stringify([
+        {
+          id: "default-local",
+          name: "Local",
+          host: window.location.origin,
+          apiKey: "stored-session-key",
+          kind: "local",
+        },
+      ]),
+    );
+
+    expect(readStoredBackends()[0]).toMatchObject({
+      id: "default-local",
+      name: "Production",
+      apiKey: "fresh-session-key",
+    });
+  });
+
+  it("preserves a custom name on the seeded backend", () => {
+    vi.stubEnv("VITE_DEFAULT_BACKEND_NAME", "Production");
+    vi.stubEnv("VITE_SESSION_API_KEY", "fresh-session-key");
+    window.localStorage.setItem(
+      BACKENDS_STORAGE_KEY,
+      JSON.stringify([
+        {
+          id: "default-local",
+          name: "My deployment",
+          host: window.location.origin,
+          apiKey: "stored-session-key",
+          kind: "local",
+        },
+      ]),
+    );
+
+    expect(readStoredBackends()[0]).toMatchObject({
+      id: "default-local",
+      name: "My deployment",
       apiKey: "fresh-session-key",
     });
   });

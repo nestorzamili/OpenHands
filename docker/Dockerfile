@@ -43,8 +43,10 @@ COPY . .
 # Canvas under the Cloud subpath instead of a dedicated hostname.
 ARG VITE_POSTHOG_API_KEY=""
 ARG VITE_BASE_PATH="/canvas"
+ARG VITE_DEFAULT_BACKEND_NAME=""
 ENV VITE_POSTHOG_API_KEY=${VITE_POSTHOG_API_KEY}
 ENV VITE_BASE_PATH=${VITE_BASE_PATH}
+ENV VITE_DEFAULT_BACKEND_NAME=${VITE_DEFAULT_BACKEND_NAME}
 RUN npm run build
 
 # ── Stage 1b: Generate shell-sourceable defaults from config/defaults.json ──

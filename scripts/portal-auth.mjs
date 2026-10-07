@@ -48,6 +48,38 @@ const PORTAL_AUTH_USERS_PATH = "/api/portal-auth/users";
 const PORTAL_AUTH_ME_PATH = "/api/portal-auth/me";
 export const PORTAL_AUTH_SESSION_COOKIE = "openhands_portal_session";
 const PORTAL_AUTH_SESSION_TTL_SECONDS = 12 * 60 * 60; // 12h
+const PORTAL_AUTH_RETURN_TO_ORIGIN = "http://portal-auth.invalid";
+
+function sanitizeReturnTo(value) {
+  if (
+    typeof value !== "string" ||
+    !value.startsWith("/") ||
+    value.startsWith("//")
+  ) {
+    return "/";
+  }
+
+  try {
+    const target = new URL(value, PORTAL_AUTH_RETURN_TO_ORIGIN);
+    if (target.origin !== PORTAL_AUTH_RETURN_TO_ORIGIN) return "/";
+    return `${target.pathname}${target.search}${target.hash}`;
+  } catch {
+    return "/";
+  }
+}
+
+function escapeHtmlAttribute(value) {
+  return value.replace(/[&<>\"']/g, (character) => {
+    const entities = {
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;",
+    };
+    return entities[character];
+  });
+}
 
 // Login/setup brute-force throttle: per key (IP + username), allow a small
 // burst then reject with 429 until the window elapses. In-memory and
@@ -452,9 +484,10 @@ ${body}
 </html>`;
 }
 
-function loginPageHtml() {
+function loginPageHtml(returnTo = "/") {
   const form = `
 <form id="f" autocomplete="on" novalidate>
+<input type="hidden" name="returnTo" value="${escapeHtmlAttribute(returnTo)}" />
 <label for="username">Username</label>
 <input id="username" name="username" autocomplete="username" required
   aria-describedby="err" />
@@ -492,7 +525,7 @@ f.addEventListener('submit', async (e) => {
   try {
     const r = await fetch('/api/portal-auth/login', {
       method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ username, password })
+      body: JSON.stringify({ username, password, returnTo: f.elements.namedItem('returnTo').value })
     });
     const data = await r.json().catch(() => ({}));
     if (!r.ok) {
@@ -522,9 +555,10 @@ document.addEventListener('DOMContentLoaded', () => f.username.focus());
   });
 }
 
-function setupPageHtml() {
+function setupPageHtml(returnTo = "/") {
   const form = `
 <form id="f" autocomplete="on" novalidate>
+<input type="hidden" name="returnTo" value="${escapeHtmlAttribute(returnTo)}" />
 <p class="sub">No admin account configured yet. Create one to lock down this instance.</p>
 <label for="username">Admin username</label>
 <input id="username" name="username" autocomplete="username" required
@@ -577,7 +611,7 @@ f.addEventListener('submit', async (e) => {
   try {
     const r = await fetch('/api/portal-auth/setup', {
       method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ username, password })
+      body: JSON.stringify({ username, password, returnTo: f.elements.namedItem('returnTo').value })
     });
     const data = await r.json().catch(() => ({}));
     if (!r.ok) {
@@ -683,7 +717,9 @@ export function createPortalAuthHandler(store, opts = {}) {
   const loginPath = opts.loginPath ?? "/login";
   const throttle = opts.throttle ?? createAttemptThrottle();
   return function handlePortalAuth(req, res) {
-    const urlPath = (req.url ?? "/").split("?")[0];
+    const requestTarget = req.url ?? "/";
+    const urlPath = requestTarget.split("?")[0];
+    const requestUrl = new URL(requestTarget, PORTAL_AUTH_RETURN_TO_ORIGIN);
     const cookies = parseCookies(req);
     const sessionToken = cookies[PORTAL_AUTH_SESSION_COOKIE];
     const username = store.resolveSession(sessionToken);
@@ -715,7 +751,10 @@ export function createPortalAuthHandler(store, opts = {}) {
           throttle.succeed(key);
           const token = store.createSession(name);
           setSessionCookie(res, req, token);
-          sendJson(res, 201, { ok: true, returnTo: opts.returnTo ?? "/" });
+          sendJson(res, 201, {
+            ok: true,
+            returnTo: sanitizeReturnTo(body.returnTo ?? opts.returnTo ?? "/"),
+          });
         })
         .catch((err) => {
           const status = err instanceof PortalAuthError ? err.status : 500;
@@ -745,7 +784,9 @@ export function createPortalAuthHandler(store, opts = {}) {
           throttle.succeed(key);
           const token = store.createSession(name);
           setSessionCookie(res, req, token);
-          const returnTo = String(body.returnTo ?? opts.returnTo ?? "/");
+          const returnTo = sanitizeReturnTo(
+            body.returnTo ?? opts.returnTo ?? "/",
+          );
           sendJson(res, 200, { ok: true, returnTo });
         })
         .catch((err) => {
@@ -844,11 +885,25 @@ export function createPortalAuthHandler(store, opts = {}) {
       (req.method === "GET" || req.method === "HEAD") &&
       urlPath === loginPath
     ) {
-      sendHtml(res, loginPageHtml());
+      sendHtml(
+        res,
+        loginPageHtml(
+          sanitizeReturnTo(
+            requestUrl.searchParams.get("returnTo") ?? opts.returnTo ?? "/",
+          ),
+        ),
+      );
       return true;
     }
     if (urlPath === "/setup" && !store.hasAdmin) {
-      sendHtml(res, setupPageHtml());
+      sendHtml(
+        res,
+        setupPageHtml(
+          sanitizeReturnTo(
+            requestUrl.searchParams.get("returnTo") ?? opts.returnTo ?? "/",
+          ),
+        ),
+      );
       return true;
     }
 
@@ -857,8 +912,12 @@ export function createPortalAuthHandler(store, opts = {}) {
       const isNav = isHtmlNavigation(req, urlPath);
       if (isNav || urlPath.startsWith("/setup")) {
         const target = store.hasAdmin ? loginPath : "/setup";
+        const returnTo =
+          store.hasAdmin && urlPath === "/setup"
+            ? sanitizeReturnTo(requestUrl.searchParams.get("returnTo") ?? "/")
+            : sanitizeReturnTo(`${requestUrl.pathname}${requestUrl.search}`);
         res.writeHead(302, {
-          Location: `${target}?returnTo=${encodeURIComponent(urlPath)}`,
+          Location: `${target}?returnTo=${encodeURIComponent(returnTo)}`,
         });
         res.end();
       } else {

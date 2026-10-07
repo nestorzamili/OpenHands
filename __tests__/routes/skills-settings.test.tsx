@@ -124,6 +124,32 @@ describe("SkillsSettingsScreen", () => {
     );
   });
 
+  it("filters a manually created workspace skill with the Custom origin facet", async () => {
+    const builtinSkill = buildSkill({ name: "deno", source: "public" });
+    const workspaceSkill = buildSkill({
+      name: "workspace-helper",
+      type: "repo",
+      source: "/workspace/.agents/skills/workspace-helper/SKILL.md",
+      category: null,
+    });
+    vi.spyOn(SkillsService, "getSettingsSkills").mockResolvedValue([
+      builtinSkill,
+      workspaceSkill,
+    ]);
+
+    const user = userEvent.setup();
+    renderSkillsSettingsScreen();
+
+    const customFacet = await screen.findByTestId("skill-facet-origin-custom");
+    expect(customFacet).toHaveTextContent("SETTINGS$SKILLS_ORIGIN_CUSTOM");
+    await user.click(customFacet);
+
+    expect(
+      await screen.findByTestId("skill-card-workspace-helper"),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("skill-card-deno")).not.toBeInTheDocument();
+  });
+
   it("shows card subtitle text from skill content when description is omitted", async () => {
     const skill = buildSkill({
       name: "SSH Microagent",

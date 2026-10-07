@@ -69,7 +69,9 @@ export default function DeviceVerify() {
             <div
               className={cn(
                 "mb-4",
-                verificationResult.success ? "text-green-600" : "text-red-600",
+                verificationResult.success
+                  ? "text-status-success"
+                  : "text-status-error",
               )}
             >
               {verificationResult.success ? (
@@ -154,8 +156,8 @@ export default function DeviceVerify() {
                 {userCode}
               </p>
             </div>
-            <div className="mb-6 p-4 bg-amber-950/50 border-l-2 border-amber-500 rounded-r-lg">
-              <p className="text-sm font-medium text-amber-500 mb-1">
+            <div className="mb-6 p-4 bg-amber-950/50 border-l-2 border-warning rounded-r-lg">
+              <p className="text-sm font-medium text-warning mb-1">
                 {t(I18nKey.DEVICE$SECURITY_NOTICE)}
               </p>
               <p className="text-sm text-muted">

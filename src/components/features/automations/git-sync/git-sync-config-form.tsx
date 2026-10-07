@@ -418,13 +418,13 @@ export function GitSyncConfigForm({
           <div
             role="alert"
             data-testid="git-sync-check-failure"
-            className="rounded-md border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-300 whitespace-pre-wrap break-words"
+            className="rounded-md border border-status-error/40 bg-status-error/10 p-3 text-sm text-status-error whitespace-pre-wrap break-words"
           >
             <p className="font-medium">
               {t(I18nKey.AUTOMATIONS$GIT_SYNC$CHECK_FAILED_TITLE)}
             </p>
             <p className="mt-1">{failedCheck.detail}</p>
-            <p className="mt-1 text-xs text-red-300/70">
+            <p className="mt-1 text-xs text-status-error/70">
               {t(I18nKey.AUTOMATIONS$GIT_SYNC$CHECK_FAILED_HINT)}
             </p>
           </div>

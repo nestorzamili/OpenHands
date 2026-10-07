@@ -67,9 +67,9 @@ export function ContextMeter({
           className={cn(
             "shrink-0 text-xs",
             isDanger
-              ? "text-red-500"
+              ? "text-status-error"
               : isWarning
-                ? "text-amber-500"
+                ? "text-warning"
                 : "text-muted",
           )}
         >
@@ -82,9 +82,9 @@ export function ContextMeter({
           className={cn(
             "absolute inset-y-0 left-0 rounded-full transition-all duration-300",
             isDanger
-              ? "bg-red-500"
+              ? "bg-status-error"
               : isWarning
-                ? "bg-amber-500"
+                ? "bg-warning"
                 : "bg-foreground",
           )}
           // runtime usage-percentage width

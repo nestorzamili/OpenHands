@@ -1,7 +1,12 @@
 import { I18nKey } from "#/i18n/declaration";
 
-export const SKILLS_DIR_SEGMENT = ".agents/skills";
+const AGENTS_DIR_NAME = ".agents";
+const OPENHANDS_DIR_NAME = ".openhands";
+const SKILLS_SUBDIR_NAME = "skills";
+const MICROAGENTS_SUBDIR_NAME = "microagents";
+export const SKILLS_DIR_SEGMENT = `${AGENTS_DIR_NAME}/${SKILLS_SUBDIR_NAME}`;
 export const SKILL_FILE_NAME = "SKILL.md";
+const MARKDOWN_FILE_EXTENSION = ".md";
 
 export const SKILL_SLUG_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
 const SLUG_MAX_LENGTH = 64;
@@ -12,6 +17,56 @@ export interface SkillMarkdownFields {
   description: string;
   triggers: string[];
   body: string;
+}
+
+export interface SkillFilePathParts {
+  directory: string;
+  fileName: string;
+}
+
+/**
+ * Return the directory and filename only for files in a supported skills
+ * location. Keeping this allow-list at the write boundary prevents a skill's
+ * `source` value from becoming an arbitrary filesystem write target.
+ */
+export function getSkillFilePathParts(path: string): SkillFilePathParts | null {
+  const normalized = path.replace(/\\/g, "/");
+  const segments = normalized.split("/").filter(Boolean);
+  if (segments.some((segment) => segment === "." || segment === "..")) {
+    return null;
+  }
+
+  const isSkillMarkdown = (index: number, directoryName: string) =>
+    segments[index + 1] === directoryName &&
+    Boolean(segments[index + 2]) &&
+    segments[index + 3]?.toLowerCase() === SKILL_FILE_NAME.toLowerCase() &&
+    index + 4 === segments.length;
+  const isLegacyMicroagent = (index: number) =>
+    segments[index + 1] === MICROAGENTS_SUBDIR_NAME &&
+    segments.length === index + 3 &&
+    segments[index + 2]?.toLowerCase().endsWith(MARKDOWN_FILE_EXTENSION);
+
+  const supported = segments.some(
+    (segment, index) =>
+      (segment === AGENTS_DIR_NAME &&
+        isSkillMarkdown(index, SKILLS_SUBDIR_NAME)) ||
+      (segment === OPENHANDS_DIR_NAME &&
+        (isSkillMarkdown(index, SKILLS_SUBDIR_NAME) ||
+          isLegacyMicroagent(index))),
+  );
+  if (!supported) return null;
+
+  const separatorIndex = normalized.lastIndexOf("/");
+  return {
+    directory: separatorIndex < 0 ? "." : normalized.slice(0, separatorIndex),
+    fileName: normalized.slice(separatorIndex + 1),
+  };
+}
+
+/** Remove YAML frontmatter for the live Markdown preview, preserving body text. */
+export function extractSkillMarkdownBody(raw: string): string {
+  const frontmatter = raw.match(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/);
+  return frontmatter ? raw.slice(frontmatter[0].length) : raw;
 }
 
 function escapeYamlScalar(value: string): string {
@@ -208,18 +263,46 @@ export function skillFilePath(workspaceRoot: string, slug: string): string {
   return `${skillDirPath(workspaceRoot, slug)}/${SKILL_FILE_NAME}`;
 }
 
-/**
- * Agent command that removes a project skill's folder. The frontend FileClient
- * cannot delete files, so folder removal runs as a shell command inside a
- * conversation — the same pattern used for webgen apps and DCK modules.
- */
-export function buildSkillFolderDeleteCommand(
-  skillName: string,
-  dirPath: string,
-): string {
-  return [
-    `Delete the "${skillName}" DCK project skill folder and everything inside it. This is destructive and irreversible.`,
-    `Run: rm -rf ${dirPath}`,
-    `Confirm the path is correct (${dirPath}) before running, then report what was removed.`,
-  ].join("\n");
+export interface SkillDeleteTarget {
+  kind: "directory" | "file";
+  path: string;
+}
+
+/** Resolve only supported skill files to the exact file/folder removed on delete. */
+export function getSkillDeleteTarget(
+  filePath: string,
+): SkillDeleteTarget | null {
+  const normalized = filePath.replace(/\\/g, "/");
+  const parts = getSkillFilePathParts(normalized);
+  if (!parts) return null;
+
+  if (parts.fileName.toLowerCase() === SKILL_FILE_NAME.toLowerCase()) {
+    return { kind: "directory", path: parts.directory };
+  }
+
+  const segments = normalized.split("/").filter(Boolean);
+  const microagentsIndex = segments.findIndex(
+    (segment, index) =>
+      segment === OPENHANDS_DIR_NAME &&
+      segments[index + 1] === MICROAGENTS_SUBDIR_NAME,
+  );
+  if (
+    microagentsIndex !== -1 &&
+    segments.length === microagentsIndex + 3 &&
+    parts.fileName.toLowerCase().endsWith(MARKDOWN_FILE_EXTENSION)
+  ) {
+    return { kind: "file", path: normalized };
+  }
+
+  return null;
+}
+
+/** Build a shell-safe delete command for a previously confirmed skill target. */
+export function buildSkillDeleteCommand(filePath: string): string {
+  const target = getSkillDeleteTarget(filePath);
+  if (!target) throw new Error("Unsupported skill delete target");
+
+  const quotedPath = `'${target.path.replace(/'/g, "'\\''")}'`;
+  const command = target.kind === "directory" ? "rm -rf --" : "rm -f --";
+  return `${command} ${quotedPath}`;
 }

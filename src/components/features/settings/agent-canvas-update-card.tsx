@@ -222,7 +222,7 @@ function AgentCanvasUpdateModal({
                     href={AGENT_CANVAS_RELEASE_NOTES_URL}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 whitespace-nowrap font-medium text-contrast hover:text-[var(--oh-text)]"
+                    className="inline-flex items-center gap-1.5 whitespace-nowrap font-medium text-contrast hover:text-foreground"
                   >
                     {t(I18nKey.SETTINGS$VERSION_RELEASE_NOTES)}
                     <ExternalLink className="size-3.5 shrink-0" aria-hidden />
@@ -239,7 +239,7 @@ function AgentCanvasUpdateModal({
                     href={AGENT_CANVAS_RELEASE_NOTES_URL}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 whitespace-nowrap font-medium text-contrast hover:text-[var(--oh-text)]"
+                    className="inline-flex items-center gap-1.5 whitespace-nowrap font-medium text-contrast hover:text-foreground"
                   >
                     {t(I18nKey.SETTINGS$VERSION_RELEASE_NOTES)}
                     <ExternalLink className="size-3.5 shrink-0" aria-hidden />

@@ -563,7 +563,7 @@ export const getStatusIcon = (status: string) => {
  */
 export const getStatusClassName = (status: string) => {
   if (status === "done") {
-    return "bg-green-800 text-green-200";
+    return "bg-green-800 text-status-success";
   }
   if (status === "in_progress") {
     return "bg-yellow-800 text-yellow-200";

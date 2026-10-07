@@ -106,4 +106,46 @@ describe("SkillsService.getSkills against the agent-server backend", () => {
     expect(skills).toHaveLength(MOCK_PUBLIC_CATALOG.length);
     expect(skills.every((s) => s.source === "public")).toBe(true);
   });
+
+  it("merges active-project and DCK-workspace skills for Settings", async () => {
+    vi.stubEnv("VITE_WORKING_DIR", "/active-project");
+    vi.stubEnv("VITE_DCK_WORKSPACE_ROOT", "/dck-workspace");
+    mockGetSkills
+      .mockResolvedValueOnce({
+        skills: [
+          { name: "personal-skill", source: "user" },
+          { name: "active-project-skill", source: "project" },
+        ],
+      })
+      .mockResolvedValueOnce({
+        skills: [
+          { name: "personal-skill", source: "user" },
+          { name: "workspace-skill", source: "project" },
+          {
+            name: "manual-workspace-skill",
+            source: ".agents/skills/manual-workspace-skill/SKILL.md",
+          },
+        ],
+      });
+
+    const skills = await SkillsService.getSettingsSkills();
+
+    expect(mockGetSkills).toHaveBeenCalledTimes(2);
+    expect(
+      mockGetSkills.mock.calls.map(([options]) => options.project_dir),
+    ).toEqual(["/active-project", "/dck-workspace"]);
+    expect(skills.map((skill) => skill.name)).toContain("active-project-skill");
+    expect(skills.map((skill) => skill.name)).toContain("workspace-skill");
+    expect(
+      skills.find((skill) => skill.name === "manual-workspace-skill")?.source,
+    ).toBe("/dck-workspace/.agents/skills/manual-workspace-skill/SKILL.md");
+    expect(
+      skills.filter((skill) => skill.name === "personal-skill"),
+    ).toHaveLength(1);
+    for (const entry of MOCK_PUBLIC_CATALOG) {
+      expect(skills.filter((skill) => skill.name === entry.name)).toHaveLength(
+        1,
+      );
+    }
+  });
 });

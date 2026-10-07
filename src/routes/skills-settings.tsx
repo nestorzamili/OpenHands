@@ -250,9 +250,9 @@ function SkillsSettingsScreen() {
                       className={cn(extensionModuleCardGridContainerClassName)}
                     >
                       <div className={extensionModuleCardGridClassName}>
-                        {visibleSkills.map((skill) => (
+                        {visibleSkills.map((skill, index) => (
                           <SkillCard
-                            key={skill.name}
+                            key={`${skill.name}:${skill.source ?? ""}:${index}`}
                             skill={skill}
                             enabled={isEnabled(skill)}
                             onOpen={() => setSelectedSkill(skill)}

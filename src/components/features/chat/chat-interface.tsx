@@ -551,7 +551,7 @@ export function ChatInterface() {
 
             {isLoadingOlderEvents && (
               <div
-                className="flex items-center justify-center gap-2 py-3 text-sm text-neutral-400"
+                className="flex items-center justify-center gap-2 py-3 text-sm text-cool-grey-400"
                 data-testid="loading-older-events"
               >
                 <LoadingSpinner size="small" />

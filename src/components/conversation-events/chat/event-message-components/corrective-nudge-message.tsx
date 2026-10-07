@@ -16,10 +16,10 @@ export function CorrectiveNudgeMessage({ event }: CorrectiveNudgeMessageProps) {
       <InfoCircleIcon
         width={14}
         height={14}
-        className="mt-[5px] shrink-0"
+        className="mt-1.25 shrink-0"
         aria-hidden
       />
-      <span className="leading-6 [word-break:break-word]">
+      <span className="leading-6 break-words">
         {parseMessageFromEvent(event)}
       </span>
     </div>

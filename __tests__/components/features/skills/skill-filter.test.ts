@@ -67,7 +67,7 @@ describe("parseSkillFilterState", () => {
   it("reads every facet plus the query", () => {
     const state = parseSkillFilterState(
       new URLSearchParams(
-        "q=deno&source=personal&source=public&category=environment&type=repo&state=disabled&recommendation=recommended",
+        "q=deno&source=personal&source=public&origin=custom&category=environment&type=repo&state=disabled&recommendation=recommended",
       ),
     );
 
@@ -77,6 +77,7 @@ describe("parseSkillFilterState", () => {
     expect([...state.types]).toEqual(["repo"]);
     expect([...state.states]).toEqual(["disabled"]);
     expect([...state.recommendations]).toEqual(["recommended"]);
+    expect([...state.origins]).toEqual(["custom"]);
   });
 
   it.each([
@@ -85,6 +86,7 @@ describe("parseSkillFilterState", () => {
     ["type", "type=bogus"],
     ["state", "state=maybe"],
     ["recommendation", "recommendation=maybe"],
+    ["origin", "origin=unknown"],
   ])("drops unknown %s values instead of erroring", (_label, search) => {
     const state = parseSkillFilterState(new URLSearchParams(search));
     expect(countActiveFilters(state)).toBe(0);
@@ -92,7 +94,7 @@ describe("parseSkillFilterState", () => {
 
   it("round-trips through toSkillFilterSearchParams in canonical order", () => {
     const search =
-      "q=deno&source=project&source=public&category=environment&category=writing";
+      "q=deno&origin=custom&source=project&source=public&category=environment&category=writing";
     const state = parseSkillFilterState(new URLSearchParams(search));
 
     expect(toSkillFilterSearchParams(state).toString()).toBe(
@@ -161,6 +163,15 @@ describe("applySkillFilters", () => {
       applySkillFilters(skills, isEnabled, EMPTY_SKILL_FILTER_STATE),
     ).toHaveLength(3);
   });
+
+  it("filters custom skills without treating their storage scope as origin", () => {
+    const custom = applySkillFilters(
+      skills,
+      isEnabled,
+      stateWith({ origins: new Set(["custom"]) }),
+    );
+    expect(custom.map((skill) => skill.name)).toEqual(["house-rules"]);
+  });
 });
 
 describe("buildSkillFacetGroups", () => {
@@ -211,6 +222,7 @@ describe("buildSkillFacetGroups", () => {
 
     expect(groups.map((g) => g.id)).toEqual([
       "state",
+      "origin",
       "source",
       "category",
       "type",

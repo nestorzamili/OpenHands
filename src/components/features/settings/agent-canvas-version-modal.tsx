@@ -132,7 +132,7 @@ export function AgentCanvasVersionModal({
 
         <div className="flex flex-col gap-1">
           {updateAvailable && latestVersion ? (
-            <p className="text-sm text-[var(--oh-text)]">
+            <p className="text-sm text-foreground">
               {t(I18nKey.SETTINGS$VERSION_UPDATE_MESSAGE, {
                 installed: installedVersion,
                 latest: latestVersion,
@@ -141,7 +141,7 @@ export function AgentCanvasVersionModal({
                 href={AGENT_CANVAS_RELEASE_NOTES_URL}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 whitespace-nowrap font-medium text-contrast hover:text-[var(--oh-text)]"
+                className="inline-flex items-center gap-1.5 whitespace-nowrap font-medium text-contrast hover:text-foreground"
               >
                 {t(I18nKey.SETTINGS$VERSION_RELEASE_NOTES)}
                 <ExternalLink className="size-4 shrink-0" aria-hidden />
@@ -149,7 +149,7 @@ export function AgentCanvasVersionModal({
             </p>
           ) : (
             <>
-              <p className="text-sm text-[var(--oh-text)]">
+              <p className="text-sm text-foreground">
                 {t(I18nKey.SETTINGS$VERSION_INSTALLED, {
                   version: installedVersion,
                 })}
@@ -161,7 +161,7 @@ export function AgentCanvasVersionModal({
                     href={AGENT_CANVAS_RELEASE_NOTES_URL}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 font-medium text-contrast hover:text-[var(--oh-text)]"
+                    className="inline-flex items-center gap-1.5 font-medium text-contrast hover:text-foreground"
                   >
                     {t(I18nKey.SETTINGS$VERSION_RELEASE_NOTES)}
                     <ExternalLink className="size-4 shrink-0" aria-hidden />
@@ -226,7 +226,7 @@ export function AgentCanvasVersionModal({
             <button
               type="button"
               onClick={onCheckForUpdates}
-              className="inline-flex items-center gap-2 text-sm font-medium text-contrast hover:text-[var(--oh-text)] disabled:cursor-wait disabled:text-muted"
+              className="inline-flex items-center gap-2 text-sm font-medium text-contrast hover:text-foreground disabled:cursor-wait disabled:text-muted"
               disabled={isChecking}
             >
               {t(I18nKey.SETTINGS$VERSION_CHECK_FOR_UPDATES)}

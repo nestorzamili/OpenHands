@@ -19,25 +19,25 @@ function ProfileRow({ profile }: ProfileRowProps) {
   const displayModel = formatModelNameForDisplay(profile.model, freeModels);
 
   return (
-    <div className="border border-neutral-700 rounded-md overflow-hidden">
+    <div className="border border-cool-grey-700 rounded-md overflow-hidden">
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
         aria-expanded={expanded}
         aria-label={`Toggle details for ${profile.name}`}
-        className="w-full py-1.5 px-2 text-left flex items-center gap-2 hover:bg-neutral-700 transition-colors cursor-pointer"
+        className="w-full py-1.5 px-2 text-left flex items-center gap-2 hover:bg-cool-grey-700 transition-colors cursor-pointer"
       >
-        <span className="text-neutral-300">
+        <span className="text-cool-grey-300">
           {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         </span>
-        <span className="font-normal text-neutral-200 text-sm">
+        <span className="font-normal text-cool-grey-200 text-sm">
           {profile.name}
         </span>
       </button>
       {expanded && (
         <>
-          <hr className="border-neutral-700" />
-          <div className="px-3 py-2 text-xs text-neutral-300 font-mono whitespace-pre-wrap">
+          <hr className="border-cool-grey-700" />
+          <div className="px-3 py-2 text-xs text-cool-grey-300 font-mono whitespace-pre-wrap">
             {`model:    ${displayModel ?? "—"}\n` +
               `base_url: ${profile.base_url ?? "—"}\n` +
               // eslint-disable-next-line i18next/no-literal-string -- diagnostic readout; field labels are intentionally untranslated
@@ -80,7 +80,7 @@ export function ModelMessages({
                   <InfoCircleIcon
                     width={14}
                     height={14}
-                    className="shrink-0 text-neutral-400"
+                    className="shrink-0 text-cool-grey-400"
                     aria-hidden
                   />
                   <Trans
@@ -88,7 +88,7 @@ export function ModelMessages({
                     values={{ name: entry.switchedTo }}
                     components={{
                       cmd: (
-                        <span className="font-mono text-neutral-200 bg-neutral-800 px-1 rounded" />
+                        <span className="font-mono text-cool-grey-200 bg-cool-grey-800 px-1 rounded" />
                       ),
                     }}
                   />
@@ -117,7 +117,7 @@ export function ModelMessages({
             }
             details={
               isEmpty ? (
-                <span className="text-neutral-300 text-sm px-2 py-1 block">
+                <span className="text-cool-grey-300 text-sm px-2 py-1 block">
                   <Trans i18nKey={I18nKey.MODEL$NO_PROFILES_HINT} />
                 </span>
               ) : (

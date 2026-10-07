@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
-  buildSkillFolderDeleteCommand,
+  buildSkillDeleteCommand,
+  extractSkillMarkdownBody,
+  getSkillDeleteTarget,
+  getSkillFilePathParts,
   parseSkillMarkdown,
   serializeSkillMarkdown,
   skillDirPath,
@@ -80,6 +83,40 @@ describe("serializeSkillMarkdown", () => {
   });
 });
 
+describe("raw SKILL.md editing helpers", () => {
+  it("removes frontmatter from preview without trimming Markdown whitespace", () => {
+    const body = "\n# Guide\n\nKeep trailing spaces.  \n";
+    const source = `---\nname: guide\ndescription: |\n  Multiline summary\n  stays intact\ncustom: [unknown, metadata]\n---\n${body}`;
+
+    expect(extractSkillMarkdownBody(source)).toBe(body);
+  });
+
+  it.each([
+    [
+      "/workspace/.agents/skills/guide/SKILL.md",
+      "/workspace/.agents/skills/guide",
+      "SKILL.md",
+    ],
+    [
+      "/home/user/.openhands/microagents/guide.md",
+      "/home/user/.openhands/microagents",
+      "guide.md",
+    ],
+  ])(
+    "accepts supported skill source files safely",
+    (path, directory, fileName) => {
+      expect(getSkillFilePathParts(path)).toEqual({ directory, fileName });
+    },
+  );
+
+  it.each([
+    "/projects/.agents/skills/../../outside.md",
+    "/projects/notes/README.md",
+  ])("rejects paths outside supported skill files", (path) => {
+    expect(getSkillFilePathParts(path)).toBeNull();
+  });
+});
+
 describe("validateSkillDraft", () => {
   const base: SkillDraft = {
     name: "My Skill",
@@ -138,12 +175,28 @@ describe("skill path helpers", () => {
     );
   });
 
-  it("builds a destructive delete command naming the path", () => {
-    const command = buildSkillFolderDeleteCommand(
-      "my-skill",
-      "/projects/.agents/skills/my-skill",
+  it("removes the skill directory for SKILL.md using a quoted target", () => {
+    const filePath = "/projects/.agents/skills/my skill/SKILL.md";
+    expect(getSkillDeleteTarget(filePath)).toEqual({
+      kind: "directory",
+      path: "/projects/.agents/skills/my skill",
+    });
+    expect(buildSkillDeleteCommand(filePath)).toBe(
+      "rm -rf -- '/projects/.agents/skills/my skill'",
     );
-    expect(command).toContain("rm -rf /projects/.agents/skills/my-skill");
-    expect(command).toContain("irreversible");
+  });
+
+  it("removes only the legacy microagent Markdown file", () => {
+    const filePath = "/home/user/.openhands/microagents/review.md";
+    expect(getSkillDeleteTarget(filePath)).toEqual({
+      kind: "file",
+      path: filePath,
+    });
+    expect(buildSkillDeleteCommand(filePath)).toBe(
+      "rm -f -- '/home/user/.openhands/microagents/review.md'",
+    );
+    expect(
+      getSkillDeleteTarget("/home/user/.openhands/config.yaml"),
+    ).toBeNull();
   });
 });

@@ -9,6 +9,7 @@ import {
 import {
   getSkillScope,
   SKILL_SCOPE_ORDER,
+  isBuiltinSkill,
   type SkillScope,
 } from "#/utils/skill-scope";
 import { isRecommendedSkill } from "#/utils/skill-enablement";
@@ -20,12 +21,15 @@ const CATEGORY_PARAM = "category";
 const TYPE_PARAM = "type";
 const STATE_PARAM = "state";
 const RECOMMENDATION_PARAM = "recommendation";
+const ORIGIN_PARAM = "origin";
 
 export type SkillEnabledState = "enabled" | "disabled";
 export type SkillRecommendation = "recommended" | "other";
+export type SkillOrigin = "builtin" | "custom";
 export type SkillFacetGroupId =
   | "state"
   | "recommendation"
+  | "origin"
   | "source"
   | "category"
   | "type";
@@ -38,6 +42,7 @@ const SKILL_RECOMMENDATION_ORDER: readonly SkillRecommendation[] = [
   "recommended",
   "other",
 ];
+const SKILL_ORIGIN_ORDER: readonly SkillOrigin[] = ["builtin", "custom"];
 const SKILL_TYPE_ORDER: readonly SkillType[] = [
   "agentskills",
   "knowledge",
@@ -51,6 +56,7 @@ export interface SkillFilterState {
   types: Set<SkillType>;
   states: Set<SkillEnabledState>;
   recommendations: Set<SkillRecommendation>;
+  origins: Set<SkillOrigin>;
 }
 
 export interface SkillFacetRowModel {
@@ -74,6 +80,7 @@ export const EMPTY_SKILL_FILTER_STATE: SkillFilterState = {
   types: new Set(),
   states: new Set(),
   recommendations: new Set(),
+  origins: new Set(),
 };
 
 /** Carrying `labelKey`s rather than translated strings keeps this module pure, so its tests need no i18n. */
@@ -136,6 +143,11 @@ const RECOMMENDATION_LABEL_KEYS: Record<SkillRecommendation, I18nKey> = {
   other: I18nKey.SETTINGS$SKILLS_RECOMMENDATION_OTHER,
 };
 
+const ORIGIN_LABEL_KEYS: Record<SkillOrigin, I18nKey> = {
+  builtin: I18nKey.SETTINGS$SKILLS_ORIGIN_BUILTIN,
+  custom: I18nKey.SETTINGS$SKILLS_ORIGIN_CUSTOM,
+};
+
 const GROUP_DEFS: readonly GroupDef[] = [
   {
     id: "state",
@@ -163,6 +175,18 @@ const GROUP_DEFS: readonly GroupDef[] = [
     withSelected: (state, next) => ({
       ...state,
       recommendations: narrowSet(SKILL_RECOMMENDATION_ORDER, next),
+    }),
+  },
+  {
+    id: "origin",
+    labelKey: I18nKey.SETTINGS$SKILLS_FACET_ORIGIN,
+    param: ORIGIN_PARAM,
+    values: labelledValues(SKILL_ORIGIN_ORDER, ORIGIN_LABEL_KEYS),
+    valueOf: (skill) => (isBuiltinSkill(skill) ? "builtin" : "custom"),
+    selected: (state) => state.origins,
+    withSelected: (state, next) => ({
+      ...state,
+      origins: narrowSet(SKILL_ORIGIN_ORDER, next),
     }),
   },
   {

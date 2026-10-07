@@ -54,9 +54,9 @@ export function BackendRow({
     : getBackendStatusLabel(t, backend, health);
   const statusClassName =
     health?.isConnected === true
-      ? "text-green-300"
+      ? "text-status-success"
       : health?.isConnected === false
-        ? "text-red-300"
+        ? "text-status-error"
         : "text-muted";
   const dotStatus = isInvalidApiKey ? false : (health?.isConnected ?? null);
   const canSelect = health?.isConnected === true && !isInvalidApiKey;
@@ -105,7 +105,7 @@ export function BackendRow({
             <span
               data-testid={`manage-backends-status-detail-${backend.name}`}
               title={statusDetail}
-              className="text-xs text-red-300/80 whitespace-normal break-words"
+              className="text-xs text-status-error/80 whitespace-normal break-words"
             >
               {statusDetail}
             </span>

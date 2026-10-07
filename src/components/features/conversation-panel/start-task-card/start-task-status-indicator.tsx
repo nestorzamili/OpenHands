@@ -11,9 +11,9 @@ export function StartTaskStatusIndicator({
   const getStatusColor = () => {
     switch (taskStatus) {
       case "READY":
-        return "bg-green-500";
+        return "bg-status-success";
       case "ERROR":
-        return "bg-red-500";
+        return "bg-status-error";
       case "WORKING":
       case "WAITING_FOR_SANDBOX":
       case "PREPARING_REPOSITORY":

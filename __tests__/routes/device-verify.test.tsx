@@ -375,7 +375,7 @@ describe("DeviceVerify", () => {
 
       expect(screen.getByText("DEVICE$SUCCESS_MESSAGE")).toBeInTheDocument();
       // Should show success icon (checkmark)
-      const successIcon = document.querySelector(".text-green-600");
+      const successIcon = document.querySelector(".text-status-success");
       expect(successIcon).toBeInTheDocument();
     });
 
@@ -463,7 +463,7 @@ describe("DeviceVerify", () => {
 
       expect(screen.getByText("DEVICE$ERROR_FAILED")).toBeInTheDocument();
       // Should show error icon (X)
-      const errorIcon = document.querySelector(".text-red-600");
+      const errorIcon = document.querySelector(".text-status-error");
       expect(errorIcon).toBeInTheDocument();
     });
 

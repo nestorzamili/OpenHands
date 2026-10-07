@@ -47,8 +47,8 @@ const ALERT_CONFIG: Record<AlertType, AlertConfig> = {
     label: "Warning",
     icon: FaTriangleExclamation,
     containerClass: "border-l-yellow-500 bg-yellow-500/10",
-    titleClass: "text-yellow-300",
-    iconClass: "text-yellow-400",
+    titleClass: "text-warning",
+    iconClass: "text-warning",
   },
   caution: {
     label: "Caution",

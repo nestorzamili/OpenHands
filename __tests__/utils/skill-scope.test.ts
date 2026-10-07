@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { SkillInfo } from "#/types/settings";
-import { getSkillScope, groupSkillsByScope } from "#/utils/skill-scope";
+import {
+  getSkillScope,
+  groupSkillsByScope,
+  isBuiltinSkill,
+} from "#/utils/skill-scope";
 
 function buildSkill(overrides: Partial<SkillInfo> = {}): SkillInfo {
   return {
@@ -16,7 +20,8 @@ describe("getSkillScope", () => {
     expect(
       getSkillScope(
         buildSkill({
-          source: "/Users/test/.openhands/cache/skills/public-skills/skills/deno/SKILL.md",
+          source:
+            "/Users/test/.openhands/cache/skills/public-skills/skills/deno/SKILL.md",
         }),
       ),
     ).toBe("public");
@@ -45,19 +50,32 @@ describe("getSkillScope", () => {
       ),
     ).toBe("project");
     expect(getSkillScope(buildSkill({ source: "project" }))).toBe("project");
+    expect(
+      getSkillScope(
+        buildSkill({ source: ".agents/skills/manual/SKILL.md" }),
+        projectDir,
+      ),
+    ).toBe("project");
+    expect(
+      isBuiltinSkill(buildSkill({ source: ".agents/skills/manual/SKILL.md" })),
+    ).toBe(false);
+    expect(isBuiltinSkill(buildSkill({ source: "public" }))).toBe(true);
   });
 });
 
 describe("groupSkillsByScope", () => {
   it("groups and sorts skills by scope", () => {
-    const grouped = groupSkillsByScope([
-      buildSkill({ name: "beta", source: "public" }),
-      buildSkill({ name: "alpha", source: "user" }),
-      buildSkill({
-        name: "gamma",
-        source: "/workspace/project/.agents/skills/gamma/SKILL.md",
-      }),
-    ], "/workspace/project");
+    const grouped = groupSkillsByScope(
+      [
+        buildSkill({ name: "beta", source: "public" }),
+        buildSkill({ name: "alpha", source: "user" }),
+        buildSkill({
+          name: "gamma",
+          source: "/workspace/project/.agents/skills/gamma/SKILL.md",
+        }),
+      ],
+      "/workspace/project",
+    );
 
     expect(grouped.public.map((skill) => skill.name)).toEqual(["beta"]);
     expect(grouped.personal.map((skill) => skill.name)).toEqual(["alpha"]);

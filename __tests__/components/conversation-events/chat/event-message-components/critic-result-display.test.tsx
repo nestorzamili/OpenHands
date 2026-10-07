@@ -92,7 +92,7 @@ describe("CriticResultDisplay", () => {
     );
 
     const stars = screen.getByText("★★★★☆");
-    expect(stars.className).toContain("text-green-400");
+    expect(stars.className).toContain("text-status-success");
   });
 
   it("renders yellow color for medium score", () => {
@@ -101,7 +101,7 @@ describe("CriticResultDisplay", () => {
     );
 
     const stars = screen.getByText("★★★☆☆");
-    expect(stars.className).toContain("text-yellow-400");
+    expect(stars.className).toContain("text-warning");
   });
 
   it("renders red color for low score", () => {
@@ -110,7 +110,7 @@ describe("CriticResultDisplay", () => {
     );
 
     const stars = screen.getByText("★☆☆☆☆");
-    expect(stars.className).toContain("text-red-400");
+    expect(stars.className).toContain("text-status-error");
   });
 
   it("renders label text", () => {

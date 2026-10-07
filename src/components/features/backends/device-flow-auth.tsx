@@ -334,7 +334,7 @@ function DeviceFlowStatusContent({
       data-testid={`${testIdRoot}-auth-error`}
       role="alert"
     >
-      <p className="text-sm text-red-400">{error}</p>
+      <p className="text-sm text-status-error">{error}</p>
       <BrandButton
         type="button"
         variant="secondary"

@@ -512,7 +512,7 @@ describe("getStatusIcon", () => {
 
 describe("getStatusClassName", () => {
   it("styles done and in_progress distinctly from every other status", () => {
-    expect(getStatusClassName("done")).toBe("bg-green-800 text-green-200");
+    expect(getStatusClassName("done")).toBe("bg-green-800 text-status-success");
     expect(getStatusClassName("in_progress")).toBe(
       "bg-yellow-800 text-yellow-200",
     );

@@ -595,7 +595,7 @@ export function SetupDialog({ entry, onClose }: SetupDialogProps) {
               key={message}
               role="alert"
               data-testid="setup-form-error"
-              className="pt-4 text-sm text-red-400"
+              className="pt-4 text-sm text-status-error"
             >
               {message}
             </p>

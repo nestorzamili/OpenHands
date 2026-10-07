@@ -17,6 +17,11 @@ const USER_SKILL_DIR_MARKERS = [
   "/.openhands/skills/",
   "/.openhands/microagents/",
 ] as const;
+const RELATIVE_PROJECT_SKILL_DIR_MARKERS = [
+  ".agents/skills/",
+  ".openhands/skills/",
+  ".openhands/microagents/",
+] as const;
 
 function normalizePath(path: string): string {
   return path.replace(/\\/g, "/");
@@ -30,6 +35,11 @@ function isPublicSource(source: string): boolean {
   return (
     norm.includes("public-skills") || norm.includes("/.openhands/cache/skills/")
   );
+}
+
+/** Origin is independent from storage scope: user/project files are custom. */
+export function isBuiltinSkill(skill: SkillInfo): boolean {
+  return Boolean(skill.source && isPublicSource(skill.source));
 }
 
 function isUserHomeSkillPath(source: string): boolean {
@@ -56,9 +66,11 @@ function isProjectSkillPath(
   projectDir?: string | null,
 ): boolean {
   const norm = normalizePath(source);
-  const hasProjectMarker = USER_SKILL_DIR_MARKERS.some((marker) =>
-    norm.includes(marker),
-  );
+  const hasProjectMarker =
+    USER_SKILL_DIR_MARKERS.some((marker) => norm.includes(marker)) ||
+    RELATIVE_PROJECT_SKILL_DIR_MARKERS.some((marker) =>
+      norm.startsWith(marker),
+    );
   if (!hasProjectMarker) {
     return false;
   }

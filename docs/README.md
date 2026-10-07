@@ -11,3 +11,4 @@ This directory contains the project documentation.
 - [Testing matrix](./TESTING_MATRIX.md): release smoke-test coverage across installers, operating systems, and agents.
 - [DCK Agentic plan](./DCK_AGENTIC_PLAN.md): fork customization plan, module bases, and new flows.
 - [DCK Agentic deployment](./DEPLOYMENT.md): Docker Compose deployment, workspace layout, and dev-vs-deploy env.
+- [Feature verification map](../.agents/skills/verify-openhands/references/feature-map/README.md): every user-facing feature with entry points and rerunnable `control-openhands` recipes; start with the [verify-openhands skill](../.agents/skills/verify-openhands/SKILL.md) to launch and drive the real app.

@@ -15,6 +15,8 @@ export const usePaginatedConversations = (
   const active = useActiveBackend();
   const { currentPath } = useNavigation();
   const hasBackend = !isNoBackend(active.backend);
+  const hasConversationScope =
+    active.backend.kind !== "cloud" || !!active.orgId;
 
   return useInfiniteQuery({
     // Include the active backend identity so each (backend, org) pair
@@ -37,7 +39,11 @@ export const usePaginatedConversations = (
 
       return result;
     },
-    enabled: !!userIsAuthenticated && hasBackend && (options.enabled ?? true),
+    enabled:
+      !!userIsAuthenticated &&
+      hasBackend &&
+      hasConversationScope &&
+      (options.enabled ?? true),
     getNextPageParam: (lastPage: AppConversationPage) => lastPage.next_page_id,
     initialPageParam: undefined as string | undefined,
     // Poll every 30s so titles, execution status, and timestamps stay fresh

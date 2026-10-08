@@ -1,6 +1,6 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { Settings2 } from "lucide-react";
+import { Activity, Settings2 } from "lucide-react";
 import { useSearchSubdirs } from "#/hooks/query/use-search-subdirs";
 import { useDckModulesConfig } from "#/hooks/query/use-dck-modules-config";
 import { useAgentProfiles } from "#/hooks/query/use-agent-profiles";
@@ -19,6 +19,7 @@ import {
 } from "#/utils/extension-module-card-classes";
 import { displayErrorToast } from "#/utils/custom-toast-handlers";
 import type { AppConversation } from "#/api/conversation-service/agent-server-conversation-service.types";
+import { DCK_MONITORING_ROUTE_PATH } from "#/dck/monitoring";
 import {
   DCK_COPY,
   mergeDckModules,
@@ -225,15 +226,25 @@ export function DckModulesSection() {
         <h2 className="text-base font-semibold text-contrast">
           {DCK_COPY.modules}
         </h2>
-        <button
-          type="button"
-          onClick={() => setShowModuleManager(true)}
-          data-testid="dck-manage-modules"
-          className="flex shrink-0 items-center gap-1 text-xs font-medium text-text-secondary hover:text-contrast"
-        >
-          <Settings2 size={14} aria-hidden />
-          {t(I18nKey.DCK$MANAGE_MODULES)}
-        </button>
+        <div className="flex shrink-0 items-center gap-4">
+          <NavigationLink
+            to={DCK_MONITORING_ROUTE_PATH}
+            data-testid="dck-monitoring-open"
+            className="flex items-center gap-1 text-xs font-medium text-accent hover:text-accent/80"
+          >
+            <Activity size={14} aria-hidden />
+            {t(I18nKey.DCK$MONITORING_TITLE)}
+          </NavigationLink>
+          <button
+            type="button"
+            onClick={() => setShowModuleManager(true)}
+            data-testid="dck-manage-modules"
+            className="flex items-center gap-1 text-xs font-medium text-text-secondary hover:text-contrast"
+          >
+            <Settings2 size={14} aria-hidden />
+            {t(I18nKey.DCK$MANAGE_MODULES)}
+          </button>
+        </div>
       </div>
       <div className={extensionModuleCardGridClassName}>
         {modules.map((module) => {

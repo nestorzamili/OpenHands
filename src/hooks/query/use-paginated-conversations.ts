@@ -7,7 +7,10 @@ import { useActiveBackend } from "#/contexts/active-backend-context";
 import { isAutomationsRoute } from "#/manifests/automation-interface";
 import { AppConversationPage } from "#/api/conversation-service/agent-server-conversation-service.types";
 
-export const usePaginatedConversations = (limit: number = 20) => {
+export const usePaginatedConversations = (
+  limit: number = 20,
+  options: { enabled?: boolean } = {},
+) => {
   const { data: userIsAuthenticated } = useIsAuthed();
   const active = useActiveBackend();
   const { currentPath } = useNavigation();
@@ -34,7 +37,7 @@ export const usePaginatedConversations = (limit: number = 20) => {
 
       return result;
     },
-    enabled: !!userIsAuthenticated && hasBackend,
+    enabled: !!userIsAuthenticated && hasBackend && (options.enabled ?? true),
     getNextPageParam: (lastPage: AppConversationPage) => lastPage.next_page_id,
     initialPageParam: undefined as string | undefined,
     // Poll every 30s so titles, execution status, and timestamps stay fresh

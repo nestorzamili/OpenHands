@@ -18,8 +18,8 @@ export function useAllConversations(): AppConversation[] {
   );
 }
 
-export function useAllConversationsQuery() {
-  const query = usePaginatedConversations(50);
+export function useAllConversationsQuery(options: { enabled?: boolean } = {}) {
+  const query = usePaginatedConversations(50, options);
   const conversations = React.useMemo(
     () => flattenConversationPages(query.data?.pages),
     [query.data],

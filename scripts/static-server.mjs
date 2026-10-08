@@ -47,6 +47,13 @@ import {
   PortalAuthStore,
   PORTAL_AUTH_SESSION_COOKIE,
 } from "./portal-auth.mjs";
+import {
+  DCK_MONITORING_PATH,
+  handleDckMonitoringRequest,
+  isValidSessionApiKey,
+  resolveDefaultWebgenRoot,
+  resolveDefaultWorkspaceRoot,
+} from "./dck-monitoring.mjs";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SPA fallback helpers
@@ -735,6 +742,15 @@ export function startStaticServer(config) {
   const rejectPrefixes = config.rejectPrefixes ?? [];
   const noReferrerPrefixes = config.noReferrerPrefixes ?? [];
   const staticMiddleware = createStaticMiddleware(dirAbs);
+  const dckMonitoringOptions = {
+    socketPath:
+      config.dckMonitoring?.socketPath ??
+      process.env.DOCKER_SOCKET_PATH ??
+      "/var/run/docker.sock",
+    webgenRoot: config.dckMonitoring?.webgenRoot ?? resolveDefaultWebgenRoot(),
+    workspaceRoot:
+      config.dckMonitoring?.workspaceRoot ?? resolveDefaultWorkspaceRoot(),
+  };
 
   const uninstallDiagnostics = proxy.installDiagnostics();
 
@@ -744,6 +760,44 @@ export function startStaticServer(config) {
       if (handled) return;
     }
     const url = req.url ?? "/";
+    const requestedPath = new URL(url, "http://localhost").pathname;
+    const monitoringUrl = isMountedPath(requestedPath, basePath)
+      ? stripBasePathFromUrl(url, basePath)
+      : url;
+    const rawPath = monitoringUrl.split("?", 1)[0];
+    let decodedPath = rawPath;
+    try {
+      decodedPath = decodeURIComponent(rawPath);
+    } catch {
+      // Let the regular router/static handler return its normal 400 response.
+    }
+    if (decodedPath === DCK_MONITORING_PATH) {
+      if (!portalAuth) {
+        const configuredKey = config.sessionApiKey;
+        const suppliedKey = req.headers["x-session-api-key"];
+        const matchesSessionKey = isValidSessionApiKey(
+          configuredKey,
+          suppliedKey,
+        );
+        if (!matchesSessionKey) {
+          res.writeHead(configuredKey ? 401 : 503, {
+            "Content-Type": "application/json; charset=utf-8",
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+          });
+          res.end(
+            JSON.stringify({
+              error: configuredKey
+                ? "Authentication required"
+                : "Docker monitoring is unavailable",
+            }),
+          );
+          return;
+        }
+      }
+      void handleDckMonitoringRequest(req, res, dckMonitoringOptions);
+      return;
+    }
     const backend = route(url);
     if (backend) {
       // The editor is advertised as `<origin><prefix>/?tkn=<token>`, and that

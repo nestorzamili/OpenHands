@@ -45,7 +45,7 @@
 
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import process from "node:process";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -485,6 +485,10 @@ async function main() {
   }
 }
 
+if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
+  void main();
+}
+
 // Export for testing
 export {
   normalizeVersion,
@@ -496,5 +500,3 @@ export {
   CLIENT_PACKAGE_NAME,
   AUTOMATION_PACKAGE_NAME,
 };
-
-main();

@@ -20,6 +20,7 @@ import {
   resetAutomationMockData,
 } from "./automation-handlers";
 import { MCP_HANDLERS } from "./mcp-handlers";
+import { PLUGINS_HANDLERS } from "./plugins-handlers";
 import {
   WORKSPACES_HANDLERS,
   resetMockWorkspaces,
@@ -41,6 +42,7 @@ export const handlers = [
   ...ANALYTICS_HANDLERS,
   ...AUTOMATION_HANDLERS,
   ...MCP_HANDLERS,
+  ...PLUGINS_HANDLERS,
   ...WORKSPACES_HANDLERS,
   ...CANVAS_EXTENSIONS_HANDLERS,
 ];

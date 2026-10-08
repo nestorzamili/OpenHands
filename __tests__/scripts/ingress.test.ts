@@ -7,6 +7,7 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, beforeAll, afterAll, afterEach } from "vitest";
+import { server as mswServer } from "#/mocks/node";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -15,6 +16,13 @@ const repoRoot = path.resolve(
 
 const ingressScript = path.join(repoRoot, "scripts", "ingress.mjs");
 const loopbackHost = "127.0.0.1";
+
+// This suite launches ingress/upstream servers on dynamically allocated ports.
+// Allow passthrough only in this test file so those local integration checks run.
+beforeAll(() => {
+  mswServer.close();
+  mswServer.listen({ onUnhandledRequest: "bypass" });
+});
 
 function originForPort(port: number) {
   return `http://${loopbackHost}:${port}`;

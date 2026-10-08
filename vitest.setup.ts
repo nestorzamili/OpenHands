@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, vi } from "vitest";
 import { cleanup } from "@testing-library/react";
+import { http, HttpResponse } from "msw";
 import { server } from "#/mocks/node";
 import "@testing-library/jest-dom/vitest";
 
@@ -196,11 +197,27 @@ vi.mock("zustand");
 
 // Mock requests during tests
 beforeAll(() => {
-  server.listen({ onUnhandledRequest: "bypass" });
+  // Fail closed so a missing handler cannot leak a test request to a backend
+  // host or the public network.
+  server.listen({ onUnhandledRequest: "error" });
   vi.stubGlobal("ResizeObserver", MockResizeObserver);
 });
 
 beforeEach(() => {
+  // Conversation-start tests that are not about hooks should never contact a
+  // local backend just to discover that it has no hooks configured. Specific
+  // hook tests add a higher-priority handler for this endpoint.
+  server.use(
+    http.get("*/api/meta-profiles", () =>
+      HttpResponse.json({
+        meta_profiles: [],
+        active_meta_profile: null,
+      }),
+    ),
+    http.post("*/api/hooks", () =>
+      HttpResponse.json({ hook_config: null }),
+    ),
+  );
   vi.stubEnv("VITE_SESSION_API_KEY", "test-session-key");
 });
 

@@ -4,6 +4,7 @@ import {
   index,
   route,
 } from "@react-router/dev/routes";
+import { DCK_MONITORING_ROUTE_SEGMENT } from "./dck/monitoring";
 
 export default [
   layout("routes/root-layout.tsx", [
@@ -20,6 +21,7 @@ export default [
     route("plugins", "routes/skills-plugins.tsx"),
     route("apps", "routes/canvas-extensions.tsx"),
     route("modules/:moduleId", "routes/module-detail.tsx"),
+    route(DCK_MONITORING_ROUTE_SEGMENT, "routes/dck-monitoring.tsx"),
     route("extensions/:extensionName/*", "routes/canvas-extension-page.tsx"),
     route("mcp", "routes/mcp.tsx"),
     route("settings", "routes/settings.tsx", [

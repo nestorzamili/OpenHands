@@ -110,6 +110,11 @@ export const AUTOMATION_HANDLERS = [
     return HttpResponse.json({ status: "ok" });
   }),
 
+  // GET /api/automation/sdk-version — SDK version badge
+  http.get("*/api/automation/sdk-version", () =>
+    HttpResponse.json({ sdk_version: "1.19.0" }),
+  ),
+
   // GET /api/automation/v1 — List automations
   http.get("*/api/automation/v1", async ({ request }) => {
     await delay(300);

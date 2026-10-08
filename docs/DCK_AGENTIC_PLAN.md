@@ -19,22 +19,22 @@ Status: **F1–F4 implemented on `dev`; F5 (MCP registration at runtime + secret
 
 ## 1. Repo boundaries
 
-| Area | Owner repo | Notes |
-|---|---|---|
-| Canvas UI, homepage, branding, fail-fast launcher messaging | This fork (`dev`) | `src/`, `scripts/`, `docker/`, `helm/`, `config/`, `docs/` |
-| Deployment compose, workspace content, DCK skills, per-app projects | Repo root (blended) | `docker-compose.yml`, `workspace/`, `workspace/.agents/skills/` |
-| Agent Server conversation/event storage defaults | `software-agent-sdk` (upstream) | Out of scope here; this repo only passes env through and documents |
-| Postgres cluster itself | `surrounding/postgresql.yaml` | Existing `postgres:17` on external `proxy` network; operator-owned credentials |
+| Area                                                                | Owner repo                      | Notes                                                                          |
+| ------------------------------------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------ |
+| Canvas UI, homepage, branding, fail-fast launcher messaging         | This fork (`dev`)               | `src/`, `scripts/`, `docker/`, `helm/`, `config/`, `docs/`                     |
+| Deployment compose, workspace content, DCK skills, per-app projects | Repo root (blended)             | `docker-compose.yml`, `workspace/`, `workspace/.agents/skills/`                |
+| Agent Server conversation/event storage defaults                    | `software-agent-sdk` (upstream) | Out of scope here; this repo only passes env through and documents             |
+| Postgres cluster itself                                             | `surrounding/postgresql.yaml`   | Existing `postgres:17` on external `proxy` network; operator-owned credentials |
 
 ## 2. Module bases
 
-| Module | Runtime | Docker | Detected project unit | Outputs |
-|---|---|---|---|---|
-| `webgen/` | Next.js fullstack (App Router + API routes), shadcn, Tailwind; Prisma + better-auth optional | Required, one compose stack per app | `webgen/<app>/` containing `docker-compose.yml` + `.dck.json` | Runnable app on `localhost:<port>` |
-| ~~`dashboards/`~~ (removed as a DCK module) | Built-in Apps feature only (Canvas Extensions via `/apps`); no custom module card or `dashboard-generator` skill | No compose stack | n/a — managed entirely by built-in Customize → Apps | Embedded app pages inside Canvas |
-| `research/` | Built-in `research-brief` + `news-digest` skills/automations; DCK `social-research` skill is a thin wrapper (needs `TAVILY_API_KEY`) | No | `research/YYYY-MM-DD_<topic>_report.md` | Markdown report with sources + timestamps |
-| `analytics/` | Python (Pandas/Polars/DuckDB/SQLAlchemy) + SQL to host Postgres, charts to PNG/SVG; also Power BI / DAX / Power Query (M) / TMDL on request | No (one-shot runs) | `analytics/<analysis>.py`, `analytics/charts/` | Scripts, query results, charts, BI models, insight write-up |
-| `content/` | Agent only; marketing & social content (captions/scripts, content calendars, SEO/blog, email) applying antislop copywriting | No | `content/YYYY-MM-DD_<name>.md` | Publish-ready marketing content artifacts |
+| Module                                      | Runtime                                                                                                                                     | Docker                              | Detected project unit                                         | Outputs                                                     |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- | ------------------------------------------------------------- | ----------------------------------------------------------- |
+| `webgen/`                                   | Next.js fullstack (App Router + API routes), shadcn, Tailwind; Prisma + better-auth optional                                                | Required, one compose stack per app | `webgen/<app>/` containing `docker-compose.yml` + `.dck.json` | Runnable app on `localhost:<port>`                          |
+| ~~`dashboards/`~~ (removed as a DCK module) | Built-in Apps feature only (Canvas Extensions via `/apps`); no custom module card or `dashboard-generator` skill                            | No compose stack                    | n/a — managed entirely by built-in Customize → Apps           | Embedded app pages inside Canvas                            |
+| `research/`                                 | Built-in `research-brief` + `news-digest` skills/automations; DCK `social-research` skill is a thin wrapper (needs `TAVILY_API_KEY`)        | No                                  | `research/YYYY-MM-DD_<topic>_report.md`                       | Markdown report with sources + timestamps                   |
+| `analytics/`                                | Python (Pandas/Polars/DuckDB/SQLAlchemy) + SQL to host Postgres, charts to PNG/SVG; also Power BI / DAX / Power Query (M) / TMDL on request | No (one-shot runs)                  | `analytics/<analysis>.py`, `analytics/charts/`                | Scripts, query results, charts, BI models, insight write-up |
+| `content/`                                  | Agent only; marketing & social content (captions/scripts, content calendars, SEO/blog, email) applying antislop copywriting                 | No                                  | `content/YYYY-MM-DD_<name>.md`                                | Publish-ready marketing content artifacts                   |
 
 Cards for `research`/`analytics`/`content` show artifact lists + `Continue in conversation`. Only `webgen` gets Docker lifecycle actions (`deploy`/`rebuild`/`stop`/`delete`/env). There is no `dashboards` module card — apps are managed through the built-in `/apps` install/enable/uninstall flow directly.
 
@@ -106,6 +106,7 @@ New behavior:
 Brand: **DCK Agentic** (DCK Media & Business Consulting — "Strategy at core, formula as crown"; gold crown mark on dark). English-only per locked decision #2.
 
 Done:
+
 - `src/root.tsx` document title + description → driven by `PRODUCT_NAME` / `PRODUCT_TAGLINE` (no hardcoded literals).
 - `src/hooks/use-app-title.ts` `APP_TITLE` → `PRODUCT_NAME`, so the browser tab title stays `DCK Agentic` (and `… | DCK Agentic` inside conversations) instead of leaking `OpenHands`.
 - `public/favicon.svg` → DCK mark; `public/site.webmanifest` `name`/`short_name` → `DCK Agentic`/`DCK`.
@@ -115,6 +116,7 @@ Done:
 - Product-facing i18n values rebranded (English in all locales, keys added to `IDENTICAL_VALUE_ALLOWLIST`): `BRANDING$OPENHANDS_LOGO`, `AUTH$LOGGING_BACK_IN`, `HOME$OPENHANDS_DESCRIPTION`. Regenerated via `npm run make-i18n`; `check-translation-completeness` passes.
 
 Deliberately NOT rebranded (technical identifiers / agent identity, changing them breaks function or merges):
+
 - Agent kind `"openhands"` and the OpenHands agent option in `choose-agent-step.tsx` / `AgentBrandIcon` (OpenHands stays a selectable agent, not the product name).
 - Backend identity logo (`backend-form-modal.tsx` `openhands-logo-white.svg`) — identifies the OpenHands backend, not the product.
 - i18n namespace `"openhands"`, `@openhands/*` packages/imports, `openhands.dev` URLs, model-name formatting, telemetry event names, test fixtures/type-guards.
@@ -193,3 +195,11 @@ Secrets convention: per-app `DATABASE_URL`/`REDIS_URL` and integration keys live
 - `AGENT_CANVAS_ALLOW_LAN_SESSION_KEY` is ignored when `AGENT_CANVAS_PUBLIC=true` (the key is never injected). It remains available only for a deliberately loopback-only, no-login local deployment — not used by DCK.
 - Secrets maximization: the built-in Secret Manager (`/settings/secrets`, server-side encrypted via `OH_SECRET_KEY`) is the single source of truth for all integration keys and per-app URLs. Every conversation receives all secrets automatically as server-resolved `LookupSecret` attachments (`POST /api/conversations` `request.secrets`; resolved by agent-server at spawn, never in the browser). Agents materialize gitignored `.env` files from them at deploy time and never log values. Name pattern `[a-zA-Z][a-zA-Z0-9_]{0,63}`. Tavily lives in the MCP server config; per-app `DATABASE_URL_*`/`REDIS_URL` live in the manager. No `.env` sync code exists or is needed.
 - Junk-free webgen: only `webgen/<app>/` source may touch the host volume; `.dockerignore` mandatory; no host toolchains; temp files die in containers; delete means `down -v --rmi local`; operator-level `image`/`builder prune` stays on a schedule. Enforced by the `web-generator` skill (§7 there) and `workspace/AGENTS.md`.
+
+## 11. Live Webgen monitoring
+
+- `/monitoring` is a DCK snapshot page for platform services, workspace/module activity, and generated Webgen apps. It refreshes every 30 seconds and provides a manual refresh action.
+- The Canvas Node server exposes only `GET /__dck/monitoring`; the endpoint is gated by the existing portal session or the configured session API key (constant-time comparison when portal auth is not active). Vite development mode applies the same session-key gate.
+- The server reads `.dck.json` metadata and Docker Engine state through the already-mounted Unix socket, matching Compose service `app` containers by their project labels/working directory. The snapshot contains status, health-check state, restart count, start time, CPU and memory metrics; it never returns environment variables, logs, or container configuration.
+- Monitoring is strictly read-only: there are no browser-accessible Docker control operations. Active alerts cover unhealthy containers, restarting/error states, missing containers for apps last verified as running, and containers stopped despite that expected-running state. Intentionally stopped or not-yet-deployed apps remain visible without an incident.
+- Beszel is the complementary host-metrics and history dashboard, served at `/beszel/` behind nginx and backed by `./beszel-data`. Its agent uses host networking for interface metrics, connects over WebSocket with a Hub universal token, and disables SSH mode. It intentionally receives no Docker socket because this DCK page already obtains current container status and CPU/memory snapshots through the existing read-only monitoring endpoint.

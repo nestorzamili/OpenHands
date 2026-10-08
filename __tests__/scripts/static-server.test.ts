@@ -2,7 +2,7 @@ import { createServer, request, type Server } from "node:http";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
   parseArgs,
@@ -10,6 +10,14 @@ import {
   startStaticServer,
 } from "../../scripts/static-server.mjs";
 import { createRouter } from "../../scripts/proxy-utils.mjs";
+import { server as mswServer } from "#/mocks/node";
+
+// This suite intentionally makes HTTP requests to servers it starts on port 0.
+// Allow passthrough to those test-owned ephemeral loopback ports only here.
+beforeAll(() => {
+  mswServer.close();
+  mswServer.listen({ onUnhandledRequest: "bypass" });
+});
 
 describe("static-server.mjs", () => {
   const servers: Server[] = [];

@@ -5,6 +5,8 @@ of Agent Canvas. Read this index before driving the app, then open the matching
 feature file and run its recipe with `control-openhands`. The map is not a claim
 that every row passes today; the run's evidence ledger is.
 
+Maintenance baseline: main@ed815e141409c7b52991ab8d13c553b595da9165 (2026-10-06). The next maintenance pass starts from this commit; a pass proposes the next baseline in its PR, and merging that PR accepts it.
+
 ## Baseline preconditions
 
 - `control-openhands` is on `PATH` (see [the skill](../../SKILL.md)).
@@ -29,7 +31,7 @@ that every row passes today; the run's evidence ledger is.
 - Start every recipe from the baseline state unless its preconditions say
   otherwise, and return to it afterwards (delete fixtures, re-activate
   `deepseek-flash`, restore toggles).
-- Selectors: prefer `testid=...` scoped with `>>` to the owning form, row or
+- Selectors: prefer `testid=...` scoped with ` >> ` to the owning form, row or
   dialog, then `role=...[name="..."]`, then `label=`/`text=`. Discover handles
   with `control-openhands browser testids` and `browser snapshot`.
 - Treat commands as literal. Fixture names start with `QA_` or `qa-` so cleanup
@@ -49,7 +51,7 @@ that every row passes today; the run's evidence ledger is.
   check). `browser eval` takes one expression; wrap statements in an IIFE.
 - Input that is not a click: `browser upload-via <trigger> <file>` answers the
   real file chooser; `browser drop-files <sel> <file>` and `browser paste <sel>
---file F --text T` deliver drag-and-drop and paste events (target an element
+  --file F --text T` deliver drag-and-drop and paste events (target an element
   inside the drop zone: events bubble up); `browser drag` reorders draggable
   rows or moves a grip `--by DX,DY`; `browser choose <combobox> <label>` picks
   an autocomplete option; `browser clipboard` reads what a Copy button wrote.
@@ -65,9 +67,9 @@ that every row passes today; the run's evidence ledger is.
   arguments); rows show activated skills. After sending a follow-up message,
   `conversation wait <id> --fresh` ignores the previous terminal status.
   `fixture skill` writes a personal or project `SKILL.md`; `api GET ...
---pick a.b.c` reads one field.
+  --pick a.b.c` reads one field.
 - An already-open page does not refetch settings written by `llm` or `api
---write`: `browser reload` before asserting UI state after an arrange step.
+  --write`: `browser reload` before asserting UI state after an arrange step.
 - Settings and panels scroll inside a container: `browser scroll '<sel>' --by 600`
   scrolls the right one. `--full-page` cannot help there, because the page
   itself is only one viewport tall: take one screenshot per scroll position.
@@ -96,11 +98,14 @@ that every row passes today; the run's evidence ledger is.
 - An MCP server to test with: `control-openhands fixture mcp-server` writes a
   dependency-free stdio server with one tool, `qa_echo`.
 - A conversation in a folder or repo: `control-openhands fixture git-repo --name
-qa-repo [--remote https://github.com/qa-example/qa-repo.git]`, then
+  qa-repo [--remote https://github.com/qa-example/qa-repo.git]`, then
   `control-openhands conversation start --workspace qa-repo --prompt ...`. It
   drives Open Workspace and the folder browser, which has no path field
   (`workspace open qa-repo` does only the picking). `--remote` only sets
-  `origin`, which is enough for the repo/branch links and Pull/Push chips.
+  `origin`, which is enough for the repo/branch links and Pull/Push chips;
+  on a repo that already exists it still sets or updates `origin` and reports
+  `remoteChanged`. A family that needs a remote on the shared repo uses its
+  own name instead (`qa-f27-repo`), so F08's `qa-repo` keeps none.
 - Sidebar and row navigation can append `?backend=<id>`: end `--expect-url`
   regexes with `(\?|$)`, not `$`.
 - Some confirmation buttons render without the `data-testid` their source
@@ -116,7 +121,7 @@ qa-repo [--remote https://github.com/qa-example/qa-repo.git]`, then
   `body.` is accepted).
 - In a sandbox, requests to external hosts (fonts, model catalogs) can fail;
   judge the errors sweep by its `app:` rows, and `browser errors --app-only
---no-warnings` hides translation warnings.
+  --no-warnings` hides translation warnings.
 - Downloads are saved as `<run>/private/downloads/<ms>-<suggested name>`;
   claims about their content need `browser downloads --last 1 --inspect`.
 - `onboard --skip` after `browser reset` skips only the modal: consent is
@@ -129,7 +134,7 @@ qa-repo [--remote https://github.com/qa-example/qa-repo.git]`, then
   other localhost port, and that origin starts at first run again.
 - Two stacks (a second backend, backend switching): launch the second one with
   `export OH_VERIFY_RUN_2=$(OH_VERIFY_RUN= control-openhands launch --new
---no-browser --print-run)` and address it with `--run "$OH_VERIFY_RUN_2"`
+  --no-browser --print-run)` and address it with `--run "$OH_VERIFY_RUN_2"`
   (before or after the command). Add it in the UI as a backend; activating a
   backend asks for its own telemetry consent, which `onboard --skip` answers.
   While its services are stopped the browser logs CORS errors for that origin;
@@ -167,7 +172,7 @@ qa-repo [--remote https://github.com/qa-example/qa-repo.git]`, then
 - Accessible-name matching is a case-insensitive substring match:
   `role=heading[name="Activity"]` also matches **Activity Log**. Add `[exact]`
   (`role=heading[name="Activity"][exact]`) when a shorter name is a prefix of
-  another. Use plain `text=` substrings inside `>>` chains; a regex
+  another. Use plain `text=` substrings inside ` >> ` chains; a regex
   `text=/.../` segment there does not match.
 - Give every asserted value its selector (`browser text 'role=heading[level=1]'`,
   not "the h1 is X"): pages differ in landmarks, and the automation detail page
@@ -198,7 +203,7 @@ qa-repo [--remote https://github.com/qa-example/qa-repo.git]`, then
 - Exports and downloads: `browser downloads --last 1 --inspect [--contains TEXT]`
   shows a text file's head or a zip's entry names.
 - Record every check with `control-openhands evidence add --feature <ID> --result
-pass|fail|blocked|not-run`, one row per sub-feature ID a recipe bullet proves
+  pass|fail|blocked|not-run`, one row per sub-feature ID a recipe bullet proves
   (a bullet that covers two IDs gets two rows). A skipped entry point is never
   verified through a different one. Blocked rows name the missing prerequisite
   and the attempted path.
@@ -209,8 +214,8 @@ pass|fail|blocked|not-run`, one row per sub-feature ID a recipe bullet proves
 ## Feature entry contract
 
 Each feature file starts with an H1 title, a short paragraph describing the
-user-visible behavior and a `Source:` line. It then uses exactly four H2 sections
-in this order (`control-openhands map check` enforces it):
+user-visible behavior and a `Source:` line whose paths must exist. It then uses
+exactly four H2 sections in this order (`control-openhands map check` enforces it):
 
 1. `Sub-features`: one bullet per stable ID (`` `Fnn.slug` ``) and behavior.
 2. `How to get to it (user POV)`: every user entry point.
@@ -222,38 +227,38 @@ How to write and prove new entries: [../mapping.md](../mapping.md).
 
 ## Features
 
-| ID  | Family                                                                      | What it covers                                                                                                    | Entry points                                             | Needs                                            | Sub-features |
-| --- | --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- | ------------------------------------------------ | ------------ |
-| F01 | [First run, onboarding and sign-in](F01-first-run-and-sign-in.md)           | telemetry consent, onboarding modal, public-mode backend step and API-key screen, route error page                | any URL on a fresh browser profile; `launch --public`    | fresh run or `browser reset`; LLM for say-hello  | 21           |
-| F02 | [App shell, sidebar and command menu](F02-app-shell.md)                     | rail and phone drawer, collapse, home pinning, getting-started checklist, command menu, toasts                    | every page; `Control+k` / `Meta+k`                       | baseline; LLM for checklist progress             | 25           |
-| F03 | [Home and starting work](F03-home.md)                                       | home composer, workspace picker, plugin picker, recommended automations rail, no-LLM banner                       | `/`, **New Chat**, command menu                          | runs before and after `llm preset`; fixture repo | 39           |
-| F04 | [Conversation list and folders](F04-conversation-list.md)                   | sidebar list, View presets, workspace folders, tags, rename/pin/archive/delete, load more                         | sidebar on every page                                    | several conversations; fixture repos             | 40           |
-| F05 | [Composer, slash commands and plan mode](F05-composer.md)                   | send, drafts, attachments, model pill, slash commands, `/goal`, plan mode, dictation                              | home and conversation composer                           | LLM                                              | 23           |
-| F06 | [Agent activity](F06-agent-activity.md)                                     | messages, tool events, thinking, empty state, confirmation mode, stop/resume, errors, branching                   | `/conversations/<id>`                                    | LLM                                              | 33           |
-| F07 | [Conversation page, header and menu](F07-conversation-page.md)              | title rename, status menu, ⋯ menu (skills, hooks, tools, export, download, cost, stop, delete), git bar, overview | sidebar row, URL, `/panel`                               | LLM; fixture repo; Cloud items blocked           | 25           |
-| F08 | [Workspace drawer: files and changes](F08-workspace-files-and-changes.md)   | Files tab, Commits and uncommitted changes, diff viewer, file links in chat                                       | panel toggle, file links                                 | LLM; fixture repo                                | 33           |
-| F09 | [Settings shell and navigation](F09-settings-shell.md)                      | settings navigation, phone hub, deep links, update card, backend note                                             | gear, command menu, URLs                                 | baseline; deep links before `llm preset`         | 24           |
-| F10 | [LLM profiles](F10-llm-profiles.md)                                         | list, add, edit, rename, duplicate, delete, default, advanced fields, validation                                  | `/settings/llm`                                          | fresh run; DeepSeek key                          | 31           |
-| F11 | [Provider connections](F11-provider-connections.md)                         | add, edit, rotate key, delete connections; profiles from a connection                                             | `/settings/llm`                                          | fresh run; DeepSeek key                          | 21           |
-| F12 | [Model router](F12-model-router.md)                                         | meta-profiles, templates, run on first message, routing effect                                                    | `/settings/meta-llm`                                     | LLM profiles                                     | 25           |
-| F13 | [Agent profiles](F13-agent-profiles.md)                                     | OpenHands and ACP profiles, editor, name rules, active profile, MCP and secret scoping                            | `/settings/agents`                                       | fresh run; LLM                                   | 20           |
-| F14 | [Secrets](F14-secrets.md)                                                   | list, add, edit, rename, delete, agent access                                                                     | `/settings/secrets`                                      | LLM for agent access                             | 11           |
-| F15 | [Condenser, agent context and verification](F15-agent-behavior-settings.md) | condenser fields, agent context, confirmation mode and critic, their effect on runs                               | `/settings/condenser`, `/agent-context`, `/verification` | LLM for the effects                              | 23           |
-| F16 | [Application settings](F16-application-settings.md)                         | language, theme, analytics, sound, checklist, title model, voice input, git identity                              | `/settings/app`                                          | LLM for title and git checks                     | 19           |
-| F17 | [Customize hub and MCP servers](F17-mcp-servers.md)                         | catalog, install, test, edit, delete, custom servers, agent use                                                   | **Customize**, `/mcp`                                    | `uvx`/`npx`; LLM                                 | 26           |
-| F18 | [Skills catalog](F18-skills.md)                                             | facets, search, enable/disable, add skill, Use skill, personal and project skills                                 | `/skills`                                                | `fixture skill`; LLM                             | 19           |
-| F19 | [Plugins and plugin launch](F19-plugins.md)                                 | catalog, install, update, uninstall, enable, launch deep links                                                    | `/plugins`, `/launch`                                    | LLM                                              | 25           |
-| F20 | [Canvas apps](F20-canvas-apps.md)                                           | install from path or git, enable, update, uninstall, extension pages                                              | `/apps`                                                  | none                                             | 23           |
-| F21 | [Automations dashboard and actions](F21-automations-dashboard.md)           | cards and list, filters, sort, Run now, enable, export, import, delete, pin                                       | `/automations`                                           | LLM; automation service                          | 34           |
-| F22 | [Creating automations](F22-automation-creation.md)                          | templates, setup dialog, custom automations, import                                                               | `/automations/templates`, `/automations/new/<id>`        | LLM                                              | 28           |
-| F23 | [Automation detail, runs and editing](F23-automation-detail.md)             | detail page, runs, logs, edit dialog, triggers, debug                                                             | `/automations/<id>`                                      | LLM; runs                                        | 39           |
-| F24 | [Automation Git Sync](F24-git-sync.md)                                      | configure, sync cycles, encryption, status                                                                        | `/automations/git-sync`                                  | `fixture git-remote`                             | 26           |
-| F25 | [Backends, Cloud and sharing](F25-backends-and-cloud.md)                    | add, edit, remove and switch backends, per-backend consent, Cloud login, shared pages                             | backend selector                                         | a second stack; Cloud account (blocked)          | 27           |
-| F26 | [Launcher modes, Docker, desktop and library](F26-runtime-variants.md)      | launcher flags, partial stacks, LAN bind, Docker, Electron, embeddable library                                    | a terminal                                               | Docker/Electron where available                  | 27           |
-| F27 | [Workspace tools](F27-workspace-tools.md)                                   | terminal, browser, planner, task list, usage, `canvas_ui_control`                                                 | drawer tabs                                              | LLM                                              | 29           |
+| ID | Family | What it covers | Entry points | Needs | Sub-features |
+|---|---|---|---|---|---|
+| F01 | [First run, onboarding and sign-in](F01-first-run-and-sign-in.md) | telemetry consent, onboarding modal, public-mode backend step and API-key screen, route error page | any URL on a fresh browser profile; `launch --public` | fresh run or `browser reset`; LLM for say-hello | 21 |
+| F02 | [App shell, sidebar and command menu](F02-app-shell.md) | rail and phone drawer, collapse, home pinning, getting-started checklist, command menu, toasts | every page; `Control+k` / `Meta+k` | baseline; LLM for checklist progress | 25 |
+| F03 | [Home and starting work](F03-home.md) | home composer, workspace picker, plugin picker, recommended automations rail, no-LLM banner | `/`, **New Chat**, command menu | runs before and after `llm preset`; fixture repo | 39 |
+| F04 | [Conversation list and folders](F04-conversation-list.md) | sidebar list, View presets, workspace folders, tags, rename/pin/archive/delete, load more | sidebar on every page | several conversations; fixture repos | 40 |
+| F05 | [Composer, slash commands and plan mode](F05-composer.md) | send, drafts, attachments, model pill, slash commands, `/goal`, plan mode, dictation | home and conversation composer | LLM | 25 |
+| F06 | [Agent activity](F06-agent-activity.md) | messages, tool events, thinking, empty state, confirmation mode, stop/resume, errors, branching | `/conversations/<id>` | LLM | 35 |
+| F07 | [Conversation page, header and menu](F07-conversation-page.md) | title rename, status menu, ⋯ menu (skills, hooks, tools, export, download, cost, stop, delete), git bar, overview | sidebar row, URL, `/panel` | LLM; fixture repo; Cloud items blocked | 25 |
+| F08 | [Workspace drawer: files and changes](F08-workspace-files-and-changes.md) | Files tab, Commits and uncommitted changes, diff viewer, file links in chat | panel toggle, file links | LLM; fixture repo | 33 |
+| F09 | [Settings shell and navigation](F09-settings-shell.md) | settings navigation, phone hub, deep links, update card, backend note | gear, command menu, URLs | baseline; deep links before `llm preset` | 25 |
+| F10 | [LLM profiles](F10-llm-profiles.md) | list, add, edit, rename, duplicate, delete, default, advanced fields, validation | `/settings/llm` | fresh run; DeepSeek key | 34 |
+| F11 | [Provider connections](F11-provider-connections.md) | add, edit, rotate key, delete connections; profiles from a connection | `/settings/llm` | fresh run; DeepSeek key | 21 |
+| F12 | [Model router](F12-model-router.md) | meta-profiles, templates, run on first message, routing effect | `/settings/meta-llm` | LLM profiles | 25 |
+| F13 | [Agent profiles](F13-agent-profiles.md) | OpenHands and ACP profiles, editor, name rules, active profile, MCP and secret scoping | `/settings/agents` | fresh run; LLM | 20 |
+| F14 | [Secrets](F14-secrets.md) | list, add, edit, rename, delete, agent access | `/settings/secrets` | LLM for agent access | 11 |
+| F15 | [Condenser, agent context and verification](F15-agent-behavior-settings.md) | condenser fields, agent context, confirmation mode and critic, their effect on runs | `/settings/condenser`, `/agent-context`, `/verification` | LLM for the effects | 23 |
+| F16 | [Application settings](F16-application-settings.md) | language, theme, analytics, sound, checklist, title model, voice input, git identity | `/settings/app` | LLM for title and git checks | 19 |
+| F17 | [Customize hub and MCP servers](F17-mcp-servers.md) | catalog, install, test, edit, delete, custom servers, agent use | **Customize**, `/mcp` | `uvx`/`npx`; LLM | 30 |
+| F18 | [Skills catalog](F18-skills.md) | facets, search, enable/disable, add skill, Use skill, personal and project skills | `/skills` | `fixture skill`; LLM | 21 |
+| F19 | [Plugins and plugin launch](F19-plugins.md) | catalog, install, update, uninstall, enable, launch deep links | `/plugins`, `/launch` | LLM | 25 |
+| F20 | [Canvas apps](F20-canvas-apps.md) | install from path or git, enable, update, uninstall, extension pages | `/apps` | none | 24 |
+| F21 | [Automations dashboard and actions](F21-automations-dashboard.md) | cards and list, filters, sort, Run now, enable, export, import, delete, pin | `/automations` | LLM; automation service | 34 |
+| F22 | [Creating automations](F22-automation-creation.md) | templates, setup dialog, custom automations, import | `/automations/templates`, `/automations/new/<id>` | LLM | 28 |
+| F23 | [Automation detail, runs and editing](F23-automation-detail.md) | detail page, runs, logs, edit dialog, triggers, debug | `/automations/<id>` | LLM; runs | 39 |
+| F24 | [Automation Git Sync](F24-git-sync.md) | configure, sync cycles, encryption, status | `/automations/git-sync` | `fixture git-repo` | 26 |
+| F25 | [Backends, Cloud and sharing](F25-backends-and-cloud.md) | add, edit, remove and switch backends, per-backend consent, Cloud login, shared pages | backend selector | a second stack; Cloud account (blocked) | 28 |
+| F26 | [Launcher modes, Docker, desktop and library](F26-runtime-variants.md) | launcher flags, partial stacks, LAN bind, Docker, Electron, embeddable library | a terminal | Docker/Electron where available | 30 |
+| F27 | [Workspace tools](F27-workspace-tools.md) | terminal, browser, planner, task list, usage, `canvas_ui_control` | drawer tabs | LLM | 30 |
 | F28 | [DCK modules and portal users](F28-dck-modules-and-users.md)                | DCK module workspaces and portal-admin user management                                                            | `/modules/:moduleId`; `/settings/users`                  | DCK workspace; portal administrator              | 2            |
 
-28 families, 718 sub-features. `control-openhands map ids` lists every ID with its file.
+28 families, 738 sub-features. `control-openhands map ids` lists every ID with its file.
 
 ### Neighbouring families
 

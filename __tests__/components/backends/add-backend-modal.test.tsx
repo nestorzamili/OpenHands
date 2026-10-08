@@ -15,6 +15,7 @@ import * as telemetry from "#/services/telemetry";
 
 const getServerInfoMock = vi.hoisted(() => vi.fn());
 const getSettingsMock = vi.hoisted(() => vi.fn().mockResolvedValue({}));
+const countConversationsMock = vi.hoisted(() => vi.fn().mockResolvedValue(0));
 
 const deviceFlowMocks = vi.hoisted(() => ({
   startDeviceFlow: vi.fn(),
@@ -38,6 +39,9 @@ vi.mock("@openhands/typescript-client/clients", () => ({
     return {
       getServerInfo: getServerInfoMock,
     };
+  }),
+  ConversationClient: vi.fn(function ConversationClientMock() {
+    return { countConversations: countConversationsMock };
   }),
   SettingsClient: vi.fn(function SettingsClientMock() {
     return {

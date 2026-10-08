@@ -37,14 +37,14 @@ const deviceFlowMocks = vi.hoisted(() => ({
 }));
 
 const getServerInfoMock = vi.fn().mockResolvedValue({ version: "1.52.0" });
-const getSettingsMock = vi.fn().mockResolvedValue({});
+const countConversationsMock = vi.fn().mockResolvedValue(0);
 
 vi.mock("@openhands/typescript-client/clients", () => ({
   ServerClient: vi.fn(function ServerClientMock() {
     return { getServerInfo: getServerInfoMock };
   }),
-  SettingsClient: vi.fn(function SettingsClientMock() {
-    return { getSettings: getSettingsMock };
+  ConversationClient: vi.fn(function ConversationClientMock() {
+    return { countConversations: countConversationsMock };
   }),
 }));
 
@@ -165,8 +165,8 @@ beforeEach(() => {
   window.localStorage.clear();
   getServerInfoMock.mockReset();
   getServerInfoMock.mockResolvedValue({ version: "1.52.0" });
-  getSettingsMock.mockReset();
-  getSettingsMock.mockResolvedValue({});
+  countConversationsMock.mockReset();
+  countConversationsMock.mockResolvedValue(0);
   vi.mocked(getCloudOrganizations).mockReset();
   vi.mocked(getCloudOrganizations).mockResolvedValue({
     items: [],
@@ -224,7 +224,7 @@ describe("ManageBackendsModal", () => {
   });
 
   it("shows invalid API key status when the backend auth probe returns 401", async () => {
-    getSettingsMock.mockRejectedValue(
+    countConversationsMock.mockRejectedValue(
       Object.assign(new Error("Unauthorized"), {
         name: "HttpError",
         status: 401,

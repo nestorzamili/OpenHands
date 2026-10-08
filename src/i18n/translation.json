@@ -33948,6 +33948,40 @@
     "tr": "Bağlantı kesildi (URL'yi veya ağı kontrol edin)",
     "uk": "Від’єднано (перевірте URL або мережу)"
   },
+  "BACKEND$STATUS_DEGRADED": {
+    "en": "Degraded",
+    "ja": "低速・不安定",
+    "zh-CN": "缓慢或不稳定",
+    "zh-TW": "緩慢或不穩定",
+    "ko-KR": "느리거나 불안정",
+    "no": "Treg eller ustabil",
+    "ar": "بطيء أو غير مستقر",
+    "de": "Langsam oder instabil",
+    "fr": "Lent ou instable",
+    "it": "Lento o instabile",
+    "pt": "Lento ou instável",
+    "es": "Lento o inestable",
+    "ca": "Lent o inestable",
+    "tr": "Yavaş veya kararsız",
+    "uk": "Повільне або нестабільне"
+  },
+  "BACKEND$STATUS_LAST_CHECKED": {
+    "en": "Last checked: {{time}}",
+    "ja": "最終確認: {{time}}",
+    "zh-CN": "上次检查：{{time}}",
+    "zh-TW": "上次檢查：{{time}}",
+    "ko-KR": "마지막 확인: {{time}}",
+    "no": "Sist kontrollert: {{time}}",
+    "ar": "آخر تحقق: {{time}}",
+    "de": "Zuletzt geprüft: {{time}}",
+    "fr": "Dernière vérification : {{time}}",
+    "it": "Ultimo controllo: {{time}}",
+    "pt": "Última verificação: {{time}}",
+    "es": "Última comprobación: {{time}}",
+    "ca": "Darrera comprovació: {{time}}",
+    "tr": "Son kontrol: {{time}}",
+    "uk": "Остання перевірка: {{time}}"
+  },
   "SETTINGS$BACKEND_SYNCED_BADGE": {
     "en": "These settings are synced from {{name}} backend ({{host}})",
     "ja": "これらの設定は {{name}} バックエンド ({{host}}) と同期されています",
@@ -48176,5 +48210,22 @@
     "ca": "Historial de l’amfitrió a Beszel",
     "tr": "Beszel ana makine geçmişi",
     "uk": "Історія хоста в Beszel"
+  },
+  "BACKEND$STATUS_DEGRADED_BODY": {
+    "en": "The backend is reachable, but the latest check was slow or needed a retry.",
+    "ja": "バックエンドには接続できますが、最新の確認に時間がかかったか再試行が必要でした。",
+    "zh-CN": "后端可以连接，但最近一次检查响应较慢或需要重试。",
+    "zh-TW": "後端可以連線，但最近一次檢查回應較慢或需要重試。",
+    "ko-KR": "백엔드에 연결할 수 있지만 최근 확인이 느렸거나 재시도가 필요했습니다.",
+    "no": "Backenden er tilgjengelig, men siste kontroll var treg eller krevde et nytt forsøk.",
+    "ar": "يمكن الوصول إلى الخادم الخلفي، لكن الفحص الأخير كان بطيئًا أو احتاج إلى إعادة المحاولة.",
+    "de": "Das Backend ist erreichbar, aber die letzte Prüfung war langsam oder erforderte einen erneuten Versuch.",
+    "fr": "Le backend est joignable, mais la dernière vérification a été lente ou a nécessité une nouvelle tentative.",
+    "it": "Il backend è raggiungibile, ma l'ultimo controllo è stato lento o ha richiesto un nuovo tentativo.",
+    "pt": "O backend está acessível, mas a última verificação foi lenta ou precisou ser repetida.",
+    "es": "El backend es accesible, pero la última comprobación fue lenta o necesitó un reintento.",
+    "ca": "El backend és accessible, però la darrera comprovació ha estat lenta o ha requerit un altre intent.",
+    "tr": "Backend'e erişilebiliyor ancak son kontrol yavaştı veya yeniden deneme gerektirdi.",
+    "uk": "Бекенд доступний, але остання перевірка була повільною або потребувала повтору."
   }
 }

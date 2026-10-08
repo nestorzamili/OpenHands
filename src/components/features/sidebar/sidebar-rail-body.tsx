@@ -62,7 +62,13 @@ export interface SidebarRailBodyProps {
   currentPath: string;
   activeBackend: Backend;
   activeOrgId: string | null;
-  activeBackendHealth: { isConnected: boolean | null } | undefined;
+  activeBackendHealth:
+    | {
+        isConnected: boolean | null;
+        isDegraded?: boolean;
+        lastCheckedAt?: number | null;
+      }
+    | undefined;
   collapsedBackendPopoverOpen: boolean;
   setCollapsedBackendPopoverOpen: (open: boolean) => void;
   collapsedBackendPopoverRef: React.RefObject<HTMLDivElement | null>;
@@ -364,6 +370,8 @@ export function SidebarRailBody({
                 <span className="relative inline-flex size-4.5 shrink-0 items-center justify-center">
                   <BackendStatusDot
                     isConnected={activeBackendHealth?.isConnected ?? null}
+                    isDegraded={activeBackendHealth?.isDegraded}
+                    lastCheckedAt={activeBackendHealth?.lastCheckedAt}
                     className="absolute -left-0.5 -top-0.5 z-[1] pointer-events-none"
                   />
                   <Server width={ICON_SIZE} height={ICON_SIZE} />

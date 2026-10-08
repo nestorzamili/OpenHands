@@ -12,7 +12,10 @@ import { cn } from "#/utils/utils";
 import { BackendStatusDot } from "./backend-status-dot";
 import { BackendVersion } from "./backend-version";
 import { DeviceFlowAuth } from "./device-flow-auth";
-import { getBackendStatusLabel } from "./backend-status-label";
+import {
+  getBackendLastCheckedLabel,
+  getBackendStatusLabel,
+} from "./backend-status-label";
 import { getLockedCloudHost } from "#/api/agent-server-config";
 
 const ROW_ACTION_BUTTON_CLASS =
@@ -37,7 +40,7 @@ export function BackendRow({
   onRemove,
   onLogin,
 }: BackendRowProps) {
-  const { t } = useTranslation("openhands");
+  const { t, i18n } = useTranslation("openhands");
   const isInvalidApiKey = isInvalidBackendApiKeyHealthError(health?.lastError);
   const isCloudLoggedOut =
     backend.kind === "cloud" &&
@@ -52,9 +55,16 @@ export function BackendRow({
   const statusLabel = isCloudLoggedOut
     ? t(I18nKey.BACKEND$LOGGED_OUT)
     : getBackendStatusLabel(t, backend, health);
+  const lastCheckedLabel = getBackendLastCheckedLabel(
+    t,
+    health,
+    i18n.resolvedLanguage ?? i18n.language,
+  );
   const statusClassName =
     health?.isConnected === true
-      ? "text-status-success"
+      ? health.isDegraded
+        ? "text-warning"
+        : "text-status-success"
       : health?.isConnected === false
         ? "text-status-error"
         : "text-muted";
@@ -78,7 +88,11 @@ export function BackendRow({
             : "cursor-default",
         )}
       >
-        <BackendStatusDot isConnected={dotStatus} />
+        <BackendStatusDot
+          isConnected={dotStatus}
+          isDegraded={health?.isDegraded}
+          lastCheckedAt={health?.lastCheckedAt}
+        />
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="flex min-w-0 items-center gap-2">
             <span className="truncate text-sm text-contrast">
@@ -101,6 +115,14 @@ export function BackendRow({
           >
             {statusLabel}
           </span>
+          {lastCheckedLabel ? (
+            <span
+              data-testid={`manage-backends-last-checked-${backend.name}`}
+              className="text-xs text-text-tertiary"
+            >
+              {lastCheckedLabel}
+            </span>
+          ) : null}
           {statusDetail ? (
             <span
               data-testid={`manage-backends-status-detail-${backend.name}`}

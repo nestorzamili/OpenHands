@@ -22,6 +22,12 @@ function commit(next: BackendHealthMap): void {
   notify();
 }
 
+function clearHealthEntry(id: string): void {
+  if (!(id in healthMap)) return;
+  const { [id]: _removed, ...rest } = healthMap;
+  commit(rest);
+}
+
 export function getHealthSnapshot(): BackendHealthMap {
   return healthMap;
 }
@@ -63,14 +69,12 @@ export function recordBackendFailure(id: string, error: unknown): void {
 }
 
 /**
- * Clear the entry so the next 10s tick can mark it healthy again.
+ * Clear the entry so the next scheduled health check can mark it healthy again.
  * Called on a successful probe — also covers the case where a backend
  * had a few failures but recovered before hitting the cap.
  */
 export function recordBackendSuccess(id: string): void {
-  if (!(id in healthMap)) return;
-  const { [id]: _removed, ...rest } = healthMap;
-  commit(rest);
+  clearHealthEntry(id);
 }
 
 /**
@@ -79,16 +83,12 @@ export function recordBackendSuccess(id: string): void {
  * call sites read clearly.
  */
 export function resetBackendHealth(id: string): void {
-  if (!(id in healthMap)) return;
-  const { [id]: _removed, ...rest } = healthMap;
-  commit(rest);
+  clearHealthEntry(id);
 }
 
 /** Drop the entry entirely — used when the backend is deleted. */
 export function dropBackendHealth(id: string): void {
-  if (!(id in healthMap)) return;
-  const { [id]: _removed, ...rest } = healthMap;
-  commit(rest);
+  clearHealthEntry(id);
 }
 
 /** Test-only: re-read storage and clear listeners. */

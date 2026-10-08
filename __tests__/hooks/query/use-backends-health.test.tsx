@@ -1,6 +1,6 @@
 import {
   ServerClient,
-  SettingsClient,
+  ConversationClient,
 } from "@openhands/typescript-client/clients";
 import React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -21,7 +21,7 @@ import {
   useBackendsHealth,
 } from "#/hooks/query/use-backends-health";
 
-const getSettingsMock = vi.fn();
+const countConversationsMock = vi.fn();
 const getServerInfoMock = vi.fn();
 const getCurrentCloudApiKeyMock = vi.fn();
 const getCloudOrganizationsMock = vi.fn();
@@ -30,8 +30,8 @@ vi.mock("@openhands/typescript-client/clients", () => ({
   ServerClient: vi.fn(function ServerClientMock() {
     return { getServerInfo: getServerInfoMock };
   }),
-  SettingsClient: vi.fn(function SettingsClientMock() {
-    return { getSettings: getSettingsMock };
+  ConversationClient: vi.fn(function ConversationClientMock() {
+    return { countConversations: countConversationsMock };
   }),
 }));
 
@@ -66,13 +66,13 @@ function wrapper({ children }: { children: React.ReactNode }) {
 }
 
 beforeEach(() => {
-  getSettingsMock.mockReset();
+  countConversationsMock.mockReset();
   getServerInfoMock.mockReset();
   getServerInfoMock.mockResolvedValue({ version: "1.52.0" });
   getCurrentCloudApiKeyMock.mockReset();
   getCloudOrganizationsMock.mockReset();
   vi.mocked(ServerClient).mockClear();
-  vi.mocked(SettingsClient).mockClear();
+  vi.mocked(ConversationClient).mockClear();
   window.localStorage.clear();
   __resetHealthStoreForTests();
 });
@@ -84,8 +84,8 @@ afterEach(() => {
 });
 
 describe("useBackendsHealth", () => {
-  it("probes local backends via authenticated settings and compatible server info", async () => {
-    getSettingsMock.mockResolvedValue({});
+  it("probes local backends via authenticated lightweight count and compatible server info", async () => {
+    countConversationsMock.mockResolvedValue(0);
 
     const { result } = renderHook(() => useBackendsHealth([localBackend]), {
       wrapper,
@@ -94,13 +94,16 @@ describe("useBackendsHealth", () => {
     await waitFor(() =>
       expect(result.current[localBackend.id].isConnected).toBe(true),
     );
-    expect(getSettingsMock).toHaveBeenCalled();
+    expect(countConversationsMock).toHaveBeenCalled();
     expect(getServerInfoMock).toHaveBeenCalled();
+    expect(vi.mocked(ConversationClient).mock.calls[0]?.[0]).toMatchObject({
+      timeout: 4000,
+    });
     expect(getCurrentCloudApiKeyMock).not.toHaveBeenCalled();
   });
 
   it("reports disconnected when the local backend is below the compatible version floor", async () => {
-    getSettingsMock.mockResolvedValue({});
+    countConversationsMock.mockResolvedValue(0);
     getServerInfoMock.mockResolvedValue({ version: "1.27.1" });
 
     const { result } = renderHook(() => useBackendsHealth([localBackend]), {
@@ -120,7 +123,7 @@ describe("useBackendsHealth", () => {
   });
 
   it("reports disconnected when the local probe throws", async () => {
-    getSettingsMock.mockRejectedValue(new Error("ECONNREFUSED"));
+    countConversationsMock.mockRejectedValue(new Error("ECONNREFUSED"));
 
     const { result } = renderHook(() => useBackendsHealth([localBackend]), {
       wrapper,
@@ -135,26 +138,60 @@ describe("useBackendsHealth", () => {
   it("recovers when a transient first probe fails, then succeeds on retry", async () => {
     // The first probe attempt rejects (agent-server still warming up right
     // after navigation); the quick-retry inside the query function re-probes
-    // and succeeds, so the backend reports connected without waiting for the
-    // 10s poll — and because the probe ultimately succeeded, zero failures are
+    // and succeeds, so the backend reports reachable without waiting for the
+    // 30s poll — and because the probe ultimately succeeded, zero failures are
     // recorded toward the disabled cap.
-    getSettingsMock.mockRejectedValueOnce(new Error("ECONNREFUSED"));
-    getSettingsMock.mockResolvedValue({});
+    countConversationsMock.mockRejectedValueOnce(new Error("ECONNREFUSED"));
+    countConversationsMock.mockResolvedValue(0);
 
     const { result } = renderHook(() => useBackendsHealth([localBackend]), {
       wrapper,
     });
 
     await waitFor(
-      () => expect(result.current[localBackend.id].isConnected).toBe(true),
+      () =>
+        expect(result.current[localBackend.id]).toMatchObject({
+          isConnected: true,
+          isDegraded: true,
+        }),
       { timeout: 3000 },
     );
     expect(result.current[localBackend.id].consecutiveFailures).toBe(0);
-    expect(getSettingsMock).toHaveBeenCalledTimes(2);
+    expect(result.current[localBackend.id].lastCheckedAt).toEqual(
+      expect.any(Number),
+    );
+    expect(result.current[localBackend.id].lastCheckDurationMs).toEqual(
+      expect.any(Number),
+    );
+    expect(countConversationsMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("polls local health at the existing 30-second interval", async () => {
+    vi.useFakeTimers();
+    countConversationsMock.mockResolvedValue(0);
+
+    const { result } = renderHook(() => useBackendsHealth([localBackend]), {
+      wrapper,
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+    });
+    expect(result.current[localBackend.id].isConnected).toBe(true);
+    expect(countConversationsMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(29_999);
+    });
+    expect(countConversationsMock).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(countConversationsMock).toHaveBeenCalledTimes(2);
   });
 
   it("reports invalid API key when the authenticated local probe returns 401", async () => {
-    getSettingsMock.mockRejectedValue(
+    countConversationsMock.mockRejectedValue(
       Object.assign(new Error("Unauthorized"), {
         name: "HttpError",
         status: 401,
@@ -173,7 +210,7 @@ describe("useBackendsHealth", () => {
     );
     expect(getServerInfoMock).not.toHaveBeenCalled();
     // A definitive auth rejection is not retried — it won't self-heal.
-    expect(getSettingsMock).toHaveBeenCalledTimes(1);
+    expect(countConversationsMock).toHaveBeenCalledTimes(1);
   });
 
   it("probes cloud backends via getCurrentCloudApiKey", async () => {
@@ -190,7 +227,7 @@ describe("useBackendsHealth", () => {
       expect(result.current[cloudBackend.id].isConnected).toBe(true),
     );
     expect(getCurrentCloudApiKeyMock).toHaveBeenCalledWith(cloudBackend);
-    expect(getSettingsMock).not.toHaveBeenCalled();
+    expect(countConversationsMock).not.toHaveBeenCalled();
   });
 
   it("probes cookie-auth cloud backends via organizations without an API key", async () => {
@@ -280,10 +317,10 @@ describe("useBackendsHealth", () => {
 
   it("reports null while the first probe is still in flight", async () => {
     let resolveProbe!: () => void;
-    getSettingsMock.mockImplementation(
+    countConversationsMock.mockImplementation(
       () =>
         new Promise<unknown>((resolve) => {
-          resolveProbe = () => resolve({});
+          resolveProbe = () => resolve(0);
         }),
     );
 
@@ -301,7 +338,7 @@ describe("useBackendsHealth", () => {
 
   it("records the failure count and last error to the health store after a failed probe", async () => {
     // Arrange
-    getSettingsMock.mockRejectedValue(new Error("ECONNREFUSED"));
+    countConversationsMock.mockRejectedValue(new Error("ECONNREFUSED"));
 
     // Act
     const { result } = renderHook(() => useBackendsHealth([localBackend]), {
@@ -346,7 +383,7 @@ describe("useBackendsHealth", () => {
       }),
     );
     __resetHealthStoreForTests();
-    getSettingsMock.mockResolvedValue({});
+    countConversationsMock.mockResolvedValue(0);
 
     // Act
     const { result } = renderHook(() => useBackendsHealth([localBackend]), {
@@ -358,7 +395,7 @@ describe("useBackendsHealth", () => {
     });
 
     // Assert — polling is gated off; no probe goes out.
-    expect(getSettingsMock).not.toHaveBeenCalled();
+    expect(countConversationsMock).not.toHaveBeenCalled();
     expect(result.current[localBackend.id]).toMatchObject({
       isConnected: false,
       disabled: true,
@@ -379,12 +416,12 @@ describe("useBackendsHealth", () => {
       }),
     );
     __resetHealthStoreForTests();
-    getSettingsMock.mockResolvedValue({});
+    countConversationsMock.mockResolvedValue(0);
 
     const { result } = renderHook(() => useBackendsHealth([localBackend]), {
       wrapper,
     });
-    expect(getSettingsMock).not.toHaveBeenCalled();
+    expect(countConversationsMock).not.toHaveBeenCalled();
 
     // Act — the active-backend-context calls resetBackendHealth when
     // host or apiKey changes; do that directly so we don't have to
@@ -397,7 +434,7 @@ describe("useBackendsHealth", () => {
     await waitFor(() =>
       expect(result.current[localBackend.id].isConnected).toBe(true),
     );
-    expect(getSettingsMock).toHaveBeenCalled();
+    expect(countConversationsMock).toHaveBeenCalled();
   });
 
   it("re-probes a persisted-disabled backend when explicitly asked and clears the stale health entry on success", async () => {
@@ -413,7 +450,7 @@ describe("useBackendsHealth", () => {
       }),
     );
     __resetHealthStoreForTests();
-    getSettingsMock.mockResolvedValue({});
+    countConversationsMock.mockResolvedValue(0);
 
     const { result } = renderHook(
       () => useBackendsHealth([localBackend], { probeDisabledOnce: true }),
@@ -428,7 +465,7 @@ describe("useBackendsHealth", () => {
         disabled: false,
       }),
     );
-    expect(getSettingsMock).toHaveBeenCalled();
+    expect(countConversationsMock).toHaveBeenCalled();
     expect(window.localStorage.getItem(BACKEND_HEALTH_STORAGE_KEY)).toBeNull();
   });
 });

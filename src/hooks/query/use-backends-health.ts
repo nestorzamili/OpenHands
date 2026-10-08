@@ -23,8 +23,8 @@ import {
 } from "#/api/backend-registry/health-store";
 import { MAX_CONSECUTIVE_FAILURES } from "#/api/backend-registry/health-storage";
 
-// 30s: each local tick costs two sequential requests per backend (settings +
-// server_info), which on slow links measurably competes with conversation
+// 30s: each local tick costs two sequential requests per backend (authenticated
+// conversation count + server_info), which on slow links competes with normal
 // traffic for the browser's per-origin HTTP/1.1 connection pool.
 const REFRESH_INTERVAL_MS = 30000;
 // Cloud health probes hit app-server auth/org endpoints that are shared with the
@@ -32,6 +32,8 @@ const REFRESH_INTERVAL_MS = 30000;
 // avoids competing with conversation, sandbox, and repository requests.
 const CLOUD_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 const PROBE_TIMEOUT_MS = 4000;
+// Reuse the existing request deadline as the slow-response threshold.
+const SLOW_PROBE_THRESHOLD_MS = PROBE_TIMEOUT_MS;
 export { INVALID_BACKEND_API_KEY_ERROR } from "#/api/agent-server-compatibility";
 export const MISSING_BACKEND_API_KEY_ERROR = "API key required";
 export const CLOUD_BACKEND_API_KEY_OR_NETWORK_ERROR =
@@ -74,9 +76,9 @@ export function isCloudBackendLoggedOutHealthError(
  * Probe a single backend for connectivity. The probe path differs by
  * backend kind:
  *
- *  - Local agent-server: GET `/api/settings`, then `/server_info` via the
- *    typescript-client. The settings call validates the configured session
- *    API key; the server info call validates the version compatibility floor.
+ *  - Local agent-server: GET `/api/conversations/count`, then `/server_info`
+ *    via the typescript-client. The small authenticated count validates the
+ *    configured session API key; server info validates the version floor.
  *  - Cloud: GET `/api/keys/current` directly against the cloud host. That
  *    endpoint is lightweight, requires auth, and `getCurrentCloudApiKey`
  *    already absorbs the legacy-key 400 fallback so we treat that as
@@ -86,7 +88,7 @@ export function isCloudBackendLoggedOutHealthError(
  * Throws on failure so React Query marks the query as errored — the
  * dropdown reads `isSuccess` to flip the indicator green.
  */
-async function probeBackend(backend: Backend): Promise<true> {
+async function probeBackend(backend: Backend): Promise<void> {
   if (backend.kind === "cloud") {
     if (backend.authMode !== "cookie" && !backend.apiKey?.trim()) {
       throw new Error(MISSING_BACKEND_API_KEY_ERROR);
@@ -110,11 +112,10 @@ async function probeBackend(backend: Backend): Promise<true> {
       }
       throw error;
     }
-    return true;
+    return;
   }
 
   await validateLocalBackend(backend, PROBE_TIMEOUT_MS);
-  return true;
 }
 
 /**
@@ -128,7 +129,7 @@ const PROBE_RETRY_DELAY_MS = 300;
  * Probe a backend, retrying a couple of times on failure before giving up.
  *
  * The connectivity indicator (and the onboarding "backend connected" banner)
- * only flips green once a probe succeeds. With `retry: false` at the query
+ * only treats a backend as reachable once a probe succeeds. With `retry: false` at the query
  * level and a REFRESH_INTERVAL_MS (30s) poll, a single transient first-probe
  * miss — the agent-server still warming up right after navigation, a momentary
  * proxy 5xx, a dropped connection — would otherwise leave the banner stuck
@@ -154,10 +155,22 @@ function isRetryableProbeError(error: unknown): boolean {
   );
 }
 
-async function probeBackendWithQuickRetry(backend: Backend): Promise<true> {
+interface BackendProbeResult {
+  durationMs: number;
+  attempts: number;
+}
+
+async function probeBackendWithQuickRetry(
+  backend: Backend,
+): Promise<BackendProbeResult> {
+  const startedAt = Date.now();
   for (let attempt = 0; ; attempt += 1) {
     try {
-      return await probeBackend(backend);
+      await probeBackend(backend);
+      return {
+        durationMs: Math.max(0, Date.now() - startedAt),
+        attempts: attempt + 1,
+      };
     } catch (error) {
       if (attempt >= PROBE_RETRY_ATTEMPTS || !isRetryableProbeError(error)) {
         throw error;
@@ -182,6 +195,12 @@ export interface BackendHealth {
    * that state.
    */
   disabled: boolean;
+  /** True when the latest successful probe was slow or needed a retry. */
+  isDegraded?: boolean;
+  /** Completion time of the most recent health check, if one has completed. */
+  lastCheckedAt?: number | null;
+  /** Duration of the latest successful health check, in milliseconds. */
+  lastCheckDurationMs?: number | null;
 }
 
 export interface UseBackendsHealthOptions {
@@ -194,8 +213,8 @@ export interface UseBackendsHealthOptions {
 }
 
 /**
- * Poll every backend in `backends` once every 10s and report a simple
- * connected / disconnected verdict per backend id.
+ * Poll local backends every 30s and cloud backends every 5 minutes, reporting
+ * connectivity, degraded response timing, and the most recent completed check.
  *
  * The query key includes `host` and `apiKey` so editing a backend's
  * connection details re-keys the query and triggers an immediate
@@ -299,7 +318,31 @@ export function useBackendsHealth(
     else if (r.isError) isConnected = false;
     else isConnected = null;
 
-    out[b.id] = { isConnected, consecutiveFailures, lastError, disabled };
+    const queryLastCheckedAt = Math.max(r.dataUpdatedAt, r.errorUpdatedAt);
+    const lastCheckedAt =
+      queryLastCheckedAt > 0
+        ? queryLastCheckedAt
+        : (entry?.lastFailureAt ?? null);
+    const successfulProbe = r.data;
+    const lastCheckDurationMs =
+      isConnected === true && successfulProbe
+        ? successfulProbe.durationMs
+        : null;
+    const isDegraded =
+      isConnected === true &&
+      !!successfulProbe &&
+      (successfulProbe.attempts > 1 ||
+        successfulProbe.durationMs >= SLOW_PROBE_THRESHOLD_MS);
+
+    out[b.id] = {
+      isConnected,
+      consecutiveFailures,
+      lastError,
+      disabled,
+      isDegraded,
+      lastCheckedAt,
+      lastCheckDurationMs,
+    };
   });
   return out;
 }

@@ -1,4 +1,5 @@
 import {
+  ConversationClient,
   ServerClient,
   SettingsClient,
 } from "@openhands/typescript-client/clients";
@@ -307,8 +308,9 @@ export function assertAgentServerVersionIsSupported(
 
 /**
  * Validates a local agent-server backend with a two-step probe:
- *  1. GET /api/settings — authenticates the configured session API key;
- *     a 401 throws an Error with message {@link INVALID_BACKEND_API_KEY_ERROR}.
+ *  1. GET /api/conversations/count — authenticates the configured session API
+ *     key without loading the larger settings payload; a 401 throws an Error
+ *     with message {@link INVALID_BACKEND_API_KEY_ERROR}.
  *  2. GET /server_info  — asserts the server meets the minimum version floor.
  *
  * Returns the display version string reported by the server, or `null` when
@@ -328,7 +330,7 @@ export async function validateLocalBackend(
   });
 
   try {
-    await new SettingsClient(clientOptions).getSettings();
+    await new ConversationClient(clientOptions).countConversations();
     const serverInfo = await new ServerClient(clientOptions).getServerInfo();
     assertAgentServerVersionIsSupported(serverInfo);
     return getDisplayAgentServerVersion(serverInfo);

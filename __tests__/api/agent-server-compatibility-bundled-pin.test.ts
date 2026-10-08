@@ -1,4 +1,5 @@
 import {
+  ConversationClient,
   ServerClient,
   SettingsClient,
 } from "@openhands/typescript-client/clients";
@@ -29,16 +30,21 @@ import {
   MINIMUM_COMPATIBLE_AGENT_SERVER_VERSION,
 } from "#/api/agent-server-compatibility";
 
-const { getServerInfoMock, getSettingsMock } = vi.hoisted(() => ({
-  getServerInfoMock: vi.fn(),
-  getSettingsMock: vi.fn(),
-}));
+const { getServerInfoMock, getSettingsMock, countConversationsMock } =
+  vi.hoisted(() => ({
+    getServerInfoMock: vi.fn(),
+    getSettingsMock: vi.fn(),
+    countConversationsMock: vi.fn(),
+  }));
 
 vi.mock("@openhands/typescript-client/clients", () => ({
   ServerClient: vi.fn(function ServerClientMock() {
     return {
       getServerInfo: getServerInfoMock,
     };
+  }),
+  ConversationClient: vi.fn(function ConversationClientMock() {
+    return { countConversations: countConversationsMock };
   }),
   SettingsClient: vi.fn(function SettingsClientMock() {
     return {
@@ -74,12 +80,15 @@ beforeEach(() => {
   __resetActiveStoreForTests();
   getServerInfoMock.mockReset();
   getSettingsMock.mockReset();
+  countConversationsMock.mockReset();
   vi.mocked(ServerClient).mockClear();
+  vi.mocked(ConversationClient).mockClear();
   vi.mocked(SettingsClient).mockClear();
   getServerInfoMock.mockResolvedValue({
     version: MINIMUM_COMPATIBLE_AGENT_SERVER_VERSION,
   });
   getSettingsMock.mockResolvedValue({});
+  countConversationsMock.mockResolvedValue(0);
   clearCachedAgentServerInfo();
   delete (window as unknown as Record<string, unknown>)
     .__AGENT_CANVAS_AUTH_REQUIRED__;
@@ -330,24 +339,24 @@ describe("local backend validation", () => {
         timeout: 1234,
         ...(apiKey ? { apiKey } : {}),
       };
-      expect(SettingsClient).toHaveBeenCalledWith(
+      expect(ConversationClient).toHaveBeenCalledWith(
         expect.objectContaining(options),
       );
       expect(ServerClient).toHaveBeenCalledWith(
         expect.objectContaining(options),
       );
       if (!apiKey)
-        expect(vi.mocked(SettingsClient).mock.calls[0][0]).not.toHaveProperty(
-          "apiKey",
-        );
-      expect(getSettingsMock.mock.invocationCallOrder[0]).toBeLessThan(
+        expect(
+          vi.mocked(ConversationClient).mock.calls[0][0],
+        ).not.toHaveProperty("apiKey");
+      expect(countConversationsMock.mock.invocationCallOrder[0]).toBeLessThan(
         getServerInfoMock.mock.invocationCallOrder[0],
       );
     },
   );
   it("translates an authentication failure and does not probe the server", async () => {
     expect(INVALID_BACKEND_API_KEY_ERROR).toBe("Invalid API key");
-    getSettingsMock.mockRejectedValue(httpError(401));
+    countConversationsMock.mockRejectedValue(httpError(401));
     await expect(validateLocalBackend(localBackend, 1000)).rejects.toThrow(
       INVALID_BACKEND_API_KEY_ERROR,
     );

@@ -29,7 +29,7 @@ import {
 
 import {
   ServerClient,
-  SettingsClient,
+  ConversationClient,
 } from "@openhands/typescript-client/clients";
 import {
   getCloudOrganizations,
@@ -45,7 +45,7 @@ vi.mock("#/api/cloud/organization-service.api", () => ({
 
 vi.mock("@openhands/typescript-client/clients", () => ({
   ServerClient: vi.fn(),
-  SettingsClient: vi.fn(),
+  ConversationClient: vi.fn(),
 }));
 
 // Shared seed configs reused across tests.
@@ -154,12 +154,14 @@ beforeEach(() => {
       getServerInfo: vi.fn().mockResolvedValue({ version: "1.52.0" }),
     } as unknown as ServerClient;
   });
-  vi.mocked(SettingsClient).mockReset();
-  vi.mocked(SettingsClient).mockImplementation(function SettingsClientMock() {
-    return {
-      getSettings: vi.fn().mockResolvedValue({}),
-    } as unknown as SettingsClient;
-  });
+  vi.mocked(ConversationClient).mockReset();
+  vi.mocked(ConversationClient).mockImplementation(
+    function ConversationClientMock() {
+      return {
+        countConversations: vi.fn().mockResolvedValue(0),
+      } as unknown as ConversationClient;
+    },
+  );
 });
 
 /**
@@ -1095,11 +1097,11 @@ describe("BackendSelector", () => {
 
   describe("connection indicator", () => {
     it("renders one status dot per option, green when the probe succeeds", async () => {
-      vi.mocked(SettingsClient).mockImplementation(
-        function SettingsClientMock() {
+      vi.mocked(ConversationClient).mockImplementation(
+        function ConversationClientMock() {
           return {
-            getSettings: vi.fn().mockResolvedValue({}),
-          } as unknown as SettingsClient;
+            countConversations: vi.fn().mockResolvedValue(0),
+          } as unknown as ConversationClient;
         },
       );
 
@@ -1128,11 +1130,13 @@ describe("BackendSelector", () => {
     });
 
     it("flips the status dot to red when the local probe fails", async () => {
-      vi.mocked(SettingsClient).mockImplementation(
-        function SettingsClientMock() {
+      vi.mocked(ConversationClient).mockImplementation(
+        function ConversationClientMock() {
           return {
-            getSettings: vi.fn().mockRejectedValue(new Error("ECONNREFUSED")),
-          } as unknown as SettingsClient;
+            countConversations: vi
+              .fn()
+              .mockRejectedValue(new Error("ECONNREFUSED")),
+          } as unknown as ConversationClient;
         },
       );
 

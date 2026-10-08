@@ -18,16 +18,20 @@ import {
 } from "#/components/features/backends/backend-form-modal";
 import { BrandButton } from "#/components/features/settings/brand-button";
 import { useActiveBackendContext } from "#/contexts/active-backend-context";
-import { useBackendsHealth } from "#/hooks/query/use-backends-health";
+import type { BackendHealth } from "#/hooks/query/use-backends-health";
 import { useTracking } from "#/hooks/use-tracking";
 import { I18nKey } from "#/i18n/declaration";
 import ChevronDownSmallIcon from "#/icons/chevron-down-small.svg?react";
 import { cn } from "#/utils/utils";
-import { getBackendStatusLabel } from "#/components/features/backends/backend-status-label";
+import {
+  getBackendLastCheckedLabel,
+  getBackendStatusLabel,
+} from "#/components/features/backends/backend-status-label";
 
 interface CheckBackendStepProps {
   onBack?: () => void;
   onNext: () => void;
+  backendHealth: BackendHealth | undefined;
   /**
    * Dismisses the entire onboarding modal. Called when Cloud login succeeds
    * in locked-to-Cloud mode: there the Cloud login IS the onboarding
@@ -39,16 +43,64 @@ interface CheckBackendStepProps {
   onClose?: () => void;
 }
 
+function LastCheckedStatusLabel({
+  label,
+  className,
+}: {
+  label: string | null;
+  className: string;
+}) {
+  if (!label) return null;
+  return (
+    <span data-testid="onboarding-backend-last-checked" className={className}>
+      {label}
+    </span>
+  );
+}
+
 function ConnectionBanner({
   backend,
   isConnected,
+  isDegraded,
   lastError,
+  lastCheckedAt,
 }: {
   backend: Backend;
   isConnected: boolean | null;
+  isDegraded: boolean;
   lastError: string | null;
+  lastCheckedAt: number | null;
 }) {
-  const { t } = useTranslation("openhands");
+  const { t, i18n } = useTranslation("openhands");
+  const lastCheckedLabel = getBackendLastCheckedLabel(
+    t,
+    { lastCheckedAt },
+    i18n.resolvedLanguage ?? i18n.language,
+  );
+
+  if (isConnected === true && isDegraded) {
+    return (
+      <div
+        role="status"
+        data-testid="onboarding-backend-degraded"
+        className="flex items-start gap-3 rounded-xl border border-warning/40 bg-warning/10 px-4 py-3"
+      >
+        <AlertCircle className="mt-0.5 size-5 shrink-0 text-warning" />
+        <div className="flex flex-col gap-1">
+          <span className="text-sm font-medium text-warning">
+            {t(I18nKey.BACKEND$STATUS_DEGRADED)}
+          </span>
+          <span className="text-xs text-warning/80">
+            {t(I18nKey.BACKEND$STATUS_DEGRADED_BODY)}
+          </span>
+          <LastCheckedStatusLabel
+            label={lastCheckedLabel}
+            className="text-xs text-warning/80"
+          />
+        </div>
+      </div>
+    );
+  }
 
   if (isConnected === true) {
     return (
@@ -67,6 +119,10 @@ function ConnectionBanner({
           <span className="text-xs text-status-success/80">
             {t(I18nKey.ONBOARDING$BACKEND_CONNECTED_BODY)}
           </span>
+          <LastCheckedStatusLabel
+            label={lastCheckedLabel}
+            className="text-xs text-status-success/80"
+          />
         </div>
       </div>
     );
@@ -91,6 +147,10 @@ function ConnectionBanner({
           <span className="text-xs text-status-error/80">
             {t(I18nKey.ONBOARDING$BACKEND_DISCONNECTED_BODY)}
           </span>
+          <LastCheckedStatusLabel
+            label={lastCheckedLabel}
+            className="text-xs text-status-error/80"
+          />
         </div>
       </div>
     );
@@ -118,6 +178,7 @@ export function CheckBackendStep({
   onBack,
   onNext,
   onClose,
+  backendHealth,
 }: CheckBackendStepProps) {
   const { t } = useTranslation("openhands");
   const { active, addBackend, setActive, updateBackend } =
@@ -152,15 +213,11 @@ export function CheckBackendStep({
         kind: "local" as const,
       }
     : backend;
-  const healthByBackendId = useBackendsHealth(
-    noBackendSelected ? [] : [backend],
-  );
-  const isConnected = treatAsNoBackend
-    ? null
-    : (healthByBackendId[backend.id]?.isConnected ?? null);
-  const lastError = treatAsNoBackend
-    ? null
-    : (healthByBackendId[backend.id]?.lastError ?? null);
+  const health = treatAsNoBackend ? undefined : backendHealth;
+  const isConnected = health?.isConnected ?? null;
+  const isDegraded = health?.isDegraded ?? false;
+  const lastError = health?.lastError ?? null;
+  const lastCheckedAt = health?.lastCheckedAt ?? null;
   const [configurationOpen, setConfigurationOpen] = React.useState(false);
 
   const managed = !treatAsNoBackend && isManagedLocalBackend();
@@ -258,7 +315,9 @@ export function CheckBackendStep({
         <ConnectionBanner
           backend={backendForForm}
           isConnected={isConnected}
+          isDegraded={isDegraded}
           lastError={lastError}
+          lastCheckedAt={lastCheckedAt}
         />
       )}
 

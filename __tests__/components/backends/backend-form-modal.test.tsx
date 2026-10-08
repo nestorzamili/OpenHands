@@ -17,12 +17,16 @@ import { BackendFormModal } from "#/components/features/backends/backend-form-mo
 
 const getServerInfoMock = vi.hoisted(() => vi.fn());
 const getSettingsMock = vi.hoisted(() => vi.fn().mockResolvedValue({}));
+const countConversationsMock = vi.hoisted(() => vi.fn().mockResolvedValue(0));
 
 vi.mock("@openhands/typescript-client/clients", () => ({
   ServerClient: vi.fn(function ServerClientMock() {
     return {
       getServerInfo: getServerInfoMock,
     };
+  }),
+  ConversationClient: vi.fn(function ConversationClientMock() {
+    return { countConversations: countConversationsMock };
   }),
   SettingsClient: vi.fn(function SettingsClientMock() {
     return {

@@ -53,7 +53,13 @@ function parseOptionValue(value: string): {
 }
 
 function buildStatusPrefix(health: BackendHealth | undefined) {
-  return <BackendStatusDot isConnected={health?.isConnected ?? null} />;
+  return (
+    <BackendStatusDot
+      isConnected={health?.isConnected ?? null}
+      isDegraded={health?.isDegraded}
+      lastCheckedAt={health?.lastCheckedAt}
+    />
+  );
 }
 
 function buildNoBackendPrefix() {
@@ -153,7 +159,7 @@ export function BackendSelector({
   const { backends, active, setActive } = useActiveBackendContext();
   const cloudOrgs = useAllCloudOrganizations();
   const currentUserIds = useCloudCurrentUserId();
-  // Probe each registered backend every 10s.
+  // Probe local backends every 30s and cloud backends every 5 minutes.
   const healthByBackendId = useBackendsHealth(backends);
   const navigate = useNavigate();
   const settingsMatch = useMatch("/settings");

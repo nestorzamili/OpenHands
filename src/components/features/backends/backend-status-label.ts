@@ -13,7 +13,30 @@ import {
 
 interface BackendStatusLabelHealth {
   isConnected?: boolean | null;
+  isDegraded?: boolean;
   lastError?: string | null;
+  lastCheckedAt?: number | null;
+}
+
+export function formatBackendHealthTimestamp(
+  timestamp: number,
+  locale: string,
+): string {
+  return new Intl.DateTimeFormat(locale, {
+    dateStyle: "medium",
+    timeStyle: "medium",
+  }).format(timestamp);
+}
+
+export function getBackendLastCheckedLabel(
+  t: TFunction<"openhands">,
+  health: Pick<BackendStatusLabelHealth, "lastCheckedAt"> | undefined,
+  locale: string,
+): string | null {
+  if (health?.lastCheckedAt == null) return null;
+  return t(I18nKey.BACKEND$STATUS_LAST_CHECKED, {
+    time: formatBackendHealthTimestamp(health.lastCheckedAt, locale),
+  });
 }
 
 export function getBackendStatusLabel(
@@ -21,6 +44,7 @@ export function getBackendStatusLabel(
   backend:
     | {
         kind?: "local" | "cloud";
+        authMode?: "api-key" | "cookie";
         apiKey?: string | null;
       }
     | undefined,
@@ -29,7 +53,7 @@ export function getBackendStatusLabel(
   const lastError = health?.lastError ?? null;
   const isCloud = backend?.kind === "cloud";
 
-  if (isCloud && !backend?.apiKey?.trim()) {
+  if (isCloud && backend?.authMode !== "cookie" && !backend?.apiKey?.trim()) {
     return t(I18nKey.BACKEND$STATUS_DISCONNECTED_ADD_API_KEY);
   }
 
@@ -46,6 +70,7 @@ export function getBackendStatusLabel(
   }
 
   if (health?.isConnected === true) {
+    if (health.isDegraded) return t(I18nKey.BACKEND$STATUS_DEGRADED);
     return t(I18nKey.ONBOARDING$BACKEND_STATUS_CONNECTED);
   }
 

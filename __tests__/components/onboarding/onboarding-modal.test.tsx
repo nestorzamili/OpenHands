@@ -25,11 +25,14 @@ import * as telemetry from "#/services/telemetry";
 const llmSettingsScreenMock = vi.hoisted(() => vi.fn());
 const getServerInfoMock = vi.hoisted(() => vi.fn());
 const getSettingsMock = vi.hoisted(() => vi.fn().mockResolvedValue({}));
+const countConversationsMock = vi.hoisted(() => vi.fn());
 const saveAgentProfileMock = vi.hoisted(() => vi.fn().mockResolvedValue({}));
 const getAgentProfileMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue({ profile: { id: "default-profile-id" } }),
 );
-const activateAgentProfileMock = vi.hoisted(() => vi.fn().mockResolvedValue({}));
+const activateAgentProfileMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue({}),
+);
 let captureMock: MockInstance<typeof telemetry.trackEvent>;
 
 // Both the backend status badge in the embedded edit form and the
@@ -39,6 +42,11 @@ vi.mock("@openhands/typescript-client/clients", () => ({
   ServerClient: vi.fn(function ServerClientMock(options?: { host?: string }) {
     return {
       getServerInfo: vi.fn(() => getServerInfoMock(options)),
+    };
+  }),
+  ConversationClient: vi.fn(function ConversationClientMock() {
+    return {
+      countConversations: vi.fn(() => countConversationsMock()),
     };
   }),
   // The always-mounted LLM slide initializes settings hooks even though
@@ -52,7 +60,9 @@ vi.mock("@openhands/typescript-client/clients", () => ({
     return {
       saveAgentProfile: vi.fn((...args) => saveAgentProfileMock(...args)),
       getAgentProfile: vi.fn((...args) => getAgentProfileMock(...args)),
-      activateAgentProfile: vi.fn((...args) => activateAgentProfileMock(...args)),
+      activateAgentProfile: vi.fn((...args) =>
+        activateAgentProfileMock(...args),
+      ),
     };
   }),
 }));
@@ -235,6 +245,8 @@ beforeEach(() => {
     }
     return Promise.resolve({ version: "1.52.0" });
   });
+  countConversationsMock.mockReset();
+  countConversationsMock.mockResolvedValue(0);
   // ChooseAgentStep's Next button now persists the selection via
   // saveSettings before advancing. Stub it so the rest of the flow
   // (which these tests focus on) isn't gated on a real HTTP call.
@@ -641,11 +653,11 @@ describe("OnboardingModal", () => {
       .__AGENT_CANVAS_SESSION_API_KEY__;
     __resetActiveStoreForTests();
 
-    // Mock SettingsClient to throw a 401 error
+    // Mock the authenticated conversation-count request to throw a 401 error.
     const authError = new Error("Unauthorized");
     authError.name = "HttpError";
     (authError as any).status = 401;
-    getSettingsMock.mockRejectedValueOnce(authError);
+    countConversationsMock.mockRejectedValueOnce(authError);
     // getServerInfoMock implicitly resolves, but shouldn't be reached if test is correct
 
     renderModal();
@@ -744,6 +756,28 @@ describe("OnboardingModal", () => {
     expect(
       screen.queryByTestId("onboarding-backend-configuration-fields"),
     ).toBeNull();
+  });
+
+  it("keeps a degraded backend visible and shows when it was last checked", async () => {
+    countConversationsMock
+      .mockRejectedValueOnce(new Error("ECONNRESET"))
+      .mockResolvedValue(0);
+
+    renderModal();
+
+    expect(
+      await screen.findByTestId("onboarding-backend-degraded"),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("onboarding-backend-degraded")).toHaveTextContent(
+      "BACKEND$STATUS_DEGRADED",
+    );
+    expect(
+      screen.getByTestId("onboarding-backend-last-checked"),
+    ).toHaveTextContent("BACKEND$STATUS_LAST_CHECKED");
+    expect(screen.queryByTestId("onboarding-backend-connected")).toBeNull();
+    expect(
+      screen.getByTestId("onboarding-step-check-backend"),
+    ).toBeInTheDocument();
   });
 
   it("advances each step via the per-step Next button and reframes slide offsets", async () => {
@@ -1053,7 +1087,7 @@ describe("OnboardingModal", () => {
     );
     expect(
       helloInput.compareDocumentPosition(recommendations) &
-      Node.DOCUMENT_POSITION_FOLLOWING,
+        Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(
       within(recommendations).getByTestId(

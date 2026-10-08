@@ -35,7 +35,10 @@ import {
 } from "#/utils/modal-classes";
 import ExternalLinkIcon from "#/icons/external-link.svg?react";
 import ServerIcon from "#/icons/server.svg?react";
-import { getBackendStatusLabel } from "./backend-status-label";
+import {
+  getBackendLastCheckedLabel,
+  getBackendStatusLabel,
+} from "./backend-status-label";
 import { BackendStatusDot } from "./backend-status-dot";
 import { DeviceFlowAuth } from "./device-flow-auth";
 import { useBackendSwitchRedirect } from "./use-backend-switch-redirect";
@@ -199,7 +202,7 @@ function BackendStatusBadge({
   backend: Backend;
   testIdRoot: string;
 }) {
-  const { t } = useTranslation("openhands");
+  const { t, i18n } = useTranslation("openhands");
   const healthByBackendId = useBackendsHealth([backend]);
   const health = healthByBackendId[backend.id];
   const isConnected = health?.isConnected ?? null;
@@ -225,6 +228,11 @@ function BackendStatusBadge({
   });
 
   const statusLabel = getBackendStatusLabel(t, backend, health);
+  const lastCheckedLabel = getBackendLastCheckedLabel(
+    t,
+    health,
+    i18n.resolvedLanguage ?? i18n.language,
+  );
 
   const kindLabel =
     backend.kind === "cloud"
@@ -237,7 +245,11 @@ function BackendStatusBadge({
         data-testid={`${testIdRoot}-status`}
         className="flex items-center gap-3 text-sm"
       >
-        <BackendStatusDot isConnected={isConnected} />
+        <BackendStatusDot
+          isConnected={isConnected}
+          isDegraded={health?.isDegraded}
+          lastCheckedAt={health?.lastCheckedAt}
+        />
         <span
           className="text-contrast"
           data-testid={`${testIdRoot}-status-label`}
@@ -255,6 +267,15 @@ function BackendStatusBadge({
           </span>
         ) : null}
       </div>
+
+      {lastCheckedLabel ? (
+        <span
+          data-testid={`${testIdRoot}-last-checked`}
+          className="text-xs text-text-tertiary"
+        >
+          {lastCheckedLabel}
+        </span>
+      ) : null}
 
       {disabled ? (
         <div

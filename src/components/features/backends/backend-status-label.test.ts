@@ -6,9 +6,14 @@ import {
 } from "#/hooks/query/use-backends-health";
 import { I18nKey } from "#/i18n/declaration";
 import { CORS_OR_NETWORK_ERROR_MESSAGE } from "#/utils/user-facing-error";
-import { getBackendStatusLabel } from "./backend-status-label";
+import {
+  formatBackendHealthTimestamp,
+  getBackendLastCheckedLabel,
+  getBackendStatusLabel,
+} from "./backend-status-label";
 
-const t = ((key: string) => key) as TFunction<"openhands">;
+const t = ((key: string, options?: { time?: string }) =>
+  options?.time ? `${key}: ${options.time}` : key) as TFunction<"openhands">;
 
 describe("getBackendStatusLabel", () => {
   it("prefers add API key for Cloud backends with a blank API key", () => {
@@ -49,6 +54,37 @@ describe("getBackendStatusLabel", () => {
         { isConnected: true, lastError: null },
       ),
     ).toBe(I18nKey.ONBOARDING$BACKEND_STATUS_CONNECTED);
+  });
+
+  it("reports a reachable but slow backend as degraded", () => {
+    expect(
+      getBackendStatusLabel(
+        t,
+        { kind: "local", apiKey: "" },
+        { isConnected: true, isDegraded: true, lastError: null },
+      ),
+    ).toBe(I18nKey.BACKEND$STATUS_DEGRADED);
+  });
+
+  it("does not ask cookie-auth Cloud backends for an API key", () => {
+    expect(
+      getBackendStatusLabel(
+        t,
+        { kind: "cloud", authMode: "cookie", apiKey: "" },
+        { isConnected: true, lastError: null },
+      ),
+    ).toBe(I18nKey.ONBOARDING$BACKEND_STATUS_CONNECTED);
+  });
+
+  it("formats and labels the last health-check time", () => {
+    const timestamp = new Date("2026-10-08T10:00:00.000Z").getTime();
+    const formatted = formatBackendHealthTimestamp(timestamp, "en-US");
+
+    expect(formatted).toContain("2026");
+    expect(
+      getBackendLastCheckedLabel(t, { lastCheckedAt: timestamp }, "en-US"),
+    ).toBe(`${I18nKey.BACKEND$STATUS_LAST_CHECKED}: ${formatted}`);
+    expect(getBackendLastCheckedLabel(t, undefined, "en-US")).toBeNull();
   });
 
   it("returns disconnected for failed probes without a more specific reason", () => {

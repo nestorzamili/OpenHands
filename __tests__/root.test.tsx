@@ -40,6 +40,7 @@ vi.mock("react-i18next", () => ({
       }
       return value;
     },
+    i18n: { language: "en", resolvedLanguage: "en", exists: () => false },
   }),
 }));
 

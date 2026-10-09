@@ -65,11 +65,16 @@ vi.mock("#/contexts/active-backend-context", () => ({
   useActiveBackend: () => cloudBackendMock,
 }));
 
-vi.mock("#/hooks/query/use-backends-health", () => ({
-  useBackendsHealth: () => ({
-    "cloud-1": { isConnected: true },
-  }),
-}));
+vi.mock("#/hooks/query/use-backends-health", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("#/hooks/query/use-backends-health")>();
+  return {
+    ...actual,
+    useBackendsHealth: () => ({
+      "cloud-1": { isConnected: true },
+    }),
+  };
+});
 
 vi.mock("#/components/shared/buttons/styled-tooltip", () => ({
   StyledTooltip: ({ children }: { children: unknown }) => children,

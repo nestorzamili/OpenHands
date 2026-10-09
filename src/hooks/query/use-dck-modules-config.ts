@@ -176,6 +176,7 @@ export function useDckModulesConfig() {
     builtinOverrides: config.builtinOverrides,
     isLoading: query.isLoading,
     isError: query.isError,
+    isFetching: query.isFetching,
     isSaving: persist.isPending,
     saveError: persist.error,
     refetch: query.refetch,

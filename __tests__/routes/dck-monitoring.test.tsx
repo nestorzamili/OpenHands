@@ -17,12 +17,14 @@ const mocks = vi.hoisted(() => ({
     conversations: [] as unknown[],
     isLoading: false,
     isError: false,
+    isFetching: false,
     refetch: vi.fn(),
   },
   moduleConfig: {
     modules: [] as unknown[],
     builtinOverrides: [] as unknown[],
     isLoading: false,
+    isFetching: false,
     refetch: vi.fn(),
   },
 }));
@@ -152,12 +154,17 @@ describe("DckMonitoringRoute", () => {
     mocks.automationHealth.isFetching = false;
     mocks.automationHealth.isError = false;
     mocks.conversations.conversations = [];
+    mocks.conversations.isLoading = false;
+    mocks.conversations.isError = false;
+    mocks.conversations.isFetching = false;
     mocks.moduleConfig.modules = [];
     mocks.moduleConfig.builtinOverrides = [];
+    mocks.moduleConfig.isLoading = false;
+    mocks.moduleConfig.isFetching = false;
     setQueryState();
   });
 
-  it("renders core services, module outputs, Webgen incidents, and refreshes all sources", async () => {
+  it("renders services, module outputs, Webgen incidents, and refreshes all sources", async () => {
     const user = userEvent.setup();
     const refetch = vi.fn();
     setQueryState({ refetch });
@@ -167,6 +174,9 @@ describe("DckMonitoringRoute", () => {
       "href",
       "/beszel/",
     );
+    expect(
+      screen.getByRole("link", { name: "DCK$BACK_TO_HOME" }),
+    ).toHaveAttribute("href", "/conversations");
     expect(screen.getByTestId("dck-monitoring-toolbar")).toHaveClass(
       "grid-cols-2",
       "sm:flex",
@@ -182,12 +192,20 @@ describe("DckMonitoringRoute", () => {
     expect(
       screen.getByTestId("dck-monitoring-service-postgres"),
     ).toBeInTheDocument();
+
     const canvasService = screen.getByTestId("dck-monitoring-service-canvas");
+    expect(within(canvasService).getByRole("heading")).toHaveClass(
+      "text-contrast",
+    );
     expect(
       screen.getByTestId("dck-monitoring-service-status-canvas"),
-    ).toHaveTextContent("DCK$STATUS_RUNNING");
+    ).toHaveTextContent("DCK$STATUS_HEALTHY");
     expect(
       within(canvasService).getByText("DCK$STATUS_HEALTHY"),
+    ).toBeInTheDocument();
+    expect(within(canvasService).getByText("3.5%")).toBeInTheDocument();
+    expect(
+      within(canvasService).getByText("10 MiB / 100 MiB"),
     ).toBeInTheDocument();
     expect(
       screen.getByTestId("dck-monitoring-service-beszel"),
@@ -196,9 +214,18 @@ describe("DckMonitoringRoute", () => {
       screen.getByTestId("dck-monitoring-module-research"),
     ).toBeInTheDocument();
     expect(screen.getByText("reports/market-brief.md")).toBeInTheDocument();
+
+    const storefront = screen.getByTestId("dck-monitoring-app-storefront");
+    expect(storefront).toBeInTheDocument();
     expect(
-      screen.getByTestId("dck-monitoring-app-storefront"),
-    ).toBeInTheDocument();
+      within(storefront).queryByText("DCK$MONITORING_CPU"),
+    ).not.toBeInTheDocument();
+    expect(
+      within(storefront).queryByText("DCK$MONITORING_MEMORY"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("DCK$MONITORING_CONVERSATIONS"),
+    ).not.toBeInTheDocument();
     expect(screen.getByTestId("dck-monitoring-alerts")).toHaveTextContent(
       "DCK$MONITORING_STOPPED_ALERT",
     );
@@ -254,6 +281,37 @@ describe("DckMonitoringRoute", () => {
     );
   });
 
+  it("treats an automation health fetch failure as an error even when cached data was healthy", () => {
+    mocks.automationHealth.isError = true;
+    renderWithProviders(<DckMonitoringRoute />);
+
+    expect(
+      screen.getByTestId("dck-monitoring-automation-status"),
+    ).toHaveTextContent("DCK$STATUS_ERROR");
+    expect(screen.getByTestId("dck-monitoring-alerts")).toHaveTextContent(
+      "DCK$MONITORING_AUTOMATION_ALERT",
+    );
+  });
+
+  it("shows an activity warning instead of implying there are no conversations after a fetch error", () => {
+    mocks.conversations.isError = true;
+    renderWithProviders(<DckMonitoringRoute />);
+
+    expect(
+      screen.getByTestId("dck-monitoring-conversations-error"),
+    ).toHaveTextContent("DCK$MONITORING_CONVERSATIONS_ERROR");
+    expect(
+      screen.queryByTestId("dck-monitoring-workspace-empty"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("disables manual refresh while any monitoring source is already fetching", () => {
+    mocks.conversations.isFetching = true;
+    renderWithProviders(<DckMonitoringRoute />);
+
+    expect(screen.getByTestId("dck-monitoring-refresh")).toBeDisabled();
+  });
+
   it("explains that workspace module data is not available yet", () => {
     setQueryState({
       data: { ...snapshot, workspaceModules: [] },
@@ -289,6 +347,66 @@ describe("DckMonitoringRoute", () => {
     ).not.toBeInTheDocument();
     expect(
       screen.queryByTestId("dck-monitoring-app-storefront"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("retries the initial Docker error from the error-state action", async () => {
+    const user = userEvent.setup();
+    const refetch = vi.fn();
+    setQueryState({ data: undefined, isError: true, refetch });
+    renderWithProviders(<DckMonitoringRoute />);
+
+    await user.click(screen.getByRole("button", { name: "DCK$RETRY" }));
+
+    expect(refetch).toHaveBeenCalledTimes(1);
+    expect(mocks.automationHealth.refetch).toHaveBeenCalledTimes(1);
+    expect(mocks.moduleConfig.refetch).toHaveBeenCalledTimes(1);
+    expect(mocks.conversations.refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries a stale monitoring snapshot from its recovery action", async () => {
+    const user = userEvent.setup();
+    const refetch = vi.fn();
+    setQueryState({ isError: true, refetch });
+    renderWithProviders(<DckMonitoringRoute />);
+
+    await user.click(screen.getByRole("button", { name: "DCK$RETRY" }));
+
+    expect(refetch).toHaveBeenCalledTimes(1);
+    expect(mocks.automationHealth.refetch).toHaveBeenCalledTimes(1);
+    expect(mocks.moduleConfig.refetch).toHaveBeenCalledTimes(1);
+    expect(mocks.conversations.refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows a loading status instead of a partial module count while config loads", () => {
+    mocks.moduleConfig.isLoading = true;
+    renderWithProviders(<DckMonitoringRoute />);
+
+    const modulesSection = screen.getByRole("region", {
+      name: "DCK$MONITORING_WORKSPACE_MODULES",
+    });
+    expect(within(modulesSection).getByRole("status")).toHaveTextContent(
+      "DCK$LOADING",
+    );
+  });
+
+  it("does not show a cached healthy label on a stopped container", () => {
+    const staleHealthSnapshot: DckMonitoringSnapshot = {
+      ...snapshot,
+      applications: snapshot.applications.map((app) => ({
+        ...app,
+        health: "healthy",
+      })),
+    };
+    setQueryState({ data: staleHealthSnapshot });
+    renderWithProviders(<DckMonitoringRoute />);
+
+    const storefront = screen.getByTestId("dck-monitoring-app-storefront");
+    expect(
+      within(storefront).getByText("DCK$STATUS_STOPPED"),
+    ).toBeInTheDocument();
+    expect(
+      within(storefront).queryByText("DCK$STATUS_HEALTHY"),
     ).not.toBeInTheDocument();
   });
 });

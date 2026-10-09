@@ -125,7 +125,7 @@ function ModuleRow({
               onClick={onMoveUp}
               data-testid={`dck-module-move-up-${module.id}`}
               aria-label={t(I18nKey.DCK$MODULE_MOVE_UP)}
-              className="rounded p-2 text-text-secondary hover:text-contrast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-contrast/30 disabled:opacity-30"
+              className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md text-text-secondary hover:bg-surface hover:text-contrast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-30"
             >
               <ChevronUp size={16} aria-hidden />
             </button>
@@ -135,7 +135,7 @@ function ModuleRow({
               onClick={onMoveDown}
               data-testid={`dck-module-move-down-${module.id}`}
               aria-label={t(I18nKey.DCK$MODULE_MOVE_DOWN)}
-              className="rounded p-2 text-text-secondary hover:text-contrast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-contrast/30 disabled:opacity-30"
+              className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md text-text-secondary hover:bg-surface hover:text-contrast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-30"
             >
               <ChevronDown size={16} aria-hidden />
             </button>
@@ -147,7 +147,7 @@ function ModuleRow({
           onClick={onEdit}
           data-testid={`dck-module-edit-${module.id}`}
           aria-label={t(I18nKey.DCK$MODULE_EDIT)}
-          className="rounded p-2 text-text-secondary hover:text-contrast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-contrast/30 disabled:opacity-50"
+          className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md text-text-secondary hover:bg-surface hover:text-contrast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50"
         >
           <Pencil size={16} aria-hidden />
         </button>
@@ -158,7 +158,7 @@ function ModuleRow({
             onClick={onDelete}
             data-testid={`dck-module-delete-${module.id}`}
             aria-label={t(I18nKey.DCK$MODULE_DELETE)}
-            className="rounded p-2 text-status-error hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-contrast/30 disabled:opacity-50"
+            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md text-status-error hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50"
           >
             <Trash2 size={16} aria-hidden />
           </button>
@@ -241,7 +241,7 @@ function ModuleForm({
   };
 
   const fieldClass =
-    "w-full rounded-lg border border-border bg-base px-3 py-2 text-sm text-contrast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-contrast/30";
+    "min-h-11 w-full rounded-lg border border-border bg-base px-3 py-2 text-sm text-contrast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary";
   const labelClass = "flex flex-col gap-1 text-xs font-medium text-contrast";
   const errorClass = "text-xs text-status-error";
 
@@ -311,7 +311,7 @@ function ModuleForm({
                 aria-label={`${t(I18nKey.DCK$MODULE_FORM_ICON_LABEL)}: ${iconName}`}
                 onClick={() => setField("iconName", iconName)}
                 className={cn(
-                  "rounded-lg border p-2 text-text-secondary hover:text-contrast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-contrast/30",
+                  "inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border text-text-secondary hover:bg-surface hover:text-contrast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
                   selected ? "border-accent text-contrast" : "border-border",
                 )}
               >
@@ -355,6 +355,19 @@ function ModuleForm({
         )}
       </label>
 
+      <div className="rounded-lg border border-border bg-base p-3">
+        <DckModuleAgentProfileSelector
+          moduleId={moduleId}
+          profiles={profiles}
+          activeAgentProfileId={activeAgentProfileId}
+          selection={profileSelection}
+          disabled={isSaving}
+          onChange={(_selectedModuleId, profileId) =>
+            setProfileIdDraft(profileId)
+          }
+        />
+      </div>
+
       <label className={labelClass}>
         {t(I18nKey.DCK$MODULE_FORM_SKILL_LABEL)}
         <select
@@ -374,17 +387,6 @@ function ModuleForm({
           {t(I18nKey.DCK$MODULE_FORM_SKILL_HINT)}
         </span>
       </label>
-
-      <DckModuleAgentProfileSelector
-        moduleId={moduleId}
-        profiles={profiles}
-        activeAgentProfileId={activeAgentProfileId}
-        selection={profileSelection}
-        disabled={isSaving}
-        onChange={(_selectedModuleId, profileId) =>
-          setProfileIdDraft(profileId)
-        }
-      />
 
       <div className="sticky bottom-0 flex justify-end gap-2 border-t border-border bg-base-secondary py-3">
         <BrandButton
@@ -635,6 +637,7 @@ export function DckModuleManager({
         : I18nKey.DCK$MODULE_ADD
       : I18nKey.DCK$MODULE_MANAGER_TITLE;
 
+  // Keep the long editor scrollable within short viewports and narrow phones.
   return (
     <ModalBackdrop onClose={onClose} aria-label={t(dialogTitleKey)}>
       <div

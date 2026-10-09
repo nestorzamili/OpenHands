@@ -239,17 +239,39 @@ describe("DckModulesSection", () => {
     });
   });
 
-  it("stores a module profile choice and passes it only when launching that module", async () => {
+  it("chooses a module profile in the editor and uses it when launching from home", async () => {
     const user = userEvent.setup();
+    const storageKey = getDckModuleAgentProfilesStorageKey(
+      "test-backend",
+      null,
+    );
     renderWithProviders(<DckModulesSection />);
 
     const researchCard = await screen.findByTestId("dck-module-card-research");
-    await user.selectOptions(
+    expect(
+      within(researchCard).queryByRole("combobox"),
+    ).not.toBeInTheDocument();
+    expect(
       within(researchCard).getByTestId(
-        "dck-module-agent-profile-selector-research",
+        "dck-module-agent-profile-summary-research",
       ),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("dck-manage-modules"));
+    const manager = await screen.findByTestId("dck-module-manager");
+    await user.click(within(manager).getByTestId("dck-module-edit-research"));
+    await user.selectOptions(
+      within(manager).getByTestId("dck-module-agent-profile-selector-research"),
       "research-profile",
     );
+    await user.click(within(manager).getByTestId("dck-module-form-save"));
+
+    await waitFor(() =>
+      expect(
+        JSON.parse(window.localStorage.getItem(storageKey) ?? "{}"),
+      ).toEqual({ research: "research-profile" }),
+    );
+    await user.keyboard("{Escape}");
     await user.click(within(researchCard).getByRole("button"));
 
     await waitFor(() =>
@@ -259,13 +281,6 @@ describe("DckModulesSection", () => {
       workingDir: "/projects/research",
       agentProfileId: "research-profile",
     });
-    expect(
-      JSON.parse(
-        window.localStorage.getItem(
-          getDckModuleAgentProfilesStorageKey("test-backend", null),
-        ) ?? "{}",
-      ),
-    ).toEqual({ research: "research-profile" });
     expect(mockAgentProfiles.data.active_agent_profile_id).toBe(
       "active-profile",
     );
@@ -282,6 +297,16 @@ describe("DckModulesSection", () => {
       JSON.stringify({ research: "research-profile" }),
     );
     renderWithProviders(<DckModulesSection />);
+
+    const researchCard = await screen.findByTestId("dck-module-card-research");
+    expect(
+      within(researchCard).queryByRole("combobox"),
+    ).not.toBeInTheDocument();
+    expect(
+      within(researchCard).getByTestId(
+        "dck-module-agent-profile-summary-research",
+      ),
+    ).toHaveTextContent("Research Agent");
 
     await user.click(await screen.findByTestId("dck-manage-modules"));
     const manager = await screen.findByTestId("dck-module-manager");
@@ -309,7 +334,7 @@ describe("DckModulesSection", () => {
     );
   });
 
-  it("removes a stale profile ID and requires an explicit follow-active choice", async () => {
+  it("shows stale assignments on home and clears them only through module edit", async () => {
     const user = userEvent.setup();
     const storageKey = getDckModuleAgentProfilesStorageKey(
       "test-backend",
@@ -322,9 +347,6 @@ describe("DckModulesSection", () => {
     renderWithProviders(<DckModulesSection />);
 
     const researchCard = await screen.findByTestId("dck-module-card-research");
-    const selector = within(researchCard).getByTestId(
-      "dck-module-agent-profile-selector-research",
-    ) as HTMLSelectElement;
     const createButton = within(researchCard).getByRole("button");
 
     await waitFor(() =>
@@ -332,21 +354,32 @@ describe("DckModulesSection", () => {
         JSON.parse(window.localStorage.getItem(storageKey) ?? "{}"),
       ).toEqual({ research: null }),
     );
-    expect(selector).not.toHaveValue("deleted-profile");
     expect(
-      screen.getByTestId("dck-module-agent-profile-warning-research"),
+      screen.getByTestId("dck-module-agent-profile-summary-warning-research"),
     ).toBeInTheDocument();
+    expect(
+      within(researchCard).queryByRole("combobox"),
+    ).not.toBeInTheDocument();
     expect(createButton).toBeDisabled();
     await user.click(createButton);
     expect(mockCreateConversation).not.toHaveBeenCalled();
 
-    const followActiveValue = selector.options[0].value;
-    await user.selectOptions(selector, followActiveValue);
-    expect(selector).toHaveValue(followActiveValue);
-    expect(
-      screen.queryByTestId("dck-module-agent-profile-warning-research"),
-    ).not.toBeInTheDocument();
-    expect(createButton).toBeEnabled();
+    await user.click(screen.getByTestId("dck-manage-modules"));
+    const manager = await screen.findByTestId("dck-module-manager");
+    await user.click(within(manager).getByTestId("dck-module-edit-research"));
+    const selector = within(manager).getByTestId(
+      "dck-module-agent-profile-selector-research",
+    ) as HTMLSelectElement;
+    await user.selectOptions(selector, selector.options[0].value);
+    await user.click(within(manager).getByTestId("dck-module-form-save"));
+
+    await waitFor(() =>
+      expect(
+        JSON.parse(window.localStorage.getItem(storageKey) ?? "{}"),
+      ).toEqual({}),
+    );
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(createButton).toBeEnabled());
     await user.click(createButton);
 
     await waitFor(() =>

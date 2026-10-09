@@ -34,7 +34,7 @@ import {
 } from "#/components/features/dck/use-dck-conversations";
 import { WebgenNewProjectDialog } from "#/components/features/dck/webgen-new-project-dialog";
 import { DckModuleManager } from "#/components/features/dck/dck-module-manager";
-import { DckModuleAgentProfileSelector } from "#/components/features/dck/dck-module-agent-profile-selector";
+import { DckModuleAgentProfileSummary } from "#/components/features/dck/dck-module-agent-profile-selector";
 import {
   buildWebgenScaffoldPrompt,
   type WebgenNewProjectSpec,
@@ -46,7 +46,7 @@ function ViewAllLink({ module }: { module: DckModule }) {
     <NavigationLink
       to={dckModulePath(module.id)}
       data-testid={`dck-module-view-all-${module.id}`}
-      className="mt-1 shrink-0 self-start text-xs font-medium text-indigo-400 hover:text-indigo-300"
+      className="inline-flex min-h-11 shrink-0 items-center self-start rounded-md px-2 text-sm font-medium text-accent hover:bg-surface hover:text-contrast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
     >
       {t(I18nKey.FEATURED_AUTOMATIONS$VIEW_ALL)}
     </NavigationLink>
@@ -58,13 +58,13 @@ function ProjectsCard({
   onNewProject,
   isCreating,
   profileSelectionBlocked,
-  profileSelector,
+  profileSummary,
 }: {
   module: DckModule;
   onNewProject: () => void;
   isCreating: boolean;
   profileSelectionBlocked: boolean;
-  profileSelector: React.ReactNode;
+  profileSummary: React.ReactNode;
 }) {
   const { t } = useTranslation("openhands");
   const subdirs = useSearchSubdirs(module.workspacePath);
@@ -74,13 +74,13 @@ function ProjectsCard({
     <ModuleCardShell
       module={module}
       count={formatProjectCount(count)}
-      profileSelector={profileSelector}
+      profileSummary={profileSummary}
       action={
         <button
           type="button"
           disabled={isCreating || profileSelectionBlocked}
           onClick={onNewProject}
-          className="shrink-0 text-xs font-medium text-indigo-400 hover:text-indigo-300 disabled:opacity-50"
+          className="inline-flex min-h-11 shrink-0 items-center whitespace-nowrap rounded-md px-2 text-sm font-medium text-accent hover:bg-surface hover:text-contrast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50"
         >
           {t(I18nKey.PROJECT$NEW_PROJECT)}
         </button>
@@ -101,7 +101,7 @@ function ConversationsCard({
   createNew,
   isCreating,
   profileSelectionBlocked,
-  profileSelector,
+  profileSummary,
   agentProfileId,
 }: {
   module: DckModule;
@@ -113,7 +113,7 @@ function ConversationsCard({
   ) => void;
   isCreating: boolean;
   profileSelectionBlocked: boolean;
-  profileSelector: React.ReactNode;
+  profileSummary: React.ReactNode;
   agentProfileId?: string;
 }) {
   const { t } = useTranslation("openhands");
@@ -126,7 +126,7 @@ function ConversationsCard({
     <ModuleCardShell
       module={module}
       count={formatProjectCount(count)}
-      profileSelector={profileSelector}
+      profileSummary={profileSummary}
       action={
         <button
           type="button"
@@ -138,7 +138,7 @@ function ConversationsCard({
               agentProfileId,
             )
           }
-          className="shrink-0 text-xs font-medium text-indigo-400 hover:text-indigo-300 disabled:opacity-50"
+          className="inline-flex min-h-11 shrink-0 items-center whitespace-nowrap rounded-md px-2 text-sm font-medium text-accent hover:bg-surface hover:text-contrast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50"
         >
           {t(I18nKey.COMMON$NEW_CONVERSATION)}
         </button>
@@ -222,15 +222,15 @@ export function DckModulesSection() {
       data-testid="dck-modules-section"
       className={`${extensionModuleCardGridContainerClassName} flex w-full flex-col gap-3`}
     >
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-base font-semibold text-contrast">
           {DCK_COPY.modules}
         </h2>
-        <div className="flex shrink-0 items-center gap-4">
+        <div className="flex flex-wrap items-center gap-1 sm:justify-end">
           <NavigationLink
             to={DCK_MONITORING_ROUTE_PATH}
             data-testid="dck-monitoring-open"
-            className="flex items-center gap-1 text-xs font-medium text-accent hover:text-accent/80"
+            className="inline-flex min-h-11 items-center gap-1 rounded-md px-2 text-sm font-medium text-accent hover:bg-surface hover:text-contrast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           >
             <Activity size={14} aria-hidden />
             {t(I18nKey.DCK$MONITORING_TITLE)}
@@ -239,7 +239,7 @@ export function DckModulesSection() {
             type="button"
             onClick={() => setShowModuleManager(true)}
             data-testid="dck-manage-modules"
-            className="flex items-center gap-1 text-xs font-medium text-text-secondary hover:text-contrast"
+            className="inline-flex min-h-11 items-center gap-1 rounded-md px-2 text-sm font-medium text-text-secondary hover:bg-surface hover:text-contrast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           >
             <Settings2 size={14} aria-hidden />
             {t(I18nKey.DCK$MANAGE_MODULES)}
@@ -258,14 +258,12 @@ export function DckModulesSection() {
             getDckModuleAgentProfileIdForLaunch(profileSelection);
           const profileSelectionBlocked =
             isDckModuleAgentProfileSelectionBlocked(profileSelection);
-          const profileSelector = (
-            <DckModuleAgentProfileSelector
+          const profileSummary = (
+            <DckModuleAgentProfileSummary
               moduleId={module.id}
               profiles={agentProfiles}
               activeAgentProfileId={activeAgentProfileId}
               selection={profileSelection}
-              disabled={isCreating}
-              onChange={setAgentProfileForModule}
             />
           );
 
@@ -274,7 +272,7 @@ export function DckModulesSection() {
               <ProjectsCard
                 key={module.id}
                 module={module}
-                profileSelector={profileSelector}
+                profileSummary={profileSummary}
                 profileSelectionBlocked={profileSelectionBlocked}
                 onNewProject={
                   module.id === "webgen"
@@ -297,7 +295,7 @@ export function DckModulesSection() {
               conversations={conversations}
               createNew={createNew}
               agentProfileId={moduleAgentProfileId}
-              profileSelector={profileSelector}
+              profileSummary={profileSummary}
               isCreating={isCreating}
               profileSelectionBlocked={profileSelectionBlocked}
             />
@@ -346,13 +344,13 @@ function ModuleCardShell({
   module,
   count,
   action,
-  profileSelector,
+  profileSummary,
   children,
 }: {
   module: DckModule;
   count: string | null;
   action: React.ReactNode;
-  profileSelector: React.ReactNode;
+  profileSummary: React.ReactNode;
   children: React.ReactNode;
 }) {
   const Icon = module.icon;
@@ -381,7 +379,7 @@ function ModuleCardShell({
           {count}
         </p>
       )}
-      {profileSelector}
+      {profileSummary}
       <div className="flex min-h-0 flex-col">{children}</div>
     </section>
   );

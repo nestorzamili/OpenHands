@@ -158,17 +158,26 @@ describe("ModuleDetailView header", () => {
     expect(screen.getByTestId("dck-module-not-found")).toBeInTheDocument();
   });
 
-  it("shows the selector and applies its profile to a new module conversation", async () => {
+  it("shows the saved profile read-only and applies it to a new conversation", async () => {
     const user = userEvent.setup();
+    window.localStorage.setItem(
+      getDckModuleAgentProfilesStorageKey("test-backend", null),
+      JSON.stringify({ research: "research-profile" }),
+    );
     renderWithProviders(
       <ModuleDetailView dckModule={getDckModuleById("research")} />,
     );
 
-    await user.selectOptions(
-      await screen.findByTestId("dck-module-agent-profile-selector-research"),
-      "research-profile",
-    );
-    await user.click(screen.getByTestId("dck-module-new-conversation"));
+    expect(
+      await screen.findByTestId("dck-module-agent-profile-summary-research"),
+    ).toHaveTextContent("Research Agent");
+    expect(
+      screen.queryByTestId("dck-module-agent-profile-selector-research"),
+    ).not.toBeInTheDocument();
+    const newConversationButton = within(
+      screen.getByTestId("dck-module-detail-research"),
+    ).getByTestId("dck-module-new-conversation");
+    await user.click(newConversationButton);
 
     await waitFor(() =>
       expect(mockCreateConversation).toHaveBeenCalledTimes(1),
@@ -179,7 +188,7 @@ describe("ModuleDetailView header", () => {
     });
   });
 
-  it("blocks new module conversations until a stale profile is explicitly cleared", async () => {
+  it("blocks new module conversations when a saved profile is unavailable", async () => {
     const user = userEvent.setup();
     const storageKey = getDckModuleAgentProfilesStorageKey(
       "test-backend",
@@ -193,9 +202,9 @@ describe("ModuleDetailView header", () => {
       <ModuleDetailView dckModule={getDckModuleById("research")} />,
     );
 
-    const selector = (await screen.findByTestId(
-      "dck-module-agent-profile-selector-research",
-    )) as HTMLSelectElement;
+    const warning = await screen.findByTestId(
+      "dck-module-agent-profile-summary-warning-research",
+    );
     const newConversationButton = within(
       screen.getByTestId("dck-module-detail-research"),
     ).getByTestId("dck-module-new-conversation");
@@ -204,27 +213,13 @@ describe("ModuleDetailView header", () => {
         JSON.parse(window.localStorage.getItem(storageKey) ?? "{}"),
       ).toEqual({ research: null }),
     );
-    expect(selector).not.toHaveValue("deleted-profile");
+    expect(warning).toBeInTheDocument();
     expect(
-      screen.getByTestId("dck-module-agent-profile-warning-research"),
-    ).toBeInTheDocument();
+      screen.queryByTestId("dck-module-agent-profile-selector-research"),
+    ).not.toBeInTheDocument();
     expect(newConversationButton).toBeDisabled();
     await user.click(newConversationButton);
     expect(mockCreateConversation).not.toHaveBeenCalled();
-
-    await user.selectOptions(selector, selector.options[0].value);
-    expect(newConversationButton).toBeEnabled();
-    await user.click(newConversationButton);
-
-    await waitFor(() =>
-      expect(mockCreateConversation).toHaveBeenCalledTimes(1),
-    );
-    expect(mockCreateConversation.mock.calls[0][0]).not.toHaveProperty(
-      "agentProfileId",
-    );
-    expect(mockAgentProfiles.data.active_agent_profile_id).toBe(
-      "active-profile",
-    );
   });
 
   it("resolves ids via getDckModuleById (wrapper contract)", () => {
@@ -295,7 +290,9 @@ describe("ModuleDetailView projects list", () => {
     );
 
     expect(
-      await screen.findByTestId("dck-module-agent-profile-warning-webgen"),
+      await screen.findByTestId(
+        "dck-module-agent-profile-summary-warning-webgen",
+      ),
     ).toBeInTheDocument();
     expect(screen.getByTestId("dck-module-new-project")).toBeDisabled();
 

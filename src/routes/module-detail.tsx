@@ -28,7 +28,7 @@ import {
 import { useDckModulesConfig } from "#/hooks/query/use-dck-modules-config";
 import type { AppConversation } from "#/api/conversation-service/agent-server-conversation-service.types";
 import { useAgentProfiles } from "#/hooks/query/use-agent-profiles";
-import { DckModuleAgentProfileSelector } from "#/components/features/dck/dck-module-agent-profile-selector";
+import { DckModuleAgentProfileSummary } from "#/components/features/dck/dck-module-agent-profile-selector";
 import {
   getDckModuleAgentProfileIdForLaunch,
   isDckModuleAgentProfileSelectionBlocked,
@@ -72,7 +72,7 @@ function ListState({
             type="button"
             onClick={onRetry}
             data-testid="dck-list-retry"
-            className="rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-indigo-400 hover:text-indigo-300"
+            className="inline-flex min-h-11 items-center rounded-lg border border-border px-3 text-sm font-medium text-accent hover:bg-surface hover:text-contrast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           >
             {t(I18nKey.DCK$RETRY)}
           </button>
@@ -271,7 +271,7 @@ export function ModuleDetailView({
     Boolean(agentProfilesQuery.data) &&
     !isCheckingAgentProfiles &&
     !agentProfilesQuery.isError;
-  const { assignments, setAgentProfileForModule } = useDckModuleAgentProfiles(
+  const { assignments } = useDckModuleAgentProfiles(
     agentProfiles,
     agentProfilesVerified,
   );
@@ -360,7 +360,7 @@ export function ModuleDetailView({
         disabled={isCreating || moduleProfileSelectionBlocked}
         onClick={onNewProject}
         data-testid="dck-module-new-project"
-        className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-indigo-400 hover:text-indigo-300 disabled:opacity-50"
+        className="inline-flex min-h-11 shrink-0 items-center rounded-lg border border-border px-3 text-sm font-medium text-accent hover:bg-surface hover:text-contrast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50"
       >
         {t(I18nKey.PROJECT$NEW_PROJECT)}
       </button>
@@ -378,7 +378,7 @@ export function ModuleDetailView({
           )
         }
         data-testid="dck-module-new-conversation"
-        className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-indigo-400 hover:text-indigo-300 disabled:opacity-50"
+        className="inline-flex min-h-11 shrink-0 items-center rounded-lg border border-border px-3 text-sm font-medium text-accent hover:bg-surface hover:text-contrast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50"
       >
         {t(I18nKey.COMMON$NEW_CONVERSATION)}
       </button>
@@ -394,7 +394,7 @@ export function ModuleDetailView({
           </BackNavButton>
           <div
             data-testid={`dck-module-detail-${dckModule.id}`}
-            className="flex items-start justify-between gap-3"
+            className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"
           >
             <div className="flex min-w-0 items-start gap-3">
               <Icon size={24} className="mt-0.5 shrink-0 text-text-secondary" />
@@ -411,14 +411,14 @@ export function ModuleDetailView({
             </div>
             {headerAction}
           </div>
-          <DckModuleAgentProfileSelector
-            moduleId={dckModule.id}
-            profiles={agentProfiles}
-            activeAgentProfileId={activeAgentProfileId}
-            selection={moduleProfileSelection}
-            disabled={isCreating}
-            onChange={setAgentProfileForModule}
-          />
+          <div className="max-w-md rounded-lg border border-border bg-base p-3">
+            <DckModuleAgentProfileSummary
+              moduleId={dckModule.id}
+              profiles={agentProfiles}
+              activeAgentProfileId={activeAgentProfileId}
+              selection={moduleProfileSelection}
+            />
+          </div>
           <div className="flex flex-col">
             {dckModule.kind === "projects" && (
               <ModuleProjectsList

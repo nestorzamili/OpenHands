@@ -28,6 +28,7 @@ export function useAllConversationsQuery(options: { enabled?: boolean } = {}) {
     conversations,
     isLoading: query.isLoading,
     isError: query.isError,
+    isFetching: query.isFetching,
     refetch: query.refetch,
   };
 }

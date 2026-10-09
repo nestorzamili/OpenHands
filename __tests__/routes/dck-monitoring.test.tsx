@@ -170,19 +170,21 @@ describe("DckMonitoringRoute", () => {
     setQueryState({ refetch });
     renderWithProviders(<DckMonitoringRoute />);
 
-    expect(screen.getByTestId("dck-monitoring-beszel-link")).toHaveAttribute(
-      "href",
-      "/beszel/",
-    );
     expect(
       screen.getByRole("link", { name: "DCK$BACK_TO_HOME" }),
     ).toHaveAttribute("href", "/conversations");
     expect(screen.getByTestId("dck-monitoring-toolbar")).toHaveClass(
-      "grid-cols-2",
-      "sm:flex",
+      "flex",
+      "justify-end",
       "sm:w-auto",
     );
-    expect(screen.getByTestId("dck-monitoring-live")).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("dck-monitoring-beszel-link"),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByTestId("dck-monitoring-live")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("dck-monitoring-coverage-note"),
+    ).not.toBeInTheDocument();
     expect(screen.getByTestId("dck-monitoring-last-updated")).toHaveTextContent(
       "DCK$MONITORING_LAST_UPDATED",
     );
@@ -264,8 +266,8 @@ describe("DckMonitoringRoute", () => {
       screen.getByTestId("dck-monitoring-module-research"),
     ).toBeInTheDocument();
     expect(
-      screen.getByTestId("dck-monitoring-coverage-note"),
-    ).toBeInTheDocument();
+      screen.queryByTestId("dck-monitoring-coverage-note"),
+    ).not.toBeInTheDocument();
   });
 
   it("shows the last successful timestamp, but not a live badge, after a failed refresh", () => {

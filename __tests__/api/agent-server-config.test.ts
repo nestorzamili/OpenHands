@@ -4,6 +4,7 @@ import {
   buildConversationWorkingDir,
   getAgentServerBaseUrl,
   getAgentServerFormDefaults,
+  getAgentServerHeaders,
   getAgentServerSessionApiKey,
   getAgentServerWorkingDir,
   getCookieAuthCloudHost,
@@ -11,6 +12,7 @@ import {
   getLockedCloudHost,
   isAuthRequired,
   isManagedLocalBackend,
+  isServerManagedBackend,
   isSameCloudHost,
   isAuthRequiredAndMissing,
 } from "#/api/agent-server-config";
@@ -29,6 +31,8 @@ afterEach(() => {
   vi.unstubAllEnvs();
   delete (window as unknown as Record<string, unknown>)
     .__AGENT_CANVAS_SESSION_API_KEY__;
+  delete (window as unknown as Record<string, unknown>)
+    .__AGENT_CANVAS_SERVER_MANAGED_BACKEND__;
   delete (window as unknown as Record<string, unknown>)
     .__AGENT_CANVAS_LOCK_TO_CLOUD__;
   Object.defineProperty(window, "location", {
@@ -50,6 +54,25 @@ describe("agent server config", () => {
     vi.stubEnv("VITE_BACKEND_BASE_URL", "");
 
     expect(getAgentServerBaseUrl()).toBe("https://work-1.example.dev");
+  });
+
+  it("uses the served origin and no browser credential when server-managed", () => {
+    mockWindowLocation("https://dck.example/canvas/");
+    vi.stubEnv("VITE_BACKEND_BASE_URL", "https://stale-backend.example");
+    vi.stubEnv("VITE_SESSION_API_KEY", "build-time-session-key");
+    vi.stubEnv("VITE_AUTH_REQUIRED", "true");
+    (
+      window as unknown as Record<string, unknown>
+    ).__AGENT_CANVAS_SESSION_API_KEY__ = "runtime-session-key";
+    (
+      window as unknown as Record<string, unknown>
+    ).__AGENT_CANVAS_SERVER_MANAGED_BACKEND__ = true;
+
+    expect(isServerManagedBackend()).toBe(true);
+    expect(getAgentServerBaseUrl()).toBe("https://dck.example");
+    expect(getAgentServerSessionApiKey()).toBeNull();
+    expect(getAgentServerHeaders()).toEqual({});
+    expect(isAuthRequiredAndMissing()).toBe(false);
   });
 
   it("does not rewrite localhost backend URLs to the browser origin", () => {

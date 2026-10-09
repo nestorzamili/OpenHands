@@ -23,6 +23,8 @@ afterEach(() => {
   window.sessionStorage.clear();
   delete (window as unknown as Record<string, unknown>)
     .__AGENT_CANVAS_LOCK_TO_CLOUD__;
+  delete (window as unknown as Record<string, unknown>)
+    .__AGENT_CANVAS_SERVER_MANAGED_BACKEND__;
   Object.defineProperty(window, "location", {
     configurable: true,
     value: ORIGINAL_LOCATION,
@@ -83,6 +85,63 @@ describe("backend-registry storage", () => {
     });
     expect(window.localStorage.getItem(BACKENDS_STORAGE_KEY)).not.toBeNull();
     expect(readStoredBackends()).toEqual(result);
+  });
+
+  it("clears browser credentials and seeds Production from server config", () => {
+    vi.stubEnv("VITE_BACKEND_BASE_URL", "https://stale-backend.example");
+    vi.stubEnv("VITE_SESSION_API_KEY", "build-time-session-key");
+    vi.stubEnv("VITE_DEFAULT_BACKEND_NAME", "");
+    (
+      window as unknown as Record<string, unknown>
+    ).__AGENT_CANVAS_SERVER_MANAGED_BACKEND__ = true;
+    window.localStorage.setItem(
+      BACKENDS_STORAGE_KEY,
+      JSON.stringify([
+        {
+          id: "default-local",
+          name: "Old Production",
+          host: "http://localhost:18101",
+          apiKey: "old-internal-key",
+          kind: "local",
+        },
+        {
+          id: "other-backend",
+          name: "Other",
+          host: "https://other.example",
+          apiKey: "other-saved-key",
+          kind: "cloud",
+        },
+      ]),
+    );
+    window.localStorage.setItem(
+      "openhands-agent-server-config",
+      JSON.stringify({
+        baseUrl: "http://localhost:18101",
+        sessionApiKey: "legacy-internal-key",
+      }),
+    );
+
+    const backends = readStoredBackends();
+
+    expect(backends).toEqual([
+      {
+        id: "default-local",
+        name: "Production",
+        host: window.location.origin,
+        apiKey: "",
+        kind: "local",
+      },
+    ]);
+    const stored = JSON.parse(
+      window.localStorage.getItem(BACKENDS_STORAGE_KEY) ?? "[]",
+    ) as Backend[];
+    expect(stored).toHaveLength(2);
+    expect(stored.every((backend) => backend.apiKey === "")).toBe(true);
+    expect(
+      JSON.parse(
+        window.localStorage.getItem("openhands-agent-server-config") ?? "{}",
+      ),
+    ).toEqual({ baseUrl: "http://localhost:18101" });
   });
 
   it("uses the configured deployment name for the seeded backend", () => {

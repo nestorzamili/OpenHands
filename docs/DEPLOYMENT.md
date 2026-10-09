@@ -13,10 +13,10 @@ Facts the setup relies on:
   `dck` network; it holds `dck_agentic` + one `dck_<app>` per webgen app.
 - Redis is not used by the engine; webgen apps use a host Redis via
   `host.docker.internal:6379` when needed.
-- Beszel Hub is published only on `127.0.0.1:8090` and served at
-  `https://agent.dckautoposting.com/beszel/` through nginx. Its history is
-  complementary to `/monitoring`: Beszel collects host trends, while DCK
-  Monitoring shows current DCK service and Webgen container status.
+- Beszel Hub is published only on `127.0.0.1:8090`. Its separate history UI is
+  optional and requires the matching nginx route below; Canvas does not link to
+  it unless that public route is verified. Beszel collects host trends, while
+  `/monitoring` shows current DCK service and Webgen container status.
 
 ## 1. Prepare the VM
 
@@ -177,9 +177,11 @@ cd /opt/dck-agentic
 docker compose up -d
 ```
 
-Open `https://agent.dckautoposting.com/beszel/` and use the generated email and
-password in `.env` to manage Beszel. The deployment script persists the Hub
-credentials and copies the generated token into both `.env` and
+When the optional nginx `/beszel/` route is installed and verified, open
+`https://agent.dckautoposting.com/beszel/` and use the generated email and
+password in `.env` to manage Beszel. Otherwise the Hub stays private on the host
+loopback and the Canvas UI intentionally shows no broken link. The deployment
+script persists the Hub credentials and copies the generated token into both `.env` and
 `beszel-agent-data/universal-token`; the public key remains in
 `beszel-agent-data/public-key`. Subsequent Compose runs and agent restarts reuse
 both persisted values. The initializer contacts the Hub again only if one is
@@ -188,11 +190,12 @@ missing or an explicit override is supplied.
 The agent uses host networking for accurate host network-interface metrics and
 connects to the Hub over WebSocket at the configured loopback port (8090 by
 default). SSH mode is disabled, so it does not expose Beszel's default inbound
-agent port. It intentionally has no Docker socket mount: DCK Monitoring already
-reads the Docker API for current
-container status and CPU/memory snapshots, while Beszel supplies host-level
-history. The two dashboards therefore complement rather than duplicate each
-other.
+agent port. The Beszel agent has no Docker socket. Canvas itself uses the host
+Docker socket for current container monitoring and Webgen lifecycle operations;
+the socket grants root-equivalent Docker API access even though the browser
+monitoring endpoint is GET-only. Canvas therefore runs without `privileged`
+mode, uses only the socket's supplemental group, and must remain behind portal
+authentication with access limited to trusted users.
 
 The agent does not mount the host root filesystem. This avoids giving a
 monitoring container broad read access to host files; if its root-disk chart

@@ -14,6 +14,7 @@ import "./tailwind.css";
 import "./index.css";
 import React from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { Toaster } from "react-hot-toast";
 import {
   clearCachedAgentServerInfo,
@@ -23,6 +24,7 @@ import {
 import {
   getLockedCloudAuthMode,
   getLockedCloudHost,
+  isServerManagedBackend,
   isAuthRequiredAndMissing,
   isSameCloudHost,
 } from "#/api/agent-server-config";
@@ -53,6 +55,8 @@ import {
   readPersistedColorTheme,
 } from "#/themes/color-themes";
 import { PRODUCT_NAME, PRODUCT_TAGLINE } from "#/constants/branding";
+import { I18nKey } from "#/i18n/declaration";
+import { BrandButton } from "#/components/features/settings/brand-button";
 
 /** Applies the persisted palette before paint; useEffect lands a frame late. */
 function ColorThemeApplier() {
@@ -136,7 +140,9 @@ function AgentServerBootstrapLoading() {
  * add, or pick another backend right away.
  */
 function MissingAgentServerScreen() {
+  const { t } = useTranslation("openhands");
   const queryClient = useQueryClient();
+  const serverManagedBackend = isServerManagedBackend();
 
   // The modal is the no-backend gate. Selecting or adding a reachable
   // backend must re-run the /server_info probe; otherwise the app stays
@@ -150,6 +156,32 @@ function MissingAgentServerScreen() {
       });
     }
   }, [queryClient]);
+
+  if (serverManagedBackend) {
+    return (
+      <main
+        data-testid="server-managed-backend-unavailable-screen"
+        className="flex min-h-screen items-center justify-center bg-base px-6 py-10 text-contrast"
+      >
+        <div className="flex w-full max-w-lg flex-col gap-4 rounded-3xl border border-contrast/10 bg-base/80 p-8 shadow-2xl">
+          <h1 className="text-xl font-semibold">
+            {t(I18nKey.SETTINGS$AGENT_SERVER_UNAVAILABLE_STATUS_TITLE)}
+          </h1>
+          <p className="text-sm text-text-secondary">
+            {t(I18nKey.SETTINGS$AGENT_SERVER_UNAVAILABLE_STATUS_MESSAGE)}
+          </p>
+          <BrandButton
+            type="button"
+            variant="primary"
+            onClick={handleClose}
+            className="w-full"
+          >
+            {t(I18nKey.SETTINGS$AGENT_SERVER_RETRY_CONNECTION)}
+          </BrandButton>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main
@@ -273,6 +305,7 @@ export default function App() {
     isSameCloudHost(active.backend.host, lockedCloudHost);
   const { isCompleted: onboardingCompleted, markCompleted } =
     useOnboardingCompletion();
+  const serverManagedBackend = isServerManagedBackend();
 
   // In locked-to-Cloud mode the `openhands-onboarded` localStorage flag is
   // not trustworthy: it may have been set during a previous non-locked
@@ -291,11 +324,13 @@ export default function App() {
   // active backend really is the locked Cloud host, so the stale-flag bypass
   // concerns above don't apply here.)
   const shouldCheckMainAppAuth = shouldUseMainAppCookieAuth();
-  const showFirstRunOnboarding = isLockedToCloud
-    ? !shouldCheckMainAppAuth &&
-      (!isActiveLockedCloudBackend ||
-        (lockedCloudAuthMode !== "cookie" && !onboardingCompleted))
-    : !onboardingCompleted;
+  const showFirstRunOnboarding = serverManagedBackend
+    ? false
+    : isLockedToCloud
+      ? !shouldCheckMainAppAuth &&
+        (!isActiveLockedCloudBackend ||
+          (lockedCloudAuthMode !== "cookie" && !onboardingCompleted))
+      : !onboardingCompleted;
   const mainAppAuth = useQuery({
     queryKey: QUERY_KEYS.MAIN_APP_COOKIE_AUTH,
     queryFn: authenticateWithMainAppCookie,
@@ -379,7 +414,10 @@ export default function App() {
 
   // No key at all after onboarding was skipped/completed → auth screen.
   // Stale key → /server_info 401 → auth screen (public mode only).
-  if (authMissing || isAgentServerAuthError(config.error)) {
+  if (
+    !serverManagedBackend &&
+    (authMissing || isAgentServerAuthError(config.error))
+  ) {
     return (
       <React.Suspense fallback={<AgentServerBootstrapLoading />}>
         <ApiKeyEntryScreen />
@@ -394,7 +432,8 @@ export default function App() {
   if (
     activeCloudLoggedOut ||
     activeCloudUnreachable ||
-    isAgentServerUnavailableError(config.error)
+    isAgentServerUnavailableError(config.error) ||
+    (serverManagedBackend && isAgentServerAuthError(config.error))
   ) {
     return <MissingAgentServerScreen />;
   }

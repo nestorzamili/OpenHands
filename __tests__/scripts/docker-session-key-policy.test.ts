@@ -34,7 +34,8 @@ function resolveStaticServerArgs(
   args: string[];
   authArgs: string[];
   portalArgs: string[];
-  injectSessionKey: string;
+  serverSideAuthArgs: string[];
+  passSessionKey: string;
   stderr: string;
 } {
   const script = [
@@ -45,7 +46,8 @@ function resolveStaticServerArgs(
     'printf "ARGS:%s\\n" "${STATIC_SERVER_SESSION_KEY_ARGS[*]}"',
     'printf "AUTH:%s\\n" "${STATIC_SERVER_AUTH_ARGS[*]}"',
     'printf "PORTAL:%s\\n" "${PORTAL_AUTH_ARGS[*]}"',
-    'printf "INJECT:%s\\n" "$INJECT_SESSION_KEY"',
+    'printf "SERVER_SIDE:%s\\n" "${SERVER_SIDE_SESSION_AUTH_ARGS[*]}"',
+    'printf "PASS:%s\\n" "$PASS_SESSION_KEY"',
   ].join("\n");
   const env: Record<string, string> = { PATH: process.env.PATH ?? "" };
   if (allowLanSessionKey !== undefined) {
@@ -70,11 +72,13 @@ function resolveStaticServerArgs(
   const argsStr = line("ARGS:");
   const authStr = line("AUTH:");
   const portalStr = line("PORTAL:");
+  const serverSideAuthStr = line("SERVER_SIDE:");
   return {
     args: argsStr ? argsStr.split(" ") : [],
     authArgs: authStr ? authStr.split(" ") : [],
     portalArgs: portalStr ? portalStr.split(" ") : [],
-    injectSessionKey: line("INJECT:"),
+    serverSideAuthArgs: serverSideAuthStr ? serverSideAuthStr.split(" ") : [],
+    passSessionKey: line("PASS:"),
     stderr: result.stderr,
   };
 }
@@ -84,7 +88,7 @@ describe("Docker session-key injection policy", () => {
     const r = resolveStaticServerArgs(undefined);
     expect(r.args).toEqual([]);
     expect(r.authArgs).toEqual([]);
-    expect(r.injectSessionKey).toBe("true");
+    expect(r.passSessionKey).toBe("true");
   });
 
   it("requires an explicit true value and warns when enabled", () => {
@@ -100,38 +104,39 @@ describe("Docker session-key injection policy", () => {
     const pub = resolveStaticServerArgs(undefined, "true");
     expect(pub.authArgs).toEqual(["--auth-required"]);
     expect(pub.args).toEqual([]);
-    expect(pub.injectSessionKey).toBe("false");
+    expect(pub.passSessionKey).toBe("false");
   });
 
   it("ignores allow-lan-session-key in public mode (never injects)", () => {
     const pub = resolveStaticServerArgs("true", "true");
     expect(pub.authArgs).toEqual(["--auth-required"]);
     expect(pub.args).toEqual([]);
-    expect(pub.injectSessionKey).toBe("false");
+    expect(pub.passSessionKey).toBe("false");
     expect(pub.stderr).toContain("ignored in public mode");
   });
 
-  it("enables portal auth and still injects the session key (gated by login)", () => {
+  it("enables portal auth and keeps the session key server-side", () => {
     const portal = resolveStaticServerArgs(
       undefined,
       undefined,
       "/data/auth.json",
     );
     expect(portal.portalArgs).toEqual(["--portal-auth", "/data/auth.json"]);
+    expect(portal.serverSideAuthArgs).toEqual(["--server-side-session-auth"]);
     expect(portal.args).toEqual([]);
     // Portal replaces the API-key entry screen, so --auth-required is absent…
     expect(portal.authArgs).toEqual([]);
-    // …but the key is injected: the login gate ensures only authenticated
-    // users receive the HTML, and the frontend needs the key for /api calls.
-    expect(portal.injectSessionKey).toBe("true");
+    // …and the internal key is passed only to the server-side proxy.
+    expect(portal.passSessionKey).toBe("true");
   });
 
   it("portal auth takes precedence over public mode, with a warning", () => {
     const portal = resolveStaticServerArgs("true", "true", "/data/auth.json");
     expect(portal.portalArgs).toEqual(["--portal-auth", "/data/auth.json"]);
+    expect(portal.serverSideAuthArgs).toEqual(["--server-side-session-auth"]);
     expect(portal.authArgs).toEqual([]);
     expect(portal.args).toEqual([]);
-    expect(portal.injectSessionKey).toBe("true");
+    expect(portal.passSessionKey).toBe("true");
     expect(portal.stderr).toContain("AGENT_CANVAS_PUBLIC is ignored");
   });
 });

@@ -458,7 +458,9 @@ RUNTIME_SERVICES_INFO="$(node /opt/agent-canvas/runtime-services-info.mjs \
 # every interface, session-key injection stays disabled unless the operator
 # explicitly opts in.
 # >>> docker-session-key-policy: extracted by the regression test below.
-# Two auth modes for the main static server:
+# Three auth modes for the main static server:
+#   - Portal mode: /setup then /login gates every request; the API session key
+#     stays in the server process and is attached only to loopback proxy calls.
 #   - Public mode (AGENT_CANVAS_PUBLIC=true): the frontend shows the API-key
 #     entry screen; the session key is NOT injected and must be pasted by the
 #     user. Required for any internet-facing / off-loopback deployment. Mutually
@@ -468,22 +470,18 @@ RUNTIME_SERVICES_INFO="$(node /opt/agent-canvas/runtime-services-info.mjs \
 #     when the host publishes the port on loopback.
 STATIC_SERVER_SESSION_KEY_ARGS=()
 STATIC_SERVER_AUTH_ARGS=()
-INJECT_SESSION_KEY=true
+PASS_SESSION_KEY=true
 PORTAL_AUTH_ARGS=()
+SERVER_SIDE_SESSION_AUTH_ARGS=()
 if [ -n "${AGENT_CANVAS_PORTAL_AUTH:-}" ]; then
-  # Portal auth gates every request behind a username/password login that runs
-  # before any static serving. The session key is still injected into the HTML
-  # (as in local mode) because the frontend needs it to authenticate its
-  # proxied /api calls to the agent-server — and the login gate means only an
-  # authenticated user ever receives that HTML. Portal replaces the API-key
-  # entry screen, so --auth-required is NOT added.
   PORTAL_AUTH_ARGS+=(--portal-auth "$AGENT_CANVAS_PORTAL_AUTH")
+  SERVER_SIDE_SESSION_AUTH_ARGS+=(--server-side-session-auth)
   if [ "${AGENT_CANVAS_PUBLIC:-false}" = "true" ]; then
     log "WARNING: AGENT_CANVAS_PUBLIC is ignored when AGENT_CANVAS_PORTAL_AUTH is set; the portal login gate is used instead of the API-key entry screen."
   fi
-  log "Portal auth enabled (store: $AGENT_CANVAS_PORTAL_AUTH). The session key is injected but served only to logged-in users. Serve behind a TLS reverse proxy that sets X-Forwarded-Proto/X-Forwarded-For."
+  log "Portal auth enabled (store: $AGENT_CANVAS_PORTAL_AUTH). The session key remains server-side and is attached only to local Agent Server proxy requests. Serve behind a TLS reverse proxy that sets X-Forwarded-Proto/X-Forwarded-For."
 elif [ "${AGENT_CANVAS_PUBLIC:-false}" = "true" ]; then
-  INJECT_SESSION_KEY=false
+  PASS_SESSION_KEY=false
   STATIC_SERVER_AUTH_ARGS+=(--auth-required)
   if [ "${AGENT_CANVAS_ALLOW_LAN_SESSION_KEY:-false}" = "true" ]; then
     log "WARNING: AGENT_CANVAS_ALLOW_LAN_SESSION_KEY is ignored in public mode (AGENT_CANVAS_PUBLIC=true); the key is never injected."
@@ -495,9 +493,9 @@ elif [ "${AGENT_CANVAS_ALLOW_LAN_SESSION_KEY:-false}" = "true" ]; then
 fi
 # <<< docker-session-key-policy
 # --session-api-key is mutually exclusive with --auth-required (public mode),
-# so only pass it when injection is enabled.
+# so only pass it when the server uses it for local proxy authentication.
 STATIC_SERVER_KEY_FLAG=()
-if [ "$INJECT_SESSION_KEY" = "true" ]; then
+if [ "$PASS_SESSION_KEY" = "true" ]; then
   STATIC_SERVER_KEY_FLAG=(--session-api-key "$EFFECTIVE_SESSION_KEY")
 fi
 node /opt/agent-canvas/static-server.mjs \
@@ -506,6 +504,7 @@ node /opt/agent-canvas/static-server.mjs \
   "${STATIC_SERVER_SESSION_KEY_ARGS[@]}" \
   "${STATIC_SERVER_AUTH_ARGS[@]}" \
   "${PORTAL_AUTH_ARGS[@]}" \
+  "${SERVER_SIDE_SESSION_AUTH_ARGS[@]}" \
   --dir /opt/agent-canvas/frontend \
   --base-path "$AGENT_CANVAS_BASE_PATH" \
   "${STATIC_SERVER_KEY_FLAG[@]}" \
@@ -539,9 +538,9 @@ PIDS+=("$STATIC_PID")
 # it shares with the main instance still reports the editor as available.
 #
 # --auth-required only
-# controls whether the session key is injected into the served HTML; the
-# dispatcher matches routes before it reaches that flag, so proxied paths are
-# not gated by it. The routes above are safe on that footing because
+# controls whether the frontend shows the API-key entry screen; the dispatcher
+# matches routes before it reaches that flag, so proxied paths are not gated by
+# it. The routes above are safe on that footing because
 # agent-server enforces the session key itself, but the editor's own
 # credential is the connection token agent-server puts in the query string —
 # and agent-server derives that token from session_api_keys[0], so it is the

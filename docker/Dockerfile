@@ -173,7 +173,8 @@ COPY --from=config-gen /tmp/defaults.env /opt/agent-canvas/defaults.env
 
 # Copy the entrypoint
 COPY docker/entrypoint.sh /opt/agent-canvas/entrypoint.sh
-RUN chmod +x /opt/agent-canvas/entrypoint.sh
+RUN chmod -R a+rX /opt/agent-canvas && \
+    chmod 755 /opt/agent-canvas/entrypoint.sh
 
 # Pre-create persistence directories with correct ownership so the
 # openhands user can write to them even when Docker creates anonymous

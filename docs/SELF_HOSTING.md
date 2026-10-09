@@ -308,16 +308,17 @@ Credentials are stored in `<store>` (a JSON file) as salted scrypt password
 hashes; sessions are stored only as SHA-256 digests, so a store leak exposes
 neither passwords nor usable sessions.
 
-The agent-server still authenticates its own `/api` with a session key. The
-login gate runs **before** anything is served, so that key is injected into the
-HTML as before but reaches **only logged-in users** — it is a backend-internal
-credential, never the thing a user types. The user-facing credential is the
-portal username/password.
+The agent-server still authenticates its own `/api` with a session key. For the
+portal flow, keep that key in the static-server process and let its authenticated
+proxy attach it only to loopback Agent Server requests. The browser receives only
+the portal session cookie; users never enter or store the backend API key.
 
 ```sh
 node scripts/static-server.mjs \
   --port 3001 --dir build \
   --portal-auth /var/lib/canvas/portal-auth.json \
+  --server-side-session-auth \
+  --session-api-key "$LOCAL_BACKEND_API_KEY" \
   --route "/api=http://localhost:18000" \
   --route "/sockets=http://localhost:18000"
 ```
@@ -327,7 +328,8 @@ node scripts/static-server.mjs \
 The container entrypoint wires the flag from an environment variable, so you do
 not invoke `static-server.mjs` directly. Set `AGENT_CANVAS_PORTAL_AUTH` to a
 store path on a **persisted volume** and the entrypoint passes `--portal-auth`
-for you (and skips session-key injection):
+and `--server-side-session-auth` for you. The key remains in the server process
+and is never injected into the served frontend:
 
 ```sh
 docker run -it --rm \
@@ -344,9 +346,10 @@ portal is enabled). The repo's `docker-compose.yml` carries a commented example.
 
 > [!IMPORTANT]
 > - `--portal-auth` is mutually exclusive with `--auth-required` (the API-key
->   entry screen): the portal already gates the UI with a login. It is **not**
->   exclusive with `--session-api-key` — the login gate runs first, so the
->   injected key is served only to authenticated users.
+>   entry screen): the portal already gates the UI with a login. Pair it with
+>   `--server-side-session-auth` and `--session-api-key` when the browser must
+>   not receive the internal Agent Server credential. Without that opt-in, the
+>   legacy portal mode may inject the key into HTML for authenticated users.
 > - The session cookie travels from the browser, so you must still terminate
 >   **TLS at a reverse proxy** (nginx + Let's Encrypt as above) and never expose
 >   plain HTTP to the internet. The proxy must forward `X-Forwarded-Proto`

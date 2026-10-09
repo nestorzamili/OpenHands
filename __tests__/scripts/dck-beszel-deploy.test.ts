@@ -62,8 +62,9 @@ exit 2
   );
   await writeFile(path.join(bin, "curl"), "#!/bin/sh\nprintf 200\n");
   await writeFile(path.join(bin, "chown"), "#!/bin/sh\nexit 0\n");
+  await writeFile(path.join(bin, "stat"), "#!/bin/sh\nprintf '104\\n'");
   await Promise.all(
-    ["docker", "curl", "chown"].map((name) =>
+    ["docker", "curl", "chown", "stat"].map((name) =>
       import("node:fs/promises").then(({ chmod }) =>
         chmod(path.join(bin, name), 0o755),
       ),
@@ -125,6 +126,7 @@ describe("Beszel production deploy bootstrap", () => {
     );
 
     const env = await readEnv(path.join(target, ".env"));
+    expect(env.DOCKER_GID).toBe("104");
     expect(env.BESZEL_ADMIN_EMAIL).toBe("beszel-admin@dckautoposting.com");
     expect(env.BESZEL_ADMIN_PASSWORD).toMatch(/^[A-Za-z0-9]{32}$/);
     expect(env.BESZEL_AGENT_TOKEN).toBe("generated-test-token");
@@ -145,6 +147,7 @@ describe("Beszel production deploy bootstrap", () => {
 
     const redeployedEnv = await readEnv(path.join(target, ".env"));
     expect(redeployedEnv.CANVAS_IMAGE_TAG).toBe("sha-next");
+    expect(redeployedEnv.DOCKER_GID).toBe("104");
     expect(redeployedEnv.BESZEL_ADMIN_EMAIL).toBe(env.BESZEL_ADMIN_EMAIL);
     expect(redeployedEnv.BESZEL_ADMIN_PASSWORD).toBe(env.BESZEL_ADMIN_PASSWORD);
     expect(redeployedEnv.BESZEL_AGENT_TOKEN).toBe(env.BESZEL_AGENT_TOKEN);

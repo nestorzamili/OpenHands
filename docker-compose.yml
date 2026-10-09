@@ -23,12 +23,11 @@ services:
     image: ${CANVAS_IMAGE:-ghcr.io/dck-ai/dck-agentic}:${CANVAS_IMAGE_TAG:-latest}
     container_name: dck-agentic-canvas
     restart: unless-stopped
-    # privileged + docker.sock: the agent runs `docker compose` to deploy
-    # webgen apps on the host daemon. This is a large blast radius, gated by
-    # the portal login below. See docs/DEPLOYMENT.md → "Security".
-    privileged: true
+    # Host Docker API access is required for monitoring and Webgen lifecycle
+    # operations. The supplemental GID is discovered by dck-deploy.sh. Docker
+    # socket access is root-equivalent; do not add privileged mode as well.
     group_add:
-      - "956"
+      - "${DOCKER_GID:?Run scripts/dck-deploy.sh to configure Docker socket access}"
     ports:
       # Published to host loopback only. Host port 8000 is taken by another
       # service on this VM, so DCK ingress uses 8010. nginx terminates TLS
@@ -37,6 +36,7 @@ services:
     volumes:
       - ./config:/home/openhands/.openhands
       - ./workspace:/projects
+      - /var/run/docker.sock:/var/run/docker.sock
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - AGENT_CANVAS_DISABLE_TELEMETRY=1

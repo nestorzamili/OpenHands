@@ -70,6 +70,13 @@ else
   log "existing deploy — current=$PREV_TAG new=$NEW_TAG"
 fi
 
+# Keep Canvas's supplemental group aligned with the host Docker socket. The
+# socket API is root-equivalent; Canvas needs it for host monitoring and Webgen
+# lifecycle operations, so the container must not run in privileged mode.
+DOCKER_GID="$(stat -c '%g' /var/run/docker.sock)" || die "cannot read /var/run/docker.sock group; ensure Docker Engine is running"
+[[ "$DOCKER_GID" =~ ^[0-9]+$ ]] || die "Docker socket group ID is not numeric"
+write_env_value DOCKER_GID "$DOCKER_GID"
+
 # Beszel's first-run migration creates a regular Hub user from USER_EMAIL and
 # USER_PASSWORD. Generate and persist any missing bootstrap credentials before
 # the Hub starts; subsequent deploys reuse the values already in .env.

@@ -3,19 +3,20 @@ import {
   getAgentServerSessionApiKey,
   getCookieAuthCloudHost,
   getLockedCloudHost,
+  isServerManagedBackend,
 } from "../agent-server-config";
 import type { Backend } from "./types";
 
 /**
- * Stable id for the seeded default local backend that is auto-registered in
- * the backend registry when the launcher provides both a backend host and
- * API key. After seeding, this backend is a normal registered entry — the
- * user can rename it, edit its host/api key, or remove it like any other
- * backend.
+ * Stable id for the default local backend. In ordinary mode it is seeded when
+ * the launcher provides a host and API key, then behaves like a normal
+ * registered entry. Server-managed deployments keep this id pinned to the
+ * Production backend configured by the server.
  */
 export const SEEDED_DEFAULT_BACKEND_ID = "default-local";
 
 export const DEFAULT_LOCAL_BACKEND_NAME = "Local";
+const DEFAULT_SERVER_MANAGED_BACKEND_NAME = "Production";
 export const LOCKED_CLOUD_BACKEND_ID = "locked-cloud";
 export const LOCKED_CLOUD_BACKEND_NAME = "OpenHands Cloud";
 
@@ -37,7 +38,8 @@ export function makeLockedCloudBackend(): Backend | null {
 
 /**
  * Construct the default local backend from environment/runtime config.
- * Returns null unless both a backend location and API key are available.
+ * Ordinary mode requires a backend location and API key; server-managed mode
+ * uses the same-origin proxy and keeps the key outside the browser.
  *
  * Used as the seed entry written to `openhands-backends` on first load;
  * if it returns null, onboarding is responsible for collecting backend
@@ -56,6 +58,17 @@ export function makeDefaultLocalBackend(): Backend | null {
   if (getLockedCloudHost()) return null;
 
   const host = getAgentServerBaseUrl();
+  if (host && isServerManagedBackend()) {
+    const configuredName = import.meta.env.VITE_DEFAULT_BACKEND_NAME?.trim();
+    return {
+      id: SEEDED_DEFAULT_BACKEND_ID,
+      name: configuredName || DEFAULT_SERVER_MANAGED_BACKEND_NAME,
+      host,
+      apiKey: "",
+      kind: "local",
+    };
+  }
+
   const apiKey = getAgentServerSessionApiKey();
 
   if (!host || !apiKey) return null;

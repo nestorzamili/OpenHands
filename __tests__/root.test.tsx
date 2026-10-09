@@ -26,6 +26,11 @@ const TRANSLATIONS: Record<string, string> = {
   BACKEND$LOGGED_OUT: "Logged out",
   BACKEND$KIND_LOCAL: "Local",
   BACKEND$KIND_CLOUD: "Cloud",
+  SETTINGS$AGENT_SERVER_UNAVAILABLE_STATUS_TITLE:
+    "We couldn't reach the configured server",
+  SETTINGS$AGENT_SERVER_UNAVAILABLE_STATUS_MESSAGE:
+    "Check the server and try again.",
+  SETTINGS$AGENT_SERVER_RETRY_CONNECTION: "Retry connection",
   BACKEND$EDIT: "Edit",
   BACKEND$REMOVE: "Remove",
   HOME$DONE: "Done",
@@ -148,6 +153,9 @@ describe("App root agent-server availability guard", () => {
       .__AGENT_CANVAS_AUTH_REQUIRED__;
     delete (window as unknown as Record<string, unknown>)
       .__AGENT_CANVAS_LOCK_TO_CLOUD__;
+    delete (window as unknown as Record<string, unknown>)[
+      "__AGENT_CANVAS_SERVER_MANAGED_BACKEND__"
+    ];
     (
       window as unknown as Record<string, unknown>
     ).__AGENT_CANVAS_SESSION_API_KEY__ = "test-session-key";
@@ -555,6 +563,33 @@ describe("App root agent-server availability guard", () => {
     });
     expect(serverInfoRequests).toBeGreaterThanOrEqual(1);
     expect(screen.queryByTestId("app-outlet")).not.toBeInTheDocument();
+  });
+
+  it("shows retry instead of asking for a key when the server-managed backend is unreachable", async () => {
+    vi.stubEnv("VITE_AUTH_REQUIRED", "true");
+    vi.stubEnv("VITE_SESSION_API_KEY", "");
+    window.localStorage.clear();
+    window.localStorage.setItem(ONBOARDING_COMPLETED_STORAGE_KEY, "1");
+    (
+      window as unknown as Record<string, unknown>
+    ).__AGENT_CANVAS_SERVER_MANAGED_BACKEND__ = true;
+    __resetActiveStoreForTests();
+    server.use(http.get("*/server_info", () => HttpResponse.error()));
+
+    renderApp(["/"]);
+
+    expect(
+      await screen.findByTestId("server-managed-backend-unavailable-screen"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Retry connection" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("api-key-entry-screen"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("manage-backends-modal"),
+    ).not.toBeInTheDocument();
   });
 
   it("shows the manage-backends recovery modal when the active cloud backend is logged out", async () => {

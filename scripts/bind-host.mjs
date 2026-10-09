@@ -16,7 +16,9 @@ export function isLoopbackBind(host) {
     .trim()
     .replace(/^\[|\]$/g, "")
     .toLowerCase();
-  return STATIC_LOOPBACK_HOSTS.has(normalized) || IPV4_LOOPBACK_RE.test(normalized);
+  return (
+    STATIC_LOOPBACK_HOSTS.has(normalized) || IPV4_LOOPBACK_RE.test(normalized)
+  );
 }
 
 /**
@@ -45,6 +47,7 @@ export function bindHostArgs(host) {
  * @param {string | null} [opts.sessionApiKey]
  * @param {boolean} [opts.authRequired]
  * @param {boolean} [opts.allowLanSessionKey]
+ * @param {boolean} [opts.serverSideSessionAuth]
  * @param {(msg: string) => void} [opts.warn]
  */
 export function applySessionKeyPolicy(opts = {}) {
@@ -53,8 +56,17 @@ export function applySessionKeyPolicy(opts = {}) {
     sessionApiKey = null,
     authRequired = false,
     allowLanSessionKey = false,
+    serverSideSessionAuth = false,
     warn = console.warn,
   } = opts;
+  if (serverSideSessionAuth) {
+    return {
+      sessionApiKey: null,
+      authRequired: Boolean(authRequired),
+      strippedSessionKey: false,
+    };
+  }
+
   const loopback = isLoopbackBind(host);
   if (loopback || allowLanSessionKey || !sessionApiKey) {
     return {

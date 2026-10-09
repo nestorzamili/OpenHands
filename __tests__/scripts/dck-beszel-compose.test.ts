@@ -13,6 +13,8 @@ type ComposeService = {
   environment?: string[];
   command?: string[];
   depends_on?: Record<string, { condition?: string }>;
+  group_add?: string[];
+  privileged?: boolean;
 };
 
 const compose = parse(
@@ -20,6 +22,18 @@ const compose = parse(
 ) as { services: Record<string, ComposeService> };
 
 describe("Beszel Compose integration", () => {
+  it("grants Canvas Docker access through the host socket without privileged mode", () => {
+    const canvas = compose.services.canvas;
+
+    expect(canvas.privileged).not.toBe(true);
+    expect(canvas.group_add).toContain(
+      "${DOCKER_GID:?Run scripts/dck-deploy.sh to configure Docker socket access}",
+    );
+    expect(canvas.volumes).toContain(
+      "/var/run/docker.sock:/var/run/docker.sock",
+    );
+  });
+
   it("keeps the Hub private and persists its data", () => {
     const hub = compose.services.beszel;
 

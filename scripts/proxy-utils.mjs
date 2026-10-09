@@ -45,7 +45,8 @@ function parseBackendUrl(backendUrl) {
   }
   return {
     hostname: url.hostname,
-    port: Number.parseInt(url.port, 10) || (url.protocol === "https:" ? 443 : 80),
+    port:
+      Number.parseInt(url.port, 10) || (url.protocol === "https:" ? 443 : 80),
     protocol: url.protocol,
   };
 }
@@ -61,16 +62,58 @@ function writeInvalidBackendUrlResponse(req, res) {
   }
 }
 
+export function isLoopbackBackendUrl(backendUrl) {
+  try {
+    const hostname = new URL(backendUrl).hostname
+      .replace(/^\[|\]$/g, "")
+      .toLowerCase();
+    return (
+      hostname === "localhost" ||
+      hostname === "::1" ||
+      /^127(?:\.\d{1,3}){3}$/.test(hostname)
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function isServerInfoRequest(req) {
   const pathname = new URL(req.url ?? "/", "http://localhost").pathname;
   return pathname === SERVER_INFO_PATH;
 }
 
-export function proxyServerInfoRequest(
+export function isVSCodeUrlRequest(req) {
+  const pathname = new URL(req.url ?? "/", "http://localhost").pathname.replace(
+    /\/+$/,
+    "",
+  );
+  return pathname === "/api/vscode/url" || pathname.endsWith("/api/vscode/url");
+}
+
+function redactVSCodeToken(value) {
+  if (typeof value !== "string") return value;
+  try {
+    const isAbsolute = /^[a-z][a-z\d+.-]*:\/\//i.test(value);
+    const url = new URL(value, "http://localhost");
+    url.searchParams.delete("tkn");
+    url.searchParams.delete("session_api_key");
+    return isAbsolute
+      ? url.toString()
+      : `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return value.replace(/([?&](?:tkn|session_api_key)=)[^&#]*/gi, "$1");
+  }
+}
+
+function proxyAgentServerJsonRequest(
   req,
   res,
   backendUrl,
-  runtimeServicesInfo,
+  {
+    runtimeServicesInfo = null,
+    sessionApiKey = null,
+    redactVSCodeUrl = false,
+  } = {},
 ) {
   let backend;
   try {
@@ -90,6 +133,10 @@ export function proxyServerInfoRequest(
       headers: {
         ...req.headers,
         host: `${backend.hostname}:${backend.port}`,
+        "accept-encoding": "identity",
+        ...(sessionApiKey && isLoopbackBackendUrl(backendUrl)
+          ? { "x-session-api-key": sessionApiKey }
+          : {}),
       },
     },
     (proxyRes) => {
@@ -123,18 +170,31 @@ export function proxyServerInfoRequest(
         }
 
         try {
-          const serverInfo = JSON.parse(originalBody.toString("utf8"));
-          const runtimeServices =
-            typeof runtimeServicesInfo === "string"
-              ? JSON.parse(runtimeServicesInfo)
-              : runtimeServicesInfo;
-          const body = Buffer.from(
-            JSON.stringify({
-              ...serverInfo,
-              runtime_services: runtimeServices,
-            }),
-            "utf8",
-          );
+          const payload = JSON.parse(originalBody.toString("utf8"));
+          let changed = false;
+          if (runtimeServicesInfo !== null && isServerInfoRequest(req)) {
+            const runtimeServices =
+              typeof runtimeServicesInfo === "string"
+                ? JSON.parse(runtimeServicesInfo)
+                : runtimeServicesInfo;
+            payload.runtime_services = runtimeServices;
+            changed = true;
+          }
+          if (
+            redactVSCodeUrl &&
+            isVSCodeUrlRequest(req) &&
+            typeof payload.vscode_url === "string"
+          ) {
+            payload.vscode_url = redactVSCodeToken(payload.vscode_url);
+            changed = true;
+          }
+          if (!changed) {
+            res.writeHead(statusCode, headers);
+            res.end(originalBody);
+            return;
+          }
+
+          const body = Buffer.from(JSON.stringify(payload), "utf8");
 
           delete headers["content-length"];
           delete headers["transfer-encoding"];
@@ -144,7 +204,7 @@ export function proxyServerInfoRequest(
           res.end(body);
         } catch (err) {
           console.warn(
-            `Could not append runtime_services to ${SERVER_INFO_PATH}: ${
+            `Could not transform Agent Server JSON response: ${
               err instanceof Error ? err.message : String(err)
             }`,
           );
@@ -184,6 +244,31 @@ export function proxyServerInfoRequest(
   req.pipe(proxyReq, { end: true });
 }
 
+export function proxyServerInfoRequest(
+  req,
+  res,
+  backendUrl,
+  runtimeServicesInfo,
+  { sessionApiKey = null } = {},
+) {
+  return proxyAgentServerJsonRequest(req, res, backendUrl, {
+    runtimeServicesInfo,
+    sessionApiKey,
+  });
+}
+
+export function proxyVSCodeUrlRequest(
+  req,
+  res,
+  backendUrl,
+  { sessionApiKey = null } = {},
+) {
+  return proxyAgentServerJsonRequest(req, res, backendUrl, {
+    sessionApiKey,
+    redactVSCodeUrl: true,
+  });
+}
+
 function once(fn) {
   let called = false;
   return (...args) => {
@@ -207,6 +292,9 @@ export function createProxyHandlers({
   label = "proxy",
   timeout = DEFAULT_PROXY_TIMEOUT_MS,
   proxyTimeout = DEFAULT_PROXY_TIMEOUT_MS,
+  sessionApiKey = /** @type {string | null} */ (null),
+  serverSideSessionAuth = false,
+  vscodeBasePath = /** @type {string | null} */ (null),
 } = {}) {
   const proxy = createProxyServer({
     ws: true,
@@ -222,6 +310,39 @@ export function createProxyHandlers({
     totalWebSockets: 0,
     totalErrors: 0,
   };
+  function isVSCodeRoute(url) {
+    if (!vscodeBasePath) return false;
+    const pathname = new URL(url ?? "/", "http://localhost").pathname;
+    return (
+      matchesPathPrefix(pathname, vscodeBasePath) ||
+      pathname.includes(`${vscodeBasePath}/`) ||
+      pathname.endsWith(vscodeBasePath)
+    );
+  }
+
+  function prepareServerSideProxyOptions(req, target) {
+    if (!serverSideSessionAuth) return {};
+    delete req.headers["x-session-api-key"];
+    if (!sessionApiKey || !isLoopbackBackendUrl(target)) return {};
+    if (isVSCodeRoute(req.url)) {
+      try {
+        const url = new URL(req.url || "/", "http://localhost");
+        url.searchParams.set("tkn", sessionApiKey);
+        req.url = `${url.pathname}${url.search}`;
+      } catch {
+        // Keep the original path; the upstream will return its normal error.
+      }
+    }
+    return { headers: { "X-Session-API-Key": sessionApiKey } };
+  }
+
+  proxy.on("proxyRes", (proxyRes, req) => {
+    if (!serverSideSessionAuth || !isVSCodeRoute(req.url)) return;
+    const location = proxyRes.headers.location;
+    if (typeof location === "string") {
+      proxyRes.headers.location = redactVSCodeToken(location);
+    }
+  });
 
   proxy.on("error", (err, _req, resOrSocket, target) => {
     metrics.totalErrors += 1;
@@ -259,7 +380,10 @@ export function createProxyHandlers({
     };
 
     try {
-      proxy.web(req, res, { target }).catch(handleProxyError);
+      const serverSideOptions = prepareServerSideProxyOptions(req, target);
+      proxy
+        .web(req, res, { target, ...serverSideOptions })
+        .catch(handleProxyError);
     } catch (err) {
       handleProxyError(err);
     }
@@ -275,17 +399,20 @@ export function createProxyHandlers({
     socket.on("error", finish);
 
     try {
-      proxy.ws(req, socket, { target }, head).catch((err) => {
-        metrics.totalErrors += 1;
-        if (!isBenignSocketError(err)) {
-          console.error(
-            `[${label}] WebSocket proxy error for ${req.url} -> ${target}:`,
-            err,
-          );
-        }
-        socket.destroy();
-        finish();
-      });
+      const serverSideOptions = prepareServerSideProxyOptions(req, target);
+      proxy
+        .ws(req, socket, { target, ...serverSideOptions }, head)
+        .catch((err) => {
+          metrics.totalErrors += 1;
+          if (!isBenignSocketError(err)) {
+            console.error(
+              `[${label}] WebSocket proxy error for ${req.url} -> ${target}:`,
+              err,
+            );
+          }
+          socket.destroy();
+          finish();
+        });
     } catch (err) {
       metrics.totalErrors += 1;
       if (!isBenignSocketError(err)) {

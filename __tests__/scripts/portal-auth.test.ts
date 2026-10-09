@@ -120,6 +120,43 @@ describe("static-server portal auth", () => {
     expect(res.headers.location).toBe("/setup?returnTo=%2F");
   });
 
+  it("keeps the Agent Server key out of HTML after portal login", async () => {
+    const internalKey = "dck-internal-session-secret";
+    const dir = mkdtempSync(path.join(tmpdir(), "portal-server-managed-"));
+    tempDirs.push(dir);
+    writeFileSync(path.join(dir, "index.html"), "<!doctype html><head></head>");
+    const port = nextPort++;
+    const server = await startStaticServer({
+      port,
+      host: "127.0.0.1",
+      dir,
+      routes: {},
+      portalAuth: path.join(dir, "portal-auth-store.json"),
+      sessionApiKey: internalKey,
+      serverSideSessionAuth: true,
+    });
+    servers.push(server);
+    const base = `http://127.0.0.1:${port}`;
+
+    await rawRequest(`${base}/api/portal-auth/setup`, "POST", {
+      body: { username: "admin", password: "supersecret1" },
+    });
+    const login = await rawRequest(`${base}/api/portal-auth/login`, "POST", {
+      body: { username: "admin", password: "supersecret1" },
+    });
+    const cookie = extractCookie(login.headers);
+    expect(login.status).toBe(200);
+    expect(cookie).toBeTruthy();
+
+    const index = await rawRequest(`${base}/`, "GET", { cookie });
+    expect(index.status).toBe(200);
+    expect(index.text).toContain(
+      "__AGENT_CANVAS_SERVER_MANAGED_BACKEND__=true",
+    );
+    expect(index.text).not.toContain(internalKey);
+    expect(index.text).not.toContain("__AGENT_CANVAS_SESSION_API_KEY__");
+  });
+
   it("preserves a deep link and its backend/org query through portal login", async () => {
     const { base } = await startPortalServer();
     await rawRequest(`${base}/api/portal-auth/setup`, "POST", {

@@ -4,6 +4,7 @@ import {
   makeDefaultLocalBackend,
   makeLockedCloudBackend,
 } from "./default-backend";
+import { isServerManagedBackend } from "../agent-server-config";
 import type {
   Backend,
   BackendAuthMode,
@@ -13,6 +14,7 @@ import type {
 
 export const BACKENDS_STORAGE_KEY = "openhands-backends";
 export const ACTIVE_BACKEND_STORAGE_KEY = "openhands-active-backend";
+const LEGACY_AGENT_SERVER_CONFIG_STORAGE_KEY = "openhands-agent-server-config";
 
 function isValidKind(value: unknown): value is BackendKind {
   return value === "local" || value === "cloud";
@@ -103,10 +105,74 @@ function syncLauncherDefaultLocalBackend(backends: Backend[]): Backend[] {
 export function writeStoredBackends(backends: Backend[]): void {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(BACKENDS_STORAGE_KEY, JSON.stringify(backends));
+    const safeBackends = isServerManagedBackend()
+      ? backends.map((backend) => ({ ...backend, apiKey: "" }))
+      : backends;
+    window.localStorage.setItem(
+      BACKENDS_STORAGE_KEY,
+      JSON.stringify(safeBackends),
+    );
   } catch {
     /* ignore quota / serialization errors */
   }
+}
+
+function clearLegacyAgentServerSessionKey(): void {
+  try {
+    const raw = window.localStorage.getItem(
+      LEGACY_AGENT_SERVER_CONFIG_STORAGE_KEY,
+    );
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      Array.isArray(parsed)
+    ) {
+      window.localStorage.removeItem(LEGACY_AGENT_SERVER_CONFIG_STORAGE_KEY);
+      return;
+    }
+    delete (parsed as Record<string, unknown>).sessionApiKey;
+    if (Object.keys(parsed).length === 0) {
+      window.localStorage.removeItem(LEGACY_AGENT_SERVER_CONFIG_STORAGE_KEY);
+    } else {
+      window.localStorage.setItem(
+        LEGACY_AGENT_SERVER_CONFIG_STORAGE_KEY,
+        JSON.stringify(parsed),
+      );
+    }
+  } catch {
+    // A malformed legacy value is no longer useful and may contain a secret.
+    window.localStorage.removeItem(LEGACY_AGENT_SERVER_CONFIG_STORAGE_KEY);
+  }
+}
+
+function readServerManagedBackends(): Backend[] {
+  clearLegacyAgentServerSessionKey();
+  const defaultBackend = makeDefaultLocalBackend();
+  if (!defaultBackend) return [];
+
+  let valid: Backend[] = [];
+  try {
+    const raw = window.localStorage.getItem(BACKENDS_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    if (Array.isArray(parsed)) valid = parsed.filter(isValidBackend);
+  } catch {
+    // Replace malformed registry data with the server's configured backend.
+  }
+
+  const hasDefault = valid.some(
+    (backend) =>
+      backend.id === SEEDED_DEFAULT_BACKEND_ID && backend.kind === "local",
+  );
+  const stored = valid.map((backend) =>
+    backend.id === SEEDED_DEFAULT_BACKEND_ID && backend.kind === "local"
+      ? defaultBackend
+      : backend,
+  );
+  if (!hasDefault) stored.unshift(defaultBackend);
+  writeStoredBackends(stored);
+  return [defaultBackend];
 }
 
 export function readStoredBackends(): Backend[] {
@@ -122,6 +188,8 @@ export function readStoredBackends(): Backend[] {
       }
       return [lockedCloudBackend];
     }
+
+    if (isServerManagedBackend()) return readServerManagedBackends();
 
     const raw = window.localStorage.getItem(BACKENDS_STORAGE_KEY);
 

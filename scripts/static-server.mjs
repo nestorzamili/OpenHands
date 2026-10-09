@@ -39,8 +39,10 @@ import {
   createProxyHandlers,
   createRouter,
   isServerInfoRequest,
+  isVSCodeUrlRequest,
   matchesPathPrefix,
   proxyServerInfoRequest,
+  proxyVSCodeUrlRequest,
 } from "./proxy-utils.mjs";
 import {
   createPortalAuthHandler,
@@ -108,6 +110,7 @@ export function parseArgs(argv = process.argv.slice(2), env = process.env) {
     authRequired: false,
     allowLanSessionKey: false,
     portalAuth: null,
+    serverSideSessionAuth: false,
     runtimeServicesInfo: null,
     lockToCloud: null,
     basePath: "/",
@@ -151,6 +154,9 @@ export function parseArgs(argv = process.argv.slice(2), env = process.env) {
         break;
       case "--portal-auth":
         config.portalAuth = argv[++i] || null;
+        break;
+      case "--server-side-session-auth":
+        config.serverSideSessionAuth = true;
         break;
       case "--runtime-services-info":
         config.runtimeServicesInfo = argv[++i] || null;
@@ -211,9 +217,9 @@ export function parseArgs(argv = process.argv.slice(2), env = process.env) {
   }
 
   // Guard: --session-api-key and --auth-required are semantically
-  // mutually exclusive. The first auto-injects the key (local mode);
-  // the second forces the user to paste it (public mode). Combining
-  // both is a misconfiguration.
+  // mutually exclusive. The former supplies a key for local or server-side
+  // authentication; the latter forces the user to paste it (public mode).
+  // Combining both is a misconfiguration.
   if (config.sessionApiKey && config.authRequired) {
     console.error(
       "ERROR: --session-api-key and --auth-required are mutually exclusive.\n" +
@@ -224,16 +230,26 @@ export function parseArgs(argv = process.argv.slice(2), env = process.env) {
   }
 
   // Portal auth gates every request behind a login that runs BEFORE any static
-  // serving, so pairing it with --session-api-key is safe and expected: the
-  // injected key reaches only authenticated users, and the frontend needs it to
-  // authenticate its proxied /api calls to the agent-server. What portal auth
-  // does replace is the API-key entry screen, so it is incompatible with
-  // --auth-required (that would ask a logged-in user to paste a key too).
+  // serving. In legacy mode it can still pair with --session-api-key injection;
+  // --server-side-session-auth instead keeps that credential in this process
+  // and adds it only to loopback proxy requests. Portal auth replaces the
+  // API-key entry screen, so it is incompatible with --auth-required.
   if (config.portalAuth && config.authRequired) {
     console.error(
       "ERROR: --portal-auth and --auth-required are mutually exclusive.\n" +
         "  Portal auth already gates the UI with a login; --auth-required would\n" +
         "  additionally show the API-key entry screen. Use one or the other.",
+    );
+    process.exit(1);
+  }
+
+  if (
+    config.serverSideSessionAuth &&
+    (!config.portalAuth || !config.sessionApiKey)
+  ) {
+    console.error(
+      "ERROR: --server-side-session-auth requires both --portal-auth and --session-api-key.\n" +
+        "  The session key is attached only by the authenticated server-side proxy.",
     );
     process.exit(1);
   }
@@ -279,9 +295,11 @@ OPTIONS:
   -d, --dir   <dir>            Directory to serve (default: build)
   -r, --route <prefix=url>     Proxy <prefix> (and subpaths) to <url>;
                                may be repeated. WebSockets supported.
-  --session-api-key <key>      Inject session API key into index.html so the
-                               pre-built frontend authenticates to agent-server
-                               without needing VITE_SESSION_API_KEY baked in.
+  --session-api-key <key>      Provide the session API key. By default it is
+                               injected into index.html for local mode; combine
+                               with --server-side-session-auth to keep it in the
+                               server process and add it only to loopback proxy
+                               requests.
   --auth-required              Inject authRequired flag into index.html so the
                                pre-built frontend shows the API key entry screen
                                (public mode) without VITE_AUTH_REQUIRED baked in.
@@ -293,8 +311,12 @@ OPTIONS:
                                cookie; the first admin is created at /setup.
                                <store> is a JSON file path where hashed
                                credentials and sessions are persisted. Mutually
-                               exclusive with --session-api-key. See
+                               exclusive with --auth-required. See
                                scripts/portal-auth.mjs.
+  --server-side-session-auth  With portal auth, keep --session-api-key in the
+                               server process and attach it only to loopback
+                               proxy requests; never inject it into
+                               HTML or browser storage.
   --runtime-services-info <json>
                                Inject a JSON description of the local runtime
                                services into index.html so the pre-built
@@ -405,6 +427,7 @@ export function serializeForInlineScript(value) {
 function makeConfigInjectionScript(
   sessionApiKey,
   authRequired,
+  serverManagedBackend,
   runtimeServicesInfo,
   lockToCloud,
   basePath,
@@ -435,6 +458,10 @@ function makeConfigInjectionScript(
 
   if (authRequired) {
     parts.push(`window.__AGENT_CANVAS_AUTH_REQUIRED__=true;`);
+  }
+
+  if (serverManagedBackend) {
+    parts.push(`window.__AGENT_CANVAS_SERVER_MANAGED_BACKEND__=true;`);
   }
 
   if (runtimeServicesInfo) {
@@ -485,6 +512,7 @@ async function serveInjectedIndexHtml(
   {
     sessionApiKey,
     authRequired,
+    serverManagedBackend,
     runtimeServicesInfo,
     lockToCloud,
     basePath,
@@ -502,13 +530,14 @@ async function serveInjectedIndexHtml(
   const script = makeConfigInjectionScript(
     sessionApiKey,
     authRequired,
+    serverManagedBackend,
     runtimeServicesInfo,
     lockToCloud,
     basePath,
     vscodeBasePath,
     disableTelemetry,
   );
-  // Inject right before </head> so the key is available before any app code runs.
+  // Inject runtime configuration before any app code runs.
   // replace() targets the first (and only) </head> in well-formed HTML.
   const injected = content.includes("</head>")
     ? content.replace("</head>", `${script}\n</head>`)
@@ -520,7 +549,8 @@ async function serveInjectedIndexHtml(
   res.writeHead(200, {
     "Content-Type": "text/html; charset=utf-8",
     "Content-Length": buf.length,
-    "Cache-Control": sessionApiKey ? "no-store" : "no-cache",
+    "Cache-Control":
+      sessionApiKey || serverManagedBackend ? "no-store" : "no-cache",
   });
   if (req.method === "HEAD") {
     res.end();
@@ -553,6 +583,7 @@ function needsRuntimeInjection(injectionOpts) {
   return Boolean(
     injectionOpts.sessionApiKey ||
     injectionOpts.authRequired ||
+    injectionOpts.serverManagedBackend ||
     injectionOpts.runtimeServicesInfo ||
     injectionOpts.lockToCloud ||
     injectionOpts.vscodeBasePath ||
@@ -713,8 +744,22 @@ function parsePortalSessionCookie(req) {
 }
 
 export function startStaticServer(config) {
+  if (
+    config.serverSideSessionAuth &&
+    (!config.portalAuth || !config.sessionApiKey)
+  ) {
+    throw new Error(
+      "serverSideSessionAuth requires portalAuth and a sessionApiKey",
+    );
+  }
+
   const route = createRouter(config.routes);
-  const proxy = createProxyHandlers({ label: `static:${config.port}` });
+  const proxy = createProxyHandlers({
+    label: `static:${config.port}`,
+    sessionApiKey: config.sessionApiKey || null,
+    serverSideSessionAuth: config.serverSideSessionAuth === true,
+    vscodeBasePath: config.vscodeBasePath || null,
+  });
   const dirAbs = resolve(config.dir);
   const portalAuth =
     config.portalAuth != null && config.portalAuth !== ""
@@ -728,10 +773,12 @@ export function startStaticServer(config) {
     sessionApiKey: config.sessionApiKey || null,
     authRequired: config.authRequired || false,
     allowLanSessionKey: config.allowLanSessionKey || false,
+    serverSideSessionAuth: config.serverSideSessionAuth === true,
   });
   const injectionOpts = {
     sessionApiKey: policy.sessionApiKey,
     authRequired: policy.authRequired,
+    serverManagedBackend: config.serverSideSessionAuth === true,
     runtimeServicesInfo: config.runtimeServicesInfo || null,
     lockToCloud: config.lockToCloud || null,
     basePath: normalizeBasePath(config.basePath),
@@ -812,7 +859,21 @@ export function startStaticServer(config) {
         isServerInfoRequest(req) &&
         (req.method === "GET" || req.method === "HEAD")
       ) {
-        proxyServerInfoRequest(req, res, backend, config.runtimeServicesInfo);
+        proxyServerInfoRequest(req, res, backend, config.runtimeServicesInfo, {
+          sessionApiKey: config.serverSideSessionAuth
+            ? config.sessionApiKey
+            : null,
+        });
+        return;
+      }
+      if (
+        config.serverSideSessionAuth &&
+        isVSCodeUrlRequest(req) &&
+        (req.method === "GET" || req.method === "HEAD")
+      ) {
+        proxyVSCodeUrlRequest(req, res, backend, {
+          sessionApiKey: config.sessionApiKey,
+        });
         return;
       }
       proxy.proxyHttp(req, res, backend);

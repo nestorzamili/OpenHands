@@ -1,6 +1,5 @@
 export const DCK_MONITORING_ROUTE_SEGMENT = "monitoring";
 export const DCK_MONITORING_ROUTE_PATH = `/${DCK_MONITORING_ROUTE_SEGMENT}`;
-export const DCK_BESZEL_ROUTE_PATH = "/beszel/";
 
 export type DckMonitoredAppStatus =
   | "running"

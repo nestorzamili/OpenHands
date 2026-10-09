@@ -12,6 +12,8 @@ export interface AgentServerFormDefaults {
 // server (`scripts/static-server.mjs`) and its tests reference the literal
 // string directly, not this constant.
 const LOCK_TO_CLOUD_WINDOW_KEY = "__AGENT_CANVAS_LOCK_TO_CLOUD__";
+const SERVER_MANAGED_BACKEND_WINDOW_KEY =
+  "__AGENT_CANVAS_SERVER_MANAGED_BACKEND__";
 const LEGACY_CLOUD_DOMAIN = "all-hands.dev";
 const CURRENT_CLOUD_DOMAIN = "openhands.dev";
 const LEGACY_PRODUCTION_APP_HOST = `app.${LEGACY_CLOUD_DOMAIN}`;
@@ -20,6 +22,16 @@ const PRODUCTION_APP_HOST_ALIAS = `app.${CURRENT_CLOUD_DOMAIN}`;
 
 function trimToNull(value?: string | null): string | null {
   return value?.trim() || null;
+}
+
+/** True when the server, rather than this browser, owns backend credentials. */
+export function isServerManagedBackend(): boolean {
+  if (typeof window === "undefined") return false;
+  return (
+    (window as unknown as Record<string, unknown>)[
+      SERVER_MANAGED_BACKEND_WINDOW_KEY
+    ] === true
+  );
 }
 
 function normalizeBaseUrl(value?: string | null): string | null {
@@ -100,7 +112,9 @@ function getConfiguredBaseUrl(): string | null {
 }
 
 /**
- * Return the session API key supplied by the deployment host.
+ * Return the session API key supplied by the deployment host. Server-managed
+ * deployments deliberately return null here so the browser never receives or
+ * persists the internal key; the same-origin proxy adds it server-side.
  *
  * Two sources are consulted, in order:
  *   1. `VITE_SESSION_API_KEY` — baked into the bundle at build time (used by
@@ -117,6 +131,8 @@ function getConfiguredBaseUrl(): string | null {
  * instead of the onboarding flow.
  */
 export function getBakedSessionApiKey(): string | null {
+  if (isServerManagedBackend()) return null;
+
   const envKey = trimToNull(import.meta.env.VITE_SESSION_API_KEY);
   if (envKey) return envKey;
 
@@ -179,6 +195,10 @@ export function getLockedCloudAuthMode(): LockedCloudAuthMode {
 }
 
 export function getAgentServerBaseUrl(): string | null {
+  if (isServerManagedBackend()) {
+    return typeof window !== "undefined" ? window.location.origin : null;
+  }
+
   const configuredUrl = getConfiguredBaseUrl();
   if (configuredUrl) return configuredUrl;
 
@@ -190,6 +210,7 @@ export function getAgentServerBaseUrl(): string | null {
 }
 
 export function getAgentServerSessionApiKey(): string | null {
+  if (isServerManagedBackend()) return null;
   return getBakedSessionApiKey();
 }
 
@@ -276,6 +297,7 @@ export function getAgentServerHeaders(): Record<string, string> {
 }
 
 export function isAuthRequired(): boolean {
+  if (isServerManagedBackend()) return false;
   return (
     import.meta.env.VITE_AUTH_REQUIRED === "true" ||
     (typeof window !== "undefined" &&

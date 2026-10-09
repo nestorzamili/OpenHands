@@ -49,6 +49,7 @@ vi.mock("@openhands/typescript-client/clients", async () => {
 
 vi.mock("#/api/agent-server-config", () => ({
   DEFAULT_WORKING_DIR: "workspace/project",
+  isServerManagedBackend: vi.fn(() => false),
   getAgentServerBaseUrl: vi.fn(() => "http://localhost:54928"),
   getBakedSessionApiKey: vi.fn(() => "test-session-key"),
   getAgentServerSessionApiKey: vi.fn(() => "test-session-key"),

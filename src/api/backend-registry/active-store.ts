@@ -1,4 +1,6 @@
 import { getBackendHealthEntry } from "./health-store";
+import { isServerManagedBackend } from "../agent-server-config";
+import { SEEDED_DEFAULT_BACKEND_ID } from "./default-backend";
 import {
   readStoredActiveBackend,
   readStoredBackends,
@@ -102,6 +104,18 @@ function computeSnapshot(
  * parameters — keeps the same backend.
  */
 function readInitialSelection(backends: Backend[]): BackendSelection | null {
+  if (isServerManagedBackend()) {
+    const managedBackend = backends.find(
+      (backend) =>
+        backend.id === SEEDED_DEFAULT_BACKEND_ID && backend.kind === "local",
+    );
+    const selection = managedBackend
+      ? { backendId: managedBackend.id, orgId: null }
+      : null;
+    writeStoredActiveBackend(selection);
+    return selection;
+  }
+
   const fromUrl = readBackendSelectionFromUrl(
     backends,
     currentLocationSearch(),
@@ -156,12 +170,30 @@ export function getSnapshot(): Snapshot {
 }
 
 export function setActiveSelection(selection: BackendSelection | null): void {
-  writeStoredActiveBackend(selection);
-  snapshot = computeSnapshot(snapshot.backends, selection);
+  const nextSelection = isServerManagedBackend()
+    ? { backendId: SEEDED_DEFAULT_BACKEND_ID, orgId: null }
+    : selection;
+  writeStoredActiveBackend(nextSelection);
+  snapshot = computeSnapshot(snapshot.backends, nextSelection);
   notify();
 }
 
 export function setRegisteredBackends(backends: Backend[]): void {
+  if (isServerManagedBackend()) {
+    const serverBackends = readStoredBackends();
+    const managedBackend = serverBackends.find(
+      (backend) =>
+        backend.id === SEEDED_DEFAULT_BACKEND_ID && backend.kind === "local",
+    );
+    const selection = managedBackend
+      ? { backendId: managedBackend.id, orgId: null }
+      : null;
+    writeStoredActiveBackend(selection);
+    snapshot = computeSnapshot(serverBackends, selection);
+    notify();
+    return;
+  }
+
   writeStoredBackends(backends);
 
   let nextSelection = snapshot.selection;

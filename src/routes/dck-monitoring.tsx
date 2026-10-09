@@ -1,11 +1,5 @@
 import React from "react";
-import {
-  Activity,
-  AlertTriangle,
-  ArrowUpRight,
-  RefreshCw,
-  Server,
-} from "lucide-react";
+import { Activity, AlertTriangle, RefreshCw, Server } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { BackNavButton } from "#/components/shared/buttons/back-nav-button";
 import { useAllConversationsQuery } from "#/components/features/dck/use-dck-conversations";
@@ -20,7 +14,6 @@ import {
 import { I18nKey } from "#/i18n/declaration";
 import {
   getDckMonitoringAlerts,
-  DCK_BESZEL_ROUTE_PATH,
   type DckMonitoringAlert,
   type DckMonitoredAppStatus,
 } from "#/dck/monitoring";
@@ -215,32 +208,8 @@ export default function DckMonitoringRoute() {
           <div className="flex min-w-0 flex-col gap-2 xl:items-end">
             <div
               data-testid="dck-monitoring-toolbar"
-              className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center"
+              className="flex w-full justify-end gap-2 sm:w-auto sm:items-center"
             >
-              {query.isLocalBackend && (
-                <a
-                  href={DCK_BESZEL_ROUTE_PATH}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  data-testid="dck-monitoring-beszel-link"
-                  className="col-span-2 inline-flex min-h-11 min-w-0 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-primary bg-base px-3 text-sm font-medium text-contrast transition-colors hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:col-span-1"
-                >
-                  {t(I18nKey.DCK$MONITORING_BESZEL_LINK)}
-                  <ArrowUpRight size={15} aria-hidden />
-                </a>
-              )}
-              {query.isLocalBackend && snapshot && !query.isError && (
-                <span
-                  data-testid="dck-monitoring-live"
-                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-semantic-success/25 bg-semantic-success/10 px-3 text-sm font-medium text-contrast"
-                >
-                  <span
-                    className="size-2 rounded-full bg-contrast"
-                    aria-hidden
-                  />
-                  {t(I18nKey.DCK$MONITORING_LIVE)}
-                </span>
-              )}
               {query.isLocalBackend && (
                 <button
                   type="button"
@@ -248,7 +217,7 @@ export default function DckMonitoringRoute() {
                   disabled={isRefreshing}
                   aria-busy={isRefreshing}
                   data-testid="dck-monitoring-refresh"
-                  className="inline-flex min-h-11 min-w-0 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-primary bg-base px-3 text-sm font-medium text-contrast transition-colors hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-wait disabled:opacity-60"
+                  className="inline-flex min-h-11 w-full min-w-0 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-primary bg-base px-3 text-sm font-medium text-contrast transition-colors hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-wait disabled:opacity-60 sm:w-auto"
                 >
                   <RefreshCw
                     size={15}
@@ -493,13 +462,6 @@ export default function DckMonitoringRoute() {
                 </div>
               )}
             </section>
-
-            <p
-              data-testid="dck-monitoring-coverage-note"
-              className="rounded-lg border border-border bg-base px-4 py-3 text-xs leading-5 text-contrast/80"
-            >
-              {t(I18nKey.DCK$MONITORING_COVERAGE_NOTE)}
-            </p>
           </>
         )}
       </div>

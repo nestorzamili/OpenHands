@@ -4,7 +4,10 @@ import { useMatch, useNavigate } from "react-router";
 import { Plus, Settings } from "lucide-react";
 import { Dropdown } from "#/ui/dropdown/dropdown";
 import { DropdownOption } from "#/ui/dropdown/types";
-import { getLockedCloudHost } from "#/api/agent-server-config";
+import {
+  getLockedCloudHost,
+  isServerManagedBackend,
+} from "#/api/agent-server-config";
 import { isNoBackend } from "#/api/backend-registry/active-store";
 import { useActiveBackendContext } from "#/contexts/active-backend-context";
 import { useAllCloudOrganizations } from "#/hooks/query/use-cloud-organizations";
@@ -366,6 +369,8 @@ export function BackendSelector({
       <PortalAccountFooter />
     </>
   );
+
+  if (isServerManagedBackend()) return null;
 
   return (
     <>

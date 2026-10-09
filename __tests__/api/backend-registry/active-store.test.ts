@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   __resetActiveStoreForTests,
   getActiveBackend,
+  getActiveSelection,
   getEffectiveLocalBackend,
+  getRegisteredBackends,
   NO_BACKEND_ID,
   setActiveSelection,
   setRegisteredBackends,
@@ -27,6 +29,9 @@ import type { Backend } from "#/api/backend-registry/types";
 beforeEach(() => {
   window.localStorage.clear();
   window.sessionStorage.clear();
+  delete (window as unknown as Record<string, unknown>)[
+    "__AGENT_CANVAS_SERVER_MANAGED_BACKEND__"
+  ];
   __resetHealthStoreForTests();
   __resetActiveStoreForTests();
 });
@@ -34,6 +39,9 @@ beforeEach(() => {
 afterEach(() => {
   window.localStorage.clear();
   window.sessionStorage.clear();
+  delete (window as unknown as Record<string, unknown>)[
+    "__AGENT_CANVAS_SERVER_MANAGED_BACKEND__"
+  ];
   vi.unstubAllEnvs();
   __resetHealthStoreForTests();
   __resetActiveStoreForTests();
@@ -90,6 +98,61 @@ describe("active-store", () => {
     expect(backend.id).toBe(SEEDED_DEFAULT_BACKEND_ID);
     expect(backend.kind).toBe("local");
     expect(orgId).toBeNull();
+  });
+
+  it("pins server-managed Production despite stale browser selections", () => {
+    vi.stubEnv("VITE_BACKEND_BASE_URL", "https://stale-backend.example");
+    vi.stubEnv("VITE_SESSION_API_KEY", "build-time-session-key");
+    vi.stubEnv("VITE_DEFAULT_BACKEND_NAME", "Production");
+    (
+      window as unknown as Record<string, unknown>
+    ).__AGENT_CANVAS_SERVER_MANAGED_BACKEND__ = true;
+    window.localStorage.setItem(
+      BACKENDS_STORAGE_KEY,
+      JSON.stringify([cloudBackend, localBackend]),
+    );
+    window.localStorage.setItem(
+      ACTIVE_BACKEND_STORAGE_KEY,
+      JSON.stringify({ backendId: cloudBackend.id, orgId: "org-stale" }),
+    );
+    __resetActiveStoreForTests();
+
+    expect(getRegisteredBackends()).toEqual([
+      {
+        id: SEEDED_DEFAULT_BACKEND_ID,
+        name: "Production",
+        host: window.location.origin,
+        apiKey: "",
+        kind: "local",
+      },
+    ]);
+    expect(getActiveBackend().backend).toMatchObject({
+      id: SEEDED_DEFAULT_BACKEND_ID,
+      name: "Production",
+      apiKey: "",
+    });
+    expect(getActiveSelection()).toEqual({
+      backendId: SEEDED_DEFAULT_BACKEND_ID,
+      orgId: null,
+    });
+
+    setActiveSelection({ backendId: cloudBackend.id, orgId: "org-stale" });
+    expect(getActiveBackend().backend.id).toBe(SEEDED_DEFAULT_BACKEND_ID);
+    expect(getActiveSelection()).toEqual({
+      backendId: SEEDED_DEFAULT_BACKEND_ID,
+      orgId: null,
+    });
+
+    setRegisteredBackends([cloudBackend, localBackend]);
+    expect(getRegisteredBackends()).toEqual([
+      {
+        id: SEEDED_DEFAULT_BACKEND_ID,
+        name: "Production",
+        host: window.location.origin,
+        apiKey: "",
+        kind: "local",
+      },
+    ]);
   });
 
   it("returns the registered backend matching the active selection", () => {

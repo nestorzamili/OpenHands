@@ -1,19 +1,6 @@
 ---
 name: web-generator
 description: Expert Autonomous Full Stack Software Engineer specialized in building production-ready, containerized Next.js fullstack applications (single-service Docker Compose) for DCK Agentic. Use for scaffolding, extending, deploying, rebuilding, or tearing down apps in webgen/.
-triggers:
-  - web
-  - fullstack
-  - full stack
-  - nextjs
-  - next.js
-  - landing page
-  - app
-  - prototype
-  - website
-  - scaffold
-  - deploy
-  - rebuild
 ---
 
 # Web Generator — Next.js Single-Service Standard
@@ -64,6 +51,13 @@ webgen/<app-name>/
 
 One service named `app` (Next.js `standalone` output). Do not split into `frontend/` + `backend/` directories. Do not add a per-project database container.
 
+Each `webgen/<app-name>/` is also its own **local Git repository**. Initialize Git
+at that app root; the parent repository intentionally ignores `webgen/`. The
+first local commit includes source, lockfiles, migrations, docs, and `.env.example`
+only. Verify `.env` is ignored and absent from the index before committing. Do
+not add a remote, push, publish, deploy, or restart an app unless the operator
+explicitly asks for that separate action.
+
 ## 2. Stack Defaults
 
 - Next.js (App Router + API routes), TypeScript, Tailwind CSS, shadcn, Lucide icons.
@@ -102,23 +96,32 @@ One service named `app` (Next.js `standalone` output). Do not split into `fronte
 ## 3. Secrets Are the Source of Truth
 
 The portal Secret Manager (`/settings/secrets`, server-side encrypted) is the
-single source of truth for all integration keys and per-app URLs
-(`DATABASE_URL_<APP>`, `REDIS_URL`, provider API keys). The app's `.env` file is
-a generated artifact derived from those secrets — never the source, never
-hand-maintained. This split is the same in dev and prod (the Secret Manager runs
-in both):
+single source of truth for app credentials. `.env` is a generated runtime
+artifact, never the source and never hand-maintained. Apply the same rule in dev
+and prod:
 
-- Secrets live in the Secret Manager. Every conversation already receives them
-  automatically as server-resolved `LookupSecret` values — no manual passing.
-- At deploy and rebuild time, read each required secret and write `.env` fresh
-  (the container reads env from `.env`). Never append blindly, never print
-  values to logs or chat.
-- If a required secret is missing, stop and ask the operator to add it in
-  `/settings/secrets` rather than inventing a value or committing a real one.
-- Name pattern is `[a-zA-Z][a-zA-Z0-9_]{0,63}` (e.g. `DATABASE_URL_SHOP`).
-- Rotate in the Secret Manager UI; the next deploy regenerates `.env`.
-- `.env.example` carries placeholders only and is the only env file committed;
-  `.env` is gitignored.
+- Derive a strict secret suffix from the app slug: uppercase ASCII and replace
+  each hyphen with `_` (`catatan-uang` → `CATATAN_UANG`). Reject slugs outside
+  `[a-z0-9]+(?:-[a-z0-9]+)*`; do not silently discard or normalize other
+  characters. Secret names must match `[a-zA-Z][a-zA-Z0-9_]{0,63}`.
+- Keep app secrets isolated by name. Map `DATABASE_URL_<SUFFIX>` to runtime
+  `DATABASE_URL`, `BETTER_AUTH_SECRET_<SUFFIX>` to `BETTER_AUTH_SECRET`, and,
+  when needed, `REDIS_URL_<SUFFIX>` to `REDIS_URL`. Give other per-app provider
+  credentials the same suffix. Reuse an unsuffixed secret only when the
+  operator explicitly confirms it is intentionally shared.
+- Prefer the conversation's server-resolved `LookupSecret` references or the
+  portal's authenticated secret flow. At deploy/rebuild time, resolve each
+  required secret and generate `.env` from the mapped names. Use a restrictive
+  umask, write atomically, and set mode `600`; never append blindly, print a
+  secret, enable shell tracing, or include values in logs/chat.
+- If a required value is missing in the portal, stop and ask the operator to
+  add it there. Do not recover a value from an old `.env`, invent one, or commit
+  a credential.
+- `.env.example` contains placeholders only. It is the only environment file
+  committed; `.env` and every other `.env.*` file are ignored except
+  `.env.example`. Verify the ignored file is not in the Git index.
+- Rotate values in the Secret Manager; the next explicitly requested
+  materialization/rebuild regenerates `.env`.
 
 ## 4. Port Allocation
 
@@ -156,7 +159,7 @@ entry point.
 ## 5. Database Per App
 
 Each app that needs persistence gets its own database (`dck_<app-name>`) on the
-shared DCK Postgres cluster, created with the admin role. The cluster is the
+shared DCK Postgres cluster, created with an admin/migration role. The cluster is the
 `postgres` service on the `dck` network (see §2) — not a host-published port:
 
 ```bash
@@ -165,10 +168,26 @@ docker compose -f /opt/dck-agentic/docker-compose.yml exec -T postgres \
   psql -U "$POSTGRES_USER" -c 'CREATE DATABASE dck_<app-name>;'
 ```
 
-Run Prisma migrations through the agent (in a throwaway container) before first
-boot. Use one shared database only when the operator explicitly says so.
+Create a distinct per-app **runtime role** for the URL stored as
+`DATABASE_URL_<SUFFIX>`. It must be `NOSUPERUSER NOCREATEDB NOCREATEROLE
+NOREPLICATION NOBYPASSRLS`, must not own the database/schema/tables, and must
+not inherit the admin role. Grant only `CONNECT` on that app database, `USAGE`
+on the required schema, and the DML privileges (`SELECT`, `INSERT`, `UPDATE`,
+`DELETE`) on the app's data tables; grant sequence privileges only when the
+schema uses sequences. Do not grant `CREATE`, ownership, or access to migration
+metadata tables. Do not grant broad default privileges; after a schema
+migration, grant the runtime role only the privileges needed on newly created
+app data tables. Keep migration/admin credentials separate from runtime
+credentials; run Prisma migrations with the elevated role in a throwaway
+container, then verify the runtime role can log in and cannot create/alter/drop
+schema objects. Use one shared database only when the operator explicitly says
+so.
 
 ## 6. Lifecycle (always via conversation)
+
+Code changes, a local Git commit, and a successful build do not imply deployment.
+Do not start, stop, rebuild a running service, reload nginx, or publish unless
+the operator explicitly includes that lifecycle action in the request.
 
 ```bash
 cd webgen/<app-name>
@@ -298,7 +317,7 @@ Deleting an app also removes its `/etc/nginx/dck-apps/preview-<app>.conf` and
 The host VM (especially prod) must stay clean. Source files under `webgen/<app-name>/` are the only host-side footprint allowed:
 
 - `.dockerignore` is mandatory in every app: exclude `node_modules`, `.next`, `.turbo`, `.env`, `*.log`, `.git`, coverage output. Build artifacts stay inside image layers (Next.js `standalone` output), never on the volume.
-- No host toolchains, ever: no `npm`, `pip`, `node`, or `prisma` outside containers. Installs, builds, migrations, and one-off scripts all run in throwaway containers (`docker compose run --rm app ...`).
+- Keep app toolchains in containers: do not use host `npm`, `pip`, `node`, or `prisma` for installs, application scripts, migrations, or builds; use throwaway containers (`docker compose run --rm app ...`). For UI/E2E validation only, an already-installed browser automation package may run against localhost when the integrated browser cannot emulate the needed viewport. Do not install host packages or leave generated app artifacts on the host.
 - Temporary files live and die inside containers. Never write scratch files to `/projects` outside the app directory; verify with `git status` that only intended files changed.
 - Named containers follow `<app-name>-<service>` so orphans are identifiable.
 - Deleting an app means `docker compose down -v --rmi local` **plus** removing its nginx files (`/etc/nginx/dck-apps/preview-<app>.conf` and `/etc/nginx/dck-apps/<app>.conf`, then reload) and dropping its database if no longer needed (`DROP DATABASE dck_<app>`). Containers, anonymous and named app volumes, and locally built images go away. The shared DCK Postgres cluster holds no per-app volumes by design.
@@ -307,3 +326,15 @@ The host VM (especially prod) must stay clean. Source files under `webgen/<app-n
 ## 9. Deploy and Rebuild as Automations
 
 For repeatable deploys, register the lifecycle above as a custom automation through the portal's built-in automation setup flow (custom automation backed by the built-in `openhands-automation` skill), so rebuilds get schedules and run history in the Automations UI instead of ad-hoc chat commands. The same applies to recurring jobs owned by other modules (daily trend scan, weekly analytics): scheduled custom automations writing dated artifacts into `research/` and `analytics/`.
+
+## 10. Isolated Verification and Local Git
+
+- Run every package command from the app directory and inside its container/build
+  environment, never against the parent repo's dependency tree. Keep app-local
+  `lint`, `typecheck`, `test`, and `build` commands; run them before the initial
+  commit. Add a small regression test for each validation or persistence behavior
+  changed.
+- After scaffolding and local checks pass, initialize the nested Git repository,
+  verify `.env` is ignored and untracked, inspect `git status`, then create one
+  initial local commit. Confirm `git remote -v` is empty. Never push or add a
+  remote unless separately requested.

@@ -114,18 +114,18 @@ describe("Beszel production deploy bootstrap", () => {
 
     const { stdout, stderr } = await execFileAsync(
       "bash",
-      [deployScript, "sha-test", stage],
+      [deployScript, "sha-test", stage, "ghcr.io/example/dck-agentic"],
       {
         env: {
           ...process.env,
           PATH: `${bin}:${process.env.PATH}`,
           TARGET_DIR: target,
-          IMAGE_OWNER: "dck-ai",
         },
       },
     );
 
     const env = await readEnv(path.join(target, ".env"));
+    expect(env.CANVAS_IMAGE).toBe("ghcr.io/example/dck-agentic");
     expect(env.DOCKER_GID).toBe("104");
     expect(env.BESZEL_ADMIN_EMAIL).toBe("beszel-admin@dckautoposting.com");
     expect(env.BESZEL_ADMIN_PASSWORD).toMatch(/^[A-Za-z0-9]{32}$/);
@@ -136,16 +136,20 @@ describe("Beszel production deploy bootstrap", () => {
     expect(`${stdout}${stderr}`).not.toContain(env.BESZEL_ADMIN_PASSWORD);
     expect(`${stdout}${stderr}`).not.toContain(env.BESZEL_AGENT_TOKEN);
 
-    await execFileAsync("bash", [deployScript, "sha-next", stage], {
-      env: {
-        ...process.env,
-        PATH: `${bin}:${process.env.PATH}`,
-        TARGET_DIR: target,
-        IMAGE_OWNER: "dck-ai",
+    await execFileAsync(
+      "bash",
+      [deployScript, "sha-next", stage, "ghcr.io/example/custom-dck"],
+      {
+        env: {
+          ...process.env,
+          PATH: `${bin}:${process.env.PATH}`,
+          TARGET_DIR: target,
+        },
       },
-    });
+    );
 
     const redeployedEnv = await readEnv(path.join(target, ".env"));
+    expect(redeployedEnv.CANVAS_IMAGE).toBe("ghcr.io/example/custom-dck");
     expect(redeployedEnv.CANVAS_IMAGE_TAG).toBe("sha-next");
     expect(redeployedEnv.DOCKER_GID).toBe("104");
     expect(redeployedEnv.BESZEL_ADMIN_EMAIL).toBe(env.BESZEL_ADMIN_EMAIL);

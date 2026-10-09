@@ -3,6 +3,7 @@
 DCK Agentic runs the OpenHands Agent Canvas as an all-in-one container, served
 at the root of `https://agent.dckautoposting.com`, deployed to a VM from CI over
 SSH. This guide assumes a fresh VM with nothing set up yet.
+It describes the expected production wiring; it does not verify the current VM.
 
 Facts the setup relies on:
 
@@ -26,11 +27,15 @@ access:
 ```bash
 # Docker: https://docs.docker.com/engine/install/
 sudo apt-get install -y nginx
-# add your deploy user's public key to its ~/.ssh/authorized_keys
+# add the public key for VM_SSH_TARGET to ~/.ssh/authorized_keys
 ```
 
-The VM needs only Docker, nginx, and the authorized SSH key — no repo checkout,
-no gh, no manual bootstrap.
+The account used by `VM_SSH_TARGET` must be able to stage files under `/tmp`;
+the deployment process, directly or through sudo, must be able to write
+`/opt/dck-agentic`, run Docker Compose, and `chown` the persistent `config/` and
+`workspace/` bind mounts to UID/GID `10001:10001`. Use root for
+`VM_SSH_TARGET`, or configure non-interactive `sudo -n` for the staged deploy
+script. The VM needs no repository checkout or GitHub CLI.
 
 ## 2. DNS + TLS (Cloudflare + wildcard cert)
 
@@ -65,10 +70,25 @@ Add GitHub repo secrets (Settings → Secrets → Actions):
 - `VM_SSH_TARGET` — `user@host:port`, e.g. `dck@203.0.113.10:22`
 - `VM_SSH_KEY` — private key whose public key is authorized on the VM
 
-Run `.github/workflows/dck-docker.yml` from the Actions tab (or
-`gh workflow run dck-docker.yml`) with the **deploy** input ticked. It builds
-`ghcr.io/<owner>/dck-agentic:sha-<short>`, SSHes to the VM, copies the deploy
-files, and runs `scripts/dck-deploy.sh <sha>`. The VM never builds or clones.
+Run `.github/workflows/dck-docker.yml` manually from the Actions tab (or
+`gh workflow run dck-docker.yml`). The **deploy** input defaults to `true`, so
+one manual run builds, publishes, and deploys; uncheck it for an explicit
+build-only run. The optional image input must be an untagged GHCR image path
+that this repository's `GITHUB_TOKEN` can publish to and pull from. The workflow
+passes that exact image path and its `sha-<short>` tag into the VM's `.env`,
+including when the image input is overridden.
+
+For the image pull, the workflow streams its `GITHUB_TOKEN` to the VM over SSH.
+The remote wrapper uses `docker login --password-stdin` with a temporary
+`DOCKER_CONFIG`, then removes that login configuration on exit; no GHCR token is
+left in the VM's normal Docker config. Ensure the GHCR package grants this
+repository's workflow token access. The VM never builds or clones.
+
+The workflow does not change or verify the VM's Nginx, DNS, Cloudflare API
+token, Certbot, or TLS configuration. Keep the existing host configuration and
+confirm that Nginx already proxies the application to `127.0.0.1:8010` with the
+headers and WebSocket settings below, and that the existing Cloudflare DNS/TLS
+renewal setup remains valid.
 
 `dck-deploy.sh` is idempotent:
 

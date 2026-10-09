@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # DCK Agentic — VM-side deploy, invoked by CI over SSH:
-#   bash <staging-dir>/scripts/dck-deploy.sh <image-tag> <staging-dir>
+#   bash <staging-dir>/scripts/dck-deploy.sh <image-tag> <staging-dir> [image]
 #
 # Self-contained and idempotent: first run (no .env) bootstraps the release
 # dir and generates .env; later runs refresh deploy files and roll the image.
@@ -9,10 +9,14 @@ set -euo pipefail
 
 NEW_TAG="${1:?usage: dck-deploy.sh <image-tag> <staging-dir>}"
 STAGING="${2:?usage: dck-deploy.sh <image-tag> <staging-dir>}"
+REQUESTED_IMAGE="${3:-${CANVAS_IMAGE:-}}"
 TARGET_DIR="${TARGET_DIR:-/opt/dck-agentic}"
 CANVAS_UID="${CANVAS_UID:-10001:10001}"
 log() { printf '[dck-deploy] %s\n' "$*"; }
 die() { printf '[dck-deploy] ERROR: %s\n' "$*" >&2; exit 1; }
+if [ -n "$REQUESTED_IMAGE" ] && [[ ! "$REQUESTED_IMAGE" =~ ^ghcr\.io/[a-z0-9._-]+(/[a-z0-9._-]+)*$ ]]; then
+  die "image must be an untagged lowercase GHCR image path"
+fi
 read_env_value() {
   awk -v key="$1" 'index($0, key "=") == 1 { value = substr($0, length(key) + 2); found = 1 } END { if (found) print value }' "$ENV_FILE"
 }
@@ -39,9 +43,10 @@ mkdir -p "$TARGET_DIR"/{config,workspace,pgdata,beszel-data,beszel-agent-data}
 cp "$STAGING/docker-compose.yml"     "$TARGET_DIR/"
 cp "$STAGING/.env.production.sample" "$TARGET_DIR/"
 mkdir -p "$TARGET_DIR/scripts"
-cp "$STAGING/scripts/"*.sh           "$TARGET_DIR/scripts/"
+cp "$STAGING/scripts/dck-deploy.sh" "$TARGET_DIR/scripts/"
+cp "$STAGING/scripts/migrate-automation-db.sh" "$TARGET_DIR/scripts/"
 cp "$STAGING/scripts/dck-beszel-token.mjs" "$TARGET_DIR/scripts/"
-chmod +x "$TARGET_DIR/scripts/"*.sh
+chmod +x "$TARGET_DIR/scripts/dck-deploy.sh" "$TARGET_DIR/scripts/migrate-automation-db.sh"
 rm -rf "$TARGET_DIR/workspace/.agents"
 cp -r "$STAGING/workspace/.agents"   "$TARGET_DIR/workspace/.agents"
 cp "$STAGING/workspace/AGENTS.md"    "$TARGET_DIR/workspace/AGENTS.md"
@@ -53,7 +58,8 @@ if [ ! -f "$ENV_FILE" ]; then
   log "first run — generating $ENV_FILE"
   cp "$TARGET_DIR/.env.production.sample" "$ENV_FILE"
   PG_PASS="$(openssl rand -base64 32 | tr -d '/+=' | cut -c1-32)"
-  IMG="${CANVAS_IMAGE:-ghcr.io/${IMAGE_OWNER:?set IMAGE_OWNER or CANVAS_IMAGE}/dck-agentic}"
+  IMG="${REQUESTED_IMAGE:-ghcr.io/${IMAGE_OWNER:?set IMAGE_OWNER or pass an image}/dck-agentic}"
+  PREV_IMAGE="$IMG"
   sed -i \
     -e "s|^CANVAS_IMAGE=.*|CANVAS_IMAGE=${IMG}|" \
     -e "s|^CANVAS_IMAGE_TAG=.*|CANVAS_IMAGE_TAG=${NEW_TAG}|" \
@@ -67,7 +73,11 @@ if [ ! -f "$ENV_FILE" ]; then
 else
   ENV_WAS_PRESENT=1
   PREV_TAG="$(grep -E '^CANVAS_IMAGE_TAG=' "$ENV_FILE" | cut -d= -f2-)"
+  PREV_IMAGE="$(read_env_value CANVAS_IMAGE)"
   log "existing deploy — current=$PREV_TAG new=$NEW_TAG"
+  if [ -n "$REQUESTED_IMAGE" ]; then
+    write_env_value CANVAS_IMAGE "$REQUESTED_IMAGE"
+  fi
 fi
 
 # Keep Canvas's supplemental group aligned with the host Docker socket. The
@@ -101,13 +111,12 @@ fi
 chmod 600 "$ENV_FILE"
 
 if [ "$ENV_WAS_PRESENT" = "1" ]; then
-  sed -i "s|^CANVAS_IMAGE_TAG=.*|CANVAS_IMAGE_TAG=${NEW_TAG}|" "$ENV_FILE"
+  write_env_value CANVAS_IMAGE_TAG "$NEW_TAG"
 fi
 
 chown -R "$CANVAS_UID" "$TARGET_DIR/config" "$TARGET_DIR/workspace"
 
 cd "$TARGET_DIR"
-IMAGE_REPO="$(grep -E '^CANVAS_IMAGE=' "$ENV_FILE" | cut -d= -f2-)"
 
 log "pull + up..."
 docker compose pull canvas
@@ -134,12 +143,16 @@ done
 
 if [ "$ok" != "1" ]; then
   log "HEALTH CHECK FAILED (last=$code) — rolling back to $PREV_TAG"
-  sed -i "s|^CANVAS_IMAGE_TAG=.*|CANVAS_IMAGE_TAG=${PREV_TAG}|" "$ENV_FILE"
+  write_env_value CANVAS_IMAGE_TAG "$PREV_TAG"
+  if [ -n "$PREV_IMAGE" ]; then
+    write_env_value CANVAS_IMAGE "$PREV_IMAGE"
+  fi
   docker compose up -d
   exit 1
 fi
 log "deploy OK: $NEW_TAG"
 
+IMAGE_REPO="$(read_env_value CANVAS_IMAGE)"
 log "pruning old $IMAGE_REPO images..."
 docker images --format '{{.Repository}}:{{.Tag}} {{.ID}}' \
   | awk -v repo="$IMAGE_REPO" -v keep="${IMAGE_REPO}:${NEW_TAG}" \

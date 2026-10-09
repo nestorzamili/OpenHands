@@ -14,13 +14,13 @@ on:
         type: string
         default: ""
       deploy:
-        description: Deploy to the VM over SSH after build
+        description: Deploy to the VM over SSH after build (uncheck for build-only)
         type: boolean
-        default: false
+        default: true
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -86,7 +86,19 @@ jobs:
 
       - name: Compute tags
         id: prep
+        env:
+          EXTRA_TAG: ${{ inputs.tag }}
         run: |
+          if [[ ! "$IMAGE" =~ ^ghcr\.io/[a-z0-9._-]+(/[a-z0-9._-]+)*$ ]]; then
+            echo "::error::IMAGE must be an untagged lowercase GHCR image path (ghcr.io/owner/package)."
+            exit 1
+          fi
+
+          if [ -n "$EXTRA_TAG" ] && [[ ! "$EXTRA_TAG" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
+            echo "::error::tag must be a valid Docker tag (1-128 safe characters)."
+            exit 1
+          fi
+
           SHORT_SHA=$(echo "$RELEVANT_SHA" | cut -c1-7)
           echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
 
@@ -95,8 +107,8 @@ jobs:
 
           add_tag "sha-${SHORT_SHA}"
 
-          if [ -n "${{ inputs.tag }}" ]; then
-            add_tag "${{ inputs.tag }}"
+          if [ -n "$EXTRA_TAG" ]; then
+            add_tag "$EXTRA_TAG"
           fi
 
           echo "tags=$TAGS" >> "$GITHUB_OUTPUT"
@@ -216,6 +228,7 @@ jobs:
           cp workspace/AGENTS.md "$STAGE/workspace/"
           cp scripts/migrate-automation-db.sh "$STAGE/scripts/"
           cp scripts/dck-deploy.sh "$STAGE/scripts/"
+          cp scripts/dck-deploy-remote.sh "$STAGE/scripts/"
           cp scripts/dck-beszel-token.mjs "$STAGE/scripts/"
           tar -czf deploy.tar.gz -C "$STAGE" .
 
@@ -232,9 +245,11 @@ jobs:
           echo "host=${uh##*@}" >> "$GITHUB_OUTPUT"
 
       - name: Set up SSH
+        env:
+          SSH_KEY: ${{ secrets.VM_SSH_KEY }}
         run: |
           install -d -m 700 ~/.ssh
-          printf '%s\n' "${{ secrets.VM_SSH_KEY }}" > ~/.ssh/deploy_key
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -p "${{ steps.ssh.outputs.port }}" "${{ steps.ssh.outputs.host }}" >> ~/.ssh/known_hosts 2>/dev/null
 
@@ -244,7 +259,17 @@ jobs:
             deploy.tar.gz "${{ steps.ssh.outputs.user_host }}:/tmp/dck-deploy.tar.gz"
 
       - name: Deploy over SSH
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USERNAME: ${{ github.actor }}
         run: |
-          ssh -i ~/.ssh/deploy_key -p "${{ steps.ssh.outputs.port }}" \
-            "${{ steps.ssh.outputs.user_host }}" \
-            "set -e; rm -rf /tmp/dck-staging; mkdir -p /tmp/dck-staging; tar -xzf /tmp/dck-deploy.tar.gz -C /tmp/dck-staging; rm -f /tmp/dck-deploy.tar.gz; IMAGE_OWNER='${{ github.repository_owner }}' bash /tmp/dck-staging/scripts/dck-deploy.sh '${{ steps.tag.outputs.sha }}' /tmp/dck-staging; rm -rf /tmp/dck-staging"
+          set -euo pipefail
+          REMOTE_COMMAND="set -e
+          trap 'rm -rf /tmp/dck-staging /tmp/dck-deploy.tar.gz' EXIT
+          rm -rf /tmp/dck-staging
+          mkdir -p /tmp/dck-staging
+          tar -xzf /tmp/dck-deploy.tar.gz -C /tmp/dck-staging
+          rm -f /tmp/dck-deploy.tar.gz
+          bash /tmp/dck-staging/scripts/dck-deploy-remote.sh '${{ steps.tag.outputs.sha }}' '$IMAGE' '$GHCR_USERNAME' /tmp/dck-staging"
+          printf '%s\n' "$GHCR_TOKEN" | ssh -i ~/.ssh/deploy_key -p "${{ steps.ssh.outputs.port }}" \
+            "${{ steps.ssh.outputs.user_host }}" "$REMOTE_COMMAND"

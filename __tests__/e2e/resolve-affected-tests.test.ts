@@ -83,13 +83,16 @@ describe("mock-LLM E2E affected test resolver", () => {
     );
   });
 
-  it("keeps DCK image publishing manual and enables VM deployment by default", () => {
+  it("keeps DCK image publishing manual and defaults to build only", () => {
     const workflow = readFileSync(dckDockerWorkflowPath, "utf-8");
 
     expect(workflow).toContain("name: DCK Docker");
     expect(workflow).toContain("workflow_dispatch:");
     expect(workflow).not.toMatch(/^  push:\s*$/m);
-    expect(workflow).toContain("if: inputs.deploy");
-    expect(workflow).toContain("default: true");
+    expect(workflow).toContain(
+      '      action:\n        description: Action\n        type: choice\n        options:\n          - "build only"\n          - "build and deploy"\n        default: "build only"',
+    );
+    expect(workflow).not.toContain("inputs.tag");
+    expect(workflow).toContain("if: inputs.action == 'build and deploy'");
   });
 });

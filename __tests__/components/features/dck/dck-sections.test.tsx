@@ -185,6 +185,21 @@ describe("DckModulesSection", () => {
     expect(screen.queryByTestId("dck-project-row")).not.toBeInTheDocument();
   });
 
+  it("keeps empty cards concise while showing the count and core action", async () => {
+    renderWithProviders(<DckModulesSection />);
+
+    const analyticsCard = await screen.findByTestId(
+      "dck-module-card-analytics",
+    );
+    expect(
+      within(analyticsCard).getByTestId("dck-module-count-analytics"),
+    ).toHaveTextContent("0 conversations");
+    expect(within(analyticsCard).getByRole("button")).toBeInTheDocument();
+    expect(
+      within(analyticsCard).queryByText("No conversations yet"),
+    ).toBeNull();
+  });
+
   it("exposes a Manage modules entry point that opens the manager", async () => {
     const user = userEvent.setup();
     renderWithProviders(<DckModulesSection />);
@@ -192,10 +207,10 @@ describe("DckModulesSection", () => {
     await user.click(await screen.findByTestId("dck-manage-modules"));
 
     expect(await screen.findByTestId("dck-module-manager")).toBeInTheDocument();
-    // Built-ins can be customized without gaining destructive controls.
+    // Default modules stay editable without gaining destructive controls.
     expect(
-      screen.getByTestId("dck-module-builtin-badge-webgen"),
-    ).toBeInTheDocument();
+      screen.queryByTestId("dck-module-builtin-badge-webgen"),
+    ).not.toBeInTheDocument();
     expect(screen.getByTestId("dck-module-edit-webgen")).toBeInTheDocument();
     expect(screen.queryByTestId("dck-module-delete-webgen")).toBeNull();
     expect(

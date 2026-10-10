@@ -125,7 +125,7 @@ beforeEach(() => {
 });
 
 describe("DckModuleManager", () => {
-  it("shows built-ins as editable and custom modules with management controls", async () => {
+  it("shows modules without built-in labels and keeps custom management controls", async () => {
     downloadTextFileMock.mockResolvedValue(customConfig());
     renderManager();
 
@@ -133,8 +133,9 @@ describe("DckModuleManager", () => {
       await screen.findByTestId("dck-module-manager-row-webgen"),
     ).toBeInTheDocument();
     expect(
-      screen.getByTestId("dck-module-builtin-badge-webgen"),
-    ).toBeInTheDocument();
+      screen.queryByTestId("dck-module-builtin-badge-webgen"),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/built-in/i)).not.toBeInTheDocument();
     expect(screen.getByTestId("dck-module-edit-webgen")).toBeInTheDocument();
     expect(screen.queryByTestId("dck-module-delete-webgen")).toBeNull();
 
@@ -159,6 +160,12 @@ describe("DckModuleManager", () => {
     const slug = screen.getByTestId("dck-module-form-slug");
     expect(slug).toHaveAttribute("readonly");
     expect(slug).toHaveValue("webgen");
+    expect(
+      screen.getByTestId("dck-module-agent-profile-selector-webgen"),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("dck-module-form-skill")).toContainElement(
+      screen.getByRole("option", { name: "web-generator" }),
+    );
 
     const name = screen.getByTestId("dck-module-form-name");
     await user.clear(name);

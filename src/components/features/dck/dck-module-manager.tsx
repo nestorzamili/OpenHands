@@ -108,14 +108,6 @@ function ModuleRow({
           </span>
         )}
       </div>
-      {isBuiltin && (
-        <span
-          data-testid={`dck-module-builtin-badge-${module.id}`}
-          className="shrink-0 rounded bg-surface px-1.5 py-0.5 text-xs uppercase tracking-wide text-text-tertiary"
-        >
-          {t(I18nKey.DCK$MODULE_BUILTIN_BADGE)}
-        </span>
-      )}
       <div className="flex shrink-0 items-center gap-1">
         {!isBuiltin && (
           <>

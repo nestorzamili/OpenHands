@@ -291,8 +291,12 @@ export function latestConversationForPath(
   return matches.length > 0 ? matches[0] : null;
 }
 
-export function formatProjectCount(count: number): string {
-  return count === 1 ? "1 project" : `${count} projects`;
+export function formatDckModuleCount(
+  count: number,
+  kind: DckModuleKind,
+): string {
+  const item = kind === "projects" ? "project" : "conversation";
+  return `${count} ${item}${count === 1 ? "" : "s"}`;
 }
 
 export type DckProjectStatus =

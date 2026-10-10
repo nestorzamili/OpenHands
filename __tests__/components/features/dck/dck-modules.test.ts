@@ -8,7 +8,7 @@ import {
   deriveProjectStatus,
   findDckModuleById,
   flattenConversationPages,
-  formatProjectCount,
+  formatDckModuleCount,
   getDckModules,
   getDckWorkspaceRoot,
   isBuiltinModuleId,
@@ -228,13 +228,16 @@ describe("flattenConversationPages", () => {
   });
 });
 
-describe("formatProjectCount", () => {
+describe("formatDckModuleCount", () => {
   it.each([
-    [0, "0 projects"],
-    [1, "1 project"],
-    [3, "3 projects"],
-  ])("formats %i as %s", (count, expected) => {
-    expect(formatProjectCount(count)).toBe(expected);
+    [0, "projects", "0 projects"],
+    [1, "projects", "1 project"],
+    [3, "projects", "3 projects"],
+    [0, "conversations", "0 conversations"],
+    [1, "conversations", "1 conversation"],
+    [3, "conversations", "3 conversations"],
+  ] as const)("formats %i %s as %s", (count, kind, expected) => {
+    expect(formatDckModuleCount(count, kind)).toBe(expected);
   });
 });
 

@@ -24,7 +24,7 @@ import {
   mergeDckModules,
   conversationsForBase,
   dckModulePath,
-  formatProjectCount,
+  formatDckModuleCount,
   type DckModule,
 } from "#/dck/modules";
 import {
@@ -72,7 +72,7 @@ function ProjectsCard({
   return (
     <ModuleCardShell
       module={module}
-      count={formatProjectCount(count)}
+      count={formatDckModuleCount(count, module.kind)}
       profileSummary={profileSummary}
       action={
         <button
@@ -85,11 +85,7 @@ function ProjectsCard({
         </button>
       }
     >
-      {count === 0 ? (
-        <p className="text-xs text-text-tertiary">{DCK_COPY.noProjects}</p>
-      ) : (
-        <ViewAllLink module={module} />
-      )}
+      {count > 0 && <ViewAllLink module={module} />}
     </ModuleCardShell>
   );
 }
@@ -124,7 +120,7 @@ function ConversationsCard({
   return (
     <ModuleCardShell
       module={module}
-      count={formatProjectCount(count)}
+      count={formatDckModuleCount(count, module.kind)}
       profileSummary={profileSummary}
       action={
         <button
@@ -143,11 +139,7 @@ function ConversationsCard({
         </button>
       }
     >
-      {count === 0 ? (
-        <p className="text-xs text-text-tertiary">{DCK_COPY.noConversations}</p>
-      ) : (
-        <ViewAllLink module={module} />
-      )}
+      {count > 0 && <ViewAllLink module={module} />}
     </ModuleCardShell>
   );
 }

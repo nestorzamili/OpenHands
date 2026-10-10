@@ -12,11 +12,6 @@ export const QUERY_KEYS = {
   MAIN_APP_COOKIE_AUTH: ["main-app-cookie-auth"] as const,
 } as const;
 
-export const DCK_MONITORING_QUERY_KEYS = {
-  all: (backendId: string, connectionRevision: number) =>
-    ["dck-monitoring", backendId, connectionRevision] as const,
-} as const;
-
 export const SETTINGS_QUERY_KEYS = {
   all: ["settings"] as const,
   byScope: (scope: SettingsScope) => ["settings", scope] as const,

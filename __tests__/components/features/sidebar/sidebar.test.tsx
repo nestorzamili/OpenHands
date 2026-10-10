@@ -514,7 +514,6 @@ describe("Sidebar", () => {
       "sidebar-conversations-link",
       "sidebar-automations-link",
       "sidebar-skills-link",
-      "sidebar-monitoring-link",
     ]) {
       const link = screen.getByTestId(testId);
       expect(link.querySelector("svg")).not.toBeNull();
@@ -535,9 +534,6 @@ describe("Sidebar", () => {
     expect(screen.getByTestId("sidebar-automations-link")).toHaveTextContent(
       "Automate",
     );
-    expect(screen.getByTestId("sidebar-monitoring-link")).toHaveTextContent(
-      "Live monitoring",
-    );
   });
 
   it.each(["/customize", "/mcp", "/skills", "/plugins", "/apps"])(
@@ -552,7 +548,7 @@ describe("Sidebar", () => {
     },
   );
 
-  it.each(["/conversations", "/automations", "/monitoring"])(
+  it.each(["/conversations", "/automations", "/launch"])(
     "does not mark the Customize row as current on %s",
     (path) => {
       renderSidebar(path);
@@ -562,15 +558,6 @@ describe("Sidebar", () => {
       );
     },
   );
-
-  it("marks Monitoring as the current page on the monitoring route", () => {
-    renderSidebar("/monitoring");
-
-    expect(screen.getByTestId("sidebar-monitoring-link")).toHaveAttribute(
-      "aria-current",
-      "page",
-    );
-  });
 
   it("pins and unpins a sidebar page as the home route without navigating", () => {
     // Arrange: the mocked active backend is `local` with no org.

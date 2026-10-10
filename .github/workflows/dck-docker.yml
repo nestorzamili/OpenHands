@@ -229,7 +229,6 @@ jobs:
           cp scripts/migrate-automation-db.sh "$STAGE/scripts/"
           cp scripts/dck-deploy.sh "$STAGE/scripts/"
           cp scripts/dck-deploy-remote.sh "$STAGE/scripts/"
-          cp scripts/dck-beszel-token.mjs "$STAGE/scripts/"
           tar -czf deploy.tar.gz -C "$STAGE" .
 
       - name: Parse SSH target

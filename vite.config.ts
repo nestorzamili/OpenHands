@@ -11,13 +11,6 @@ import { configDefaults } from "vitest/config";
 import tailwindcss from "@tailwindcss/vite";
 import prefixer from "postcss-prefix-selector";
 import {
-  DCK_MONITORING_PATH,
-  handleDckMonitoringRequest,
-  isValidSessionApiKey,
-  resolveDefaultWebgenRoot,
-  resolveDefaultWorkspaceRoot,
-} from "./scripts/dck-monitoring.mjs";
-import {
   AGENT_SERVER_UI_SCOPE_SELECTOR,
   transformAgentServerUISelector,
 } from "./src/styles/agent-server-ui-style-scope";
@@ -123,7 +116,6 @@ export default defineConfig(({ mode }) => {
     // /server_info response, so the launcher serializes the info here and the
     // middleware below merges it into the proxied response.
     VITE_RUNTIME_SERVICES_INFO,
-    VITE_SESSION_API_KEY = "",
   } = loadEnv(mode, process.cwd());
 
   const isLibraryBuild = process.env.BUILD_LIB === "true";
@@ -136,10 +128,6 @@ export default defineConfig(({ mode }) => {
   const WS_URL = `${WS_PROTOCOL}://${VITE_BACKEND_HOST}/`;
   const FE_PORT = Number.parseInt(VITE_FRONTEND_PORT, 10);
   const base = normalizeBasePath(VITE_BASE_PATH);
-  const dckMonitoringPath =
-    base === "/"
-      ? DCK_MONITORING_PATH
-      : `${base.replace(/\/+$/, "")}${DCK_MONITORING_PATH}`;
 
   return {
     base,
@@ -163,58 +151,6 @@ export default defineConfig(({ mode }) => {
               res.end();
             },
           );
-        },
-      },
-      {
-        name: "dck-live-docker-monitoring",
-        apply: "serve",
-        configureServer(server) {
-          server.middlewares.use((req, res, next) => {
-            let pathname: string;
-            try {
-              pathname = decodeURIComponent(
-                new URL(req.url ?? "", "http://localhost").pathname,
-              );
-            } catch {
-              next();
-              return;
-            }
-            if (pathname !== dckMonitoringPath) {
-              next();
-              return;
-            }
-            if (!VITE_SESSION_API_KEY) {
-              res.writeHead(503, {
-                "Content-Type": "application/json; charset=utf-8",
-                "Cache-Control": "no-store",
-                "X-Content-Type-Options": "nosniff",
-              });
-              res.end(
-                JSON.stringify({ error: "Docker monitoring is unavailable" }),
-              );
-              return;
-            }
-            if (
-              !isValidSessionApiKey(
-                VITE_SESSION_API_KEY,
-                req.headers["x-session-api-key"],
-              )
-            ) {
-              res.writeHead(401, {
-                "Content-Type": "application/json; charset=utf-8",
-                "Cache-Control": "no-store",
-                "X-Content-Type-Options": "nosniff",
-              });
-              res.end(JSON.stringify({ error: "Authentication required" }));
-              return;
-            }
-            void handleDckMonitoringRequest(req, res, {
-              socketPath:
-                process.env.DOCKER_SOCKET_PATH ?? "/var/run/docker.sock",
-              webgenRoot: resolveDefaultWebgenRoot(),
-              workspaceRoot: resolveDefaultWorkspaceRoot(),
-            });
-          });
         },
       },
       {

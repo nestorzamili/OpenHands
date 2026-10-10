@@ -1,6 +1,6 @@
 # Agent Canvas architecture
 
-Agent Canvas is a React and TypeScript frontend for running and monitoring OpenHands agents across local, remote, and hosted environments. It is adapted from the OpenHands frontend to talk directly to the OpenHands Agent Server and related automation services.
+Agent Canvas is a React and TypeScript frontend for running and managing OpenHands agents across local, remote, and hosted environments. It is adapted from the OpenHands frontend to talk directly to the OpenHands Agent Server and related automation services.
 
 ## System boundaries
 

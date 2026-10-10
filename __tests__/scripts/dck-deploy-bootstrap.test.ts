@@ -21,7 +21,7 @@ const repositoryRoot = path.resolve(
 const tempDirectories: string[] = [];
 
 async function createFixture() {
-  const root = await mkdtemp(path.join(os.tmpdir(), "dck-beszel-deploy-"));
+  const root = await mkdtemp(path.join(os.tmpdir(), "dck-deploy-bootstrap-"));
   tempDirectories.push(root);
   const stage = path.join(root, "stage");
   const target = path.join(root, "target");
@@ -44,10 +44,6 @@ async function createFixture() {
       path.join(stage, "scripts", "migrate-automation-db.sh"),
       "#!/bin/sh\n",
     ),
-    writeFile(
-      path.join(stage, "scripts", "dck-beszel-token.mjs"),
-      "// helper\n",
-    ),
   ]);
   await writeFile(
     path.join(bin, "docker"),
@@ -55,7 +51,7 @@ async function createFixture() {
 set -e
 if [[ "$1 $2" == "compose version" ]]; then exit 0; fi
 if [[ "$1 $2" == "compose pull" ]]; then exit 0; fi
-if [[ "$1 $2" == "compose up" ]]; then printf 'generated-test-token\\n' > beszel-agent-data/universal-token; exit 0; fi
+if [[ "$1 $2" == "compose up" ]]; then exit 0; fi
 if [[ "$1" == "images" ]]; then exit 0; fi
 exit 2
 `,
@@ -93,17 +89,14 @@ afterEach(async () => {
   );
 });
 
-describe("Beszel production deploy bootstrap", () => {
-  it("generates first-run credentials and reuses them and the token on redeploy", async () => {
+describe("DCK production deploy bootstrap", () => {
+  it("generates Postgres credentials and updates the image on redeploy", async () => {
     const { stage, target, bin } = await createFixture();
     await writeFile(
       path.join(stage, ".env.production.sample"),
       [
         "CANVAS_IMAGE=ghcr.io/dck-ai/dck-agentic",
         "CANVAS_IMAGE_TAG=sha-REPLACE_ME",
-        "BESZEL_ADMIN_EMAIL=",
-        "BESZEL_ADMIN_PASSWORD=",
-        "BESZEL_AGENT_TOKEN=",
         "POSTGRES_USER=",
         "POSTGRES_PASSWORD=",
         "POSTGRES_DB=",
@@ -127,14 +120,10 @@ describe("Beszel production deploy bootstrap", () => {
     const env = await readEnv(path.join(target, ".env"));
     expect(env.CANVAS_IMAGE).toBe("ghcr.io/example/dck-agentic");
     expect(env.DOCKER_GID).toBe("104");
-    expect(env.BESZEL_ADMIN_EMAIL).toBe("beszel-admin@dckautoposting.com");
-    expect(env.BESZEL_ADMIN_PASSWORD).toMatch(/^[A-Za-z0-9]{32}$/);
-    expect(env.BESZEL_AGENT_TOKEN).toBe("generated-test-token");
     expect(env.POSTGRES_PASSWORD).toMatch(/^[A-Za-z0-9]{32}$/);
     const envStat = await stat(path.join(target, ".env"));
     expect(envStat.mode & 0o777).toBe(0o600);
-    expect(`${stdout}${stderr}`).not.toContain(env.BESZEL_ADMIN_PASSWORD);
-    expect(`${stdout}${stderr}`).not.toContain(env.BESZEL_AGENT_TOKEN);
+    expect(`${stdout}${stderr}`).not.toContain(env.POSTGRES_PASSWORD);
 
     await execFileAsync(
       "bash",
@@ -152,8 +141,5 @@ describe("Beszel production deploy bootstrap", () => {
     expect(redeployedEnv.CANVAS_IMAGE).toBe("ghcr.io/example/custom-dck");
     expect(redeployedEnv.CANVAS_IMAGE_TAG).toBe("sha-next");
     expect(redeployedEnv.DOCKER_GID).toBe("104");
-    expect(redeployedEnv.BESZEL_ADMIN_EMAIL).toBe(env.BESZEL_ADMIN_EMAIL);
-    expect(redeployedEnv.BESZEL_ADMIN_PASSWORD).toBe(env.BESZEL_ADMIN_PASSWORD);
-    expect(redeployedEnv.BESZEL_AGENT_TOKEN).toBe(env.BESZEL_AGENT_TOKEN);
   });
 });

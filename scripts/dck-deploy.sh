@@ -36,16 +36,15 @@ write_env_value() {
 command -v docker >/dev/null 2>&1 || die "docker not found"
 docker compose version >/dev/null 2>&1 || die "docker compose v2 not available"
 
-mkdir -p "$TARGET_DIR"/{config,workspace,pgdata,beszel-data,beszel-agent-data}
+mkdir -p "$TARGET_DIR"/{config,workspace,pgdata}
 
 # Refresh deploy files from staging — compose, scripts, skills, env template.
-# Never touch .env, config/, pgdata/, Beszel data, or agent-authored projects.
+# Never touch .env, config/, pgdata/, or agent-authored projects.
 cp "$STAGING/docker-compose.yml"     "$TARGET_DIR/"
 cp "$STAGING/.env.production.sample" "$TARGET_DIR/"
 mkdir -p "$TARGET_DIR/scripts"
 cp "$STAGING/scripts/dck-deploy.sh" "$TARGET_DIR/scripts/"
 cp "$STAGING/scripts/migrate-automation-db.sh" "$TARGET_DIR/scripts/"
-cp "$STAGING/scripts/dck-beszel-token.mjs" "$TARGET_DIR/scripts/"
 chmod +x "$TARGET_DIR/scripts/dck-deploy.sh" "$TARGET_DIR/scripts/migrate-automation-db.sh"
 rm -rf "$TARGET_DIR/workspace/.agents"
 cp -r "$STAGING/workspace/.agents"   "$TARGET_DIR/workspace/.agents"
@@ -81,33 +80,12 @@ else
 fi
 
 # Keep Canvas's supplemental group aligned with the host Docker socket. The
-# socket API is root-equivalent; Canvas needs it for host monitoring and Webgen
-# lifecycle operations, so the container must not run in privileged mode.
+# socket API is root-equivalent; Canvas needs it for Webgen lifecycle operations,
+# so the container must not run in privileged mode.
 DOCKER_GID="$(stat -c '%g' /var/run/docker.sock)" || die "cannot read /var/run/docker.sock group; ensure Docker Engine is running"
 [[ "$DOCKER_GID" =~ ^[0-9]+$ ]] || die "Docker socket group ID is not numeric"
 write_env_value DOCKER_GID "$DOCKER_GID"
 
-# Beszel's first-run migration creates a regular Hub user from USER_EMAIL and
-# USER_PASSWORD. Generate and persist any missing bootstrap credentials before
-# the Hub starts; subsequent deploys reuse the values already in .env.
-BESZEL_EMAIL="$(read_env_value BESZEL_ADMIN_EMAIL)"
-BESZEL_PASSWORD="$(read_env_value BESZEL_ADMIN_PASSWORD)"
-GENERATED_BESZEL_CREDENTIALS=0
-if [ -z "$BESZEL_EMAIL" ]; then
-  write_env_value BESZEL_ADMIN_EMAIL "beszel-admin@dckautoposting.com"
-  GENERATED_BESZEL_CREDENTIALS=1
-fi
-if [ -z "$BESZEL_PASSWORD" ]; then
-  write_env_value BESZEL_ADMIN_PASSWORD "$(openssl rand -base64 32 | tr -d '/+=' | cut -c1-32)"
-  GENERATED_BESZEL_CREDENTIALS=1
-fi
-if [ "$GENERATED_BESZEL_CREDENTIALS" = "1" ]; then
-  log "generated missing first-run Beszel Hub credentials in the protected .env file"
-fi
-
-if [ -z "$(read_env_value BESZEL_AGENT_TOKEN)" ] && ! grep -q '^BESZEL_AGENT_TOKEN=' "$ENV_FILE"; then
-  write_env_value BESZEL_AGENT_TOKEN ""
-fi
 chmod 600 "$ENV_FILE"
 
 if [ "$ENV_WAS_PRESENT" = "1" ]; then
@@ -121,17 +99,6 @@ cd "$TARGET_DIR"
 log "pull + up..."
 docker compose pull canvas
 docker compose up -d
-
-# The initializer writes the public key and token to the agent's persistent
-# KEY_FILE/TOKEN_FILE so direct `docker compose up -d` works too. Save the token
-# in .env for deployments and restarts that should not need to request it again.
-TOKEN_FILE="$TARGET_DIR/beszel-agent-data/universal-token"
-if [ -z "$(read_env_value BESZEL_AGENT_TOKEN)" ] && [ -s "$TOKEN_FILE" ]; then
-  GENERATED_TOKEN="$(tr -d '\r\n' < "$TOKEN_FILE")"
-  [[ "$GENERATED_TOKEN" =~ ^[[:alnum:]_-]+$ ]] || die "Beszel initializer wrote an invalid token format"
-  write_env_value BESZEL_AGENT_TOKEN "$GENERATED_TOKEN"
-  log "persisted the generated Beszel agent token in .env"
-fi
 
 code=000
 ok=0

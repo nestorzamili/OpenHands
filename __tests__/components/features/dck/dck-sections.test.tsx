@@ -213,9 +213,6 @@ describe("DckModulesSection", () => {
       "dck-module-view-all-research",
     );
     expect(conversationViewAll).toHaveAttribute("href", "/modules/research");
-
-    const monitoringLink = screen.getByTestId("dck-monitoring-open");
-    expect(monitoringLink).toHaveAttribute("href", "/monitoring");
   });
 
   it("seeds the module prompt as the opening query for a new conversation", async () => {

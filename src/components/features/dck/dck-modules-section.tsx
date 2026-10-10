@@ -1,6 +1,6 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { Activity, Settings2 } from "lucide-react";
+import { Settings2 } from "lucide-react";
 import { useSearchSubdirs } from "#/hooks/query/use-search-subdirs";
 import { useDckModulesConfig } from "#/hooks/query/use-dck-modules-config";
 import { useAgentProfiles } from "#/hooks/query/use-agent-profiles";
@@ -19,7 +19,6 @@ import {
 } from "#/utils/extension-module-card-classes";
 import { displayErrorToast } from "#/utils/custom-toast-handlers";
 import type { AppConversation } from "#/api/conversation-service/agent-server-conversation-service.types";
-import { DCK_MONITORING_ROUTE_PATH } from "#/dck/monitoring";
 import {
   DCK_COPY,
   mergeDckModules,
@@ -227,14 +226,6 @@ export function DckModulesSection() {
           {DCK_COPY.modules}
         </h2>
         <div className="flex flex-wrap items-center gap-1 sm:justify-end">
-          <NavigationLink
-            to={DCK_MONITORING_ROUTE_PATH}
-            data-testid="dck-monitoring-open"
-            className="inline-flex min-h-11 items-center gap-1 rounded-md px-2 text-sm font-medium text-accent hover:bg-surface hover:text-contrast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          >
-            <Activity size={14} aria-hidden />
-            {t(I18nKey.DCK$MONITORING_TITLE)}
-          </NavigationLink>
           <button
             type="button"
             onClick={() => setShowModuleManager(true)}

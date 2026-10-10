@@ -7,13 +7,11 @@
 #                  (dck_agentic) AND one database per webgen app (dck_<app>).
 #                  Internal-only (no published port); reached by service name.
 #
-# Canvas, Postgres, and the Beszel Hub share the named `dck` network. Webgen
-# apps join this network as external (`name: dck`) and reach Postgres as
-# `postgres:5432`; the Beszel agent uses host networking for host metrics.
+# Canvas and Postgres share the named `dck` network. Webgen apps join this
+# network as external (`name: dck`) and reach Postgres as `postgres:5432`.
 #
 # All persistent data is bind-mounted under the release directory
-# (/opt/dck-agentic on the VM): ./config, ./workspace, ./pgdata,
-# ./beszel-data, ./beszel-agent-data.
+# (/opt/dck-agentic on the VM): ./config, ./workspace, and ./pgdata.
 
 services:
   canvas:
@@ -23,9 +21,9 @@ services:
     image: ${CANVAS_IMAGE:-ghcr.io/dck-ai/dck-agentic}:${CANVAS_IMAGE_TAG:-latest}
     container_name: dck-agentic-canvas
     restart: unless-stopped
-    # Host Docker API access is required for monitoring and Webgen lifecycle
-    # operations. The supplemental GID is discovered by dck-deploy.sh. Docker
-    # socket access is root-equivalent; do not add privileged mode as well.
+    # Host Docker API access is required for Webgen lifecycle operations. The
+    # supplemental GID is discovered by dck-deploy.sh. Docker socket access is
+    # root-equivalent; do not add privileged mode as well.
     group_add:
       - "${DOCKER_GID:?Run scripts/dck-deploy.sh to configure Docker socket access}"
     ports:
@@ -36,7 +34,6 @@ services:
     volumes:
       - ./config:/home/openhands/.openhands
       - ./workspace:/projects
-      - /var/run/docker.sock:/var/run/docker.sock
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - AGENT_CANVAS_DISABLE_TELEMETRY=1
@@ -88,71 +85,6 @@ services:
       start_period: 30s
     networks:
       - dck
-
-  # Beszel provides host-level metrics and historical charts alongside the
-  # DCK Monitoring page, which remains responsible for app/service snapshots.
-  beszel:
-    image: henrygd/beszel:0.21.0
-    container_name: dck-agentic-beszel
-    restart: unless-stopped
-    environment:
-      - APP_URL=${BESZEL_APP_URL:-http://localhost:8090}
-      # Beszel creates its first user on a fresh data directory. The production
-      # deploy script generates and stores these credentials in the protected
-      # .env file before the Hub starts.
-      - USER_EMAIL=${BESZEL_ADMIN_EMAIL:-}
-      - USER_PASSWORD=${BESZEL_ADMIN_PASSWORD:-}
-    ports:
-      # Keep the hub private; nginx is the only public ingress.
-      - "127.0.0.1:${BESZEL_PORT:-8090}:8090"
-    volumes:
-      - ./beszel-data:/beszel_data
-    networks:
-      - dck
-
-  # Creates/reuses the Hub public key and permanent token before the host agent
-  # starts, then writes both to persistent agent data.
-  beszel-token-init:
-    image: node:22-alpine
-    container_name: dck-agentic-beszel-token-init
-    restart: "no"
-    depends_on:
-      beszel:
-        condition: service_started
-    environment:
-      - BESZEL_HUB_URL=http://beszel:8090
-      - BESZEL_ADMIN_EMAIL=${BESZEL_ADMIN_EMAIL:-}
-      - BESZEL_ADMIN_PASSWORD=${BESZEL_ADMIN_PASSWORD:-}
-      - BESZEL_AGENT_KEY=${BESZEL_AGENT_KEY:-}
-      - BESZEL_AGENT_KEY_FILE=/agent-data/public-key
-      - BESZEL_AGENT_TOKEN=${BESZEL_AGENT_TOKEN:-}
-      - BESZEL_AGENT_TOKEN_FILE=/agent-data/universal-token
-    volumes:
-      - ./scripts/dck-beszel-token.mjs:/app/dck-beszel-token.mjs:ro
-      - ./beszel-agent-data:/agent-data
-    command: ["node", "/app/dck-beszel-token.mjs"]
-    networks:
-      - dck
-
-  # Host networking is required for accurate host network-interface metrics.
-  # No Docker socket is mounted: DCK Monitoring already provides container
-  # status/metrics, and this agent only needs host-level telemetry.
-  beszel-agent:
-    image: henrygd/beszel-agent:0.21.0
-    container_name: dck-agentic-beszel-agent
-    restart: unless-stopped
-    network_mode: host
-    depends_on:
-      beszel-token-init:
-        condition: service_completed_successfully
-    environment:
-      - HUB_URL=http://127.0.0.1:${BESZEL_PORT:-8090}
-      - KEY_FILE=/var/lib/beszel-agent/public-key
-      - TOKEN_FILE=/var/lib/beszel-agent/universal-token
-      - DISABLE_SSH=true
-      - SYSTEM_NAME=DCK Agentic host
-    volumes:
-      - ./beszel-agent-data:/var/lib/beszel-agent
 
 networks:
   # Named (not external) so `docker compose` creates it deterministically as

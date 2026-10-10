@@ -4,11 +4,6 @@ name: DCK Docker
 on:
   workflow_dispatch:
     inputs:
-      image:
-        description: >-
-          GHCR image name. Leave blank to use ghcr.io/<owner>/dck-agentic.
-        type: string
-        default: ""
       tag:
         description: Extra tag to publish (in addition to sha-<short>)
         type: string
@@ -16,7 +11,7 @@ on:
       deploy:
         description: Deploy to the VM over SSH after build (uncheck for build-only)
         type: boolean
-        default: true
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -27,7 +22,7 @@ permissions:
   packages: write
 
 env:
-  IMAGE: ${{ inputs.image != '' && inputs.image || format('ghcr.io/{0}/dck-agentic', github.repository_owner) }}
+  IMAGE: ${{ format('ghcr.io/{0}/dck-agentic', github.repository_owner) }}
   RELEVANT_SHA: ${{ github.sha }}
   RELEVANT_REF: ${{ github.ref }}
   DCK_BASE_PATH: "/"

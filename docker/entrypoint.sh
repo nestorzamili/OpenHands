@@ -453,10 +453,16 @@ RUNTIME_SERVICES_INFO="$(node /opt/agent-canvas/runtime-services-info.mjs \
   --automation-url "$AUTOMATION_BASE_URL")"
 
 # EFFECTIVE_SESSION_KEY is set above from LOCAL_BACKEND_API_KEY or the persisted api-key.txt.
-# --host :: is required so Docker published ports can reach the process. Because
-# the container cannot tell whether the host published that port on loopback or
-# every interface, session-key injection stays disabled unless the operator
-# explicitly opts in.
+# Binding every interface is required so Docker published ports can reach the
+# process: :: (dual-stack), or 0.0.0.0 on kernels without IPv6, where binding ::
+# fails with EAFNOSUPPORT. Because the container cannot tell whether the host
+# published that port on loopback or every interface, session-key injection
+# stays disabled unless the operator explicitly opts in.
+STATIC_SERVER_BIND_HOST="::"
+if [ ! -e /proc/net/if_inet6 ]; then
+  log "IPv6 is not available; binding the frontend to 0.0.0.0."
+  STATIC_SERVER_BIND_HOST="0.0.0.0"
+fi
 # >>> docker-session-key-policy: extracted by the regression test below.
 # Three auth modes for the main static server:
 #   - Portal mode: /setup then /login gates every request; the API session key
@@ -500,7 +506,7 @@ if [ "$PASS_SESSION_KEY" = "true" ]; then
 fi
 node /opt/agent-canvas/static-server.mjs \
   --port "$PORT" \
-  --host :: \
+  --host "$STATIC_SERVER_BIND_HOST" \
   "${STATIC_SERVER_SESSION_KEY_ARGS[@]}" \
   "${STATIC_SERVER_AUTH_ARGS[@]}" \
   "${PORTAL_AUTH_ARGS[@]}" \
@@ -556,7 +562,7 @@ if [ -n "${PUBLIC_MODE_PORT:-}" ]; then
   log "Starting public-mode frontend on port $PUBLIC_MODE_PORT (--auth-required)..."
   node /opt/agent-canvas/static-server.mjs \
     --port "$PUBLIC_MODE_PORT" \
-    --host :: \
+    --host "$STATIC_SERVER_BIND_HOST" \
     --dir /opt/agent-canvas/frontend \
     --base-path "$AGENT_CANVAS_BASE_PATH" \
     --auth-required \

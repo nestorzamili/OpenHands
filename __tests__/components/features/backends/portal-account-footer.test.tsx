@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "test-utils";
 import { PortalAccountFooter } from "#/components/features/backends/portal-account-footer";
@@ -50,5 +50,51 @@ describe("PortalAccountFooter", () => {
     await user.click(screen.getByTestId("portal-logout-button"));
     await waitFor(() => expect(logoutPortal).toHaveBeenCalledTimes(1));
     expect(assignMock).toHaveBeenCalledWith("/");
+  });
+
+  it("shows Settings and Logout in the sidebar account dropdown", async () => {
+    getPortalUser.mockResolvedValue({ username: "grok", isAdmin: true });
+    const navigate = vi.fn();
+    const user = userEvent.setup();
+
+    renderWithProviders(<PortalAccountFooter inSidebar />, {
+      navigation: { navigate },
+    });
+
+    await user.click(await screen.findByTestId("portal-account-menu-trigger"));
+
+    const menu = screen.getByTestId("portal-account-menu");
+    expect(menu).toHaveClass("w-full");
+    expect(menu).toHaveTextContent("grok");
+    expect(
+      within(menu).getByTestId("portal-settings-button"),
+    ).toBeInTheDocument();
+    expect(
+      within(menu).getByTestId("portal-logout-button"),
+    ).toBeInTheDocument();
+
+    await user.click(within(menu).getByTestId("portal-settings-button"));
+    expect(navigate).toHaveBeenCalledWith("/settings", { replace: false });
+    expect(screen.queryByTestId("portal-account-menu")).not.toBeInTheDocument();
+  });
+
+  it("keeps Settings and Logout available from the collapsed account trigger", async () => {
+    getPortalUser.mockResolvedValue({ username: "grok", isAdmin: true });
+    const user = userEvent.setup();
+
+    renderWithProviders(<PortalAccountFooter collapsed inSidebar />);
+
+    await user.click(
+      await screen.findByRole("button", { name: "Account menu for grok" }),
+    );
+
+    const menu = screen.getByTestId("portal-account-menu");
+    expect(menu).toHaveClass("w-75");
+    expect(
+      within(menu).getByTestId("portal-settings-button"),
+    ).toBeInTheDocument();
+    expect(
+      within(menu).getByTestId("portal-logout-button"),
+    ).toBeInTheDocument();
   });
 });

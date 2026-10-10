@@ -23,6 +23,7 @@ import { cn } from "#/utils/utils";
 import { StyledTooltip } from "#/components/shared/buttons/styled-tooltip";
 import { BackendSelector } from "#/components/features/backends/backend-selector";
 import { BackendStatusDot } from "#/components/features/backends/backend-status-dot";
+import { PortalAccountFooter } from "#/components/features/backends/portal-account-footer";
 import { CommandMenuTrigger } from "#/components/features/command-menu/command-menu-trigger";
 import { AgentCanvasVersionTile } from "#/components/features/settings/agent-canvas-version-tile";
 import { SidebarConversationList } from "./sidebar-conversation-list";
@@ -286,44 +287,46 @@ export function SidebarRailBody({
             "mt-auto pb-2 cursor-pointer",
           )}
         >
-          <StyledTooltip
-            content={t(I18nKey.SIDEBAR$SETTINGS)}
-            placement="right"
-          >
-            {isCloudBackend && cloudSettingsUrl ? (
-              <a
-                href={cloudSettingsUrl}
-                target={isLockedToCloud ? undefined : "_blank"}
-                rel={isLockedToCloud ? undefined : "noopener noreferrer"}
-                data-testid="collapsed-settings-link"
-                aria-label={t(I18nKey.SIDEBAR$SETTINGS)}
-                className={sidebarNavRowClassName({ collapsed: true })}
-              >
-                <SidebarCollapsedIconSlot active={false}>
-                  <Settings width={ICON_SIZE} height={ICON_SIZE} />
-                </SidebarCollapsedIconSlot>
-                <span className={sidebarNavLabelClassName(true)}>
-                  {t(I18nKey.SIDEBAR$SETTINGS)}
-                </span>
-              </a>
-            ) : (
-              <NavigationLink
-                to="/settings"
-                data-testid="collapsed-settings-link"
-                aria-label={t(I18nKey.SIDEBAR$SETTINGS)}
-                className={sidebarNavRowClassName({ collapsed: true })}
-              >
-                <SidebarCollapsedIconSlot
-                  active={currentPath.startsWith("/settings")}
+          {!serverManagedBackend && (
+            <StyledTooltip
+              content={t(I18nKey.SIDEBAR$SETTINGS)}
+              placement="right"
+            >
+              {isCloudBackend && cloudSettingsUrl ? (
+                <a
+                  href={cloudSettingsUrl}
+                  target={isLockedToCloud ? undefined : "_blank"}
+                  rel={isLockedToCloud ? undefined : "noopener noreferrer"}
+                  data-testid="collapsed-settings-link"
+                  aria-label={t(I18nKey.SIDEBAR$SETTINGS)}
+                  className={sidebarNavRowClassName({ collapsed: true })}
                 >
-                  <Settings width={ICON_SIZE} height={ICON_SIZE} />
-                </SidebarCollapsedIconSlot>
-                <span className={sidebarNavLabelClassName(true)}>
-                  {t(I18nKey.SIDEBAR$SETTINGS)}
-                </span>
-              </NavigationLink>
-            )}
-          </StyledTooltip>
+                  <SidebarCollapsedIconSlot active={false}>
+                    <Settings width={ICON_SIZE} height={ICON_SIZE} />
+                  </SidebarCollapsedIconSlot>
+                  <span className={sidebarNavLabelClassName(true)}>
+                    {t(I18nKey.SIDEBAR$SETTINGS)}
+                  </span>
+                </a>
+              ) : (
+                <NavigationLink
+                  to="/settings"
+                  data-testid="collapsed-settings-link"
+                  aria-label={t(I18nKey.SIDEBAR$SETTINGS)}
+                  className={sidebarNavRowClassName({ collapsed: true })}
+                >
+                  <SidebarCollapsedIconSlot
+                    active={currentPath.startsWith("/settings")}
+                  >
+                    <Settings width={ICON_SIZE} height={ICON_SIZE} />
+                  </SidebarCollapsedIconSlot>
+                  <span className={sidebarNavLabelClassName(true)}>
+                    {t(I18nKey.SIDEBAR$SETTINGS)}
+                  </span>
+                </NavigationLink>
+              )}
+            </StyledTooltip>
+          )}
           {!serverManagedBackend ? (
             <div
               className="relative"
@@ -390,6 +393,9 @@ export function SidebarRailBody({
               ) : null}
             </div>
           ) : null}
+          {serverManagedBackend ? (
+            <PortalAccountFooter collapsed inSidebar />
+          ) : null}
         </nav>
       ) : null}
 
@@ -405,9 +411,11 @@ export function SidebarRailBody({
             )}
           >
             <AgentCanvasVersionTile hideWhenUpToDate />
-            {!serverManagedBackend ? (
+            {serverManagedBackend ? (
+              <PortalAccountFooter inSidebar />
+            ) : (
               <BackendSelector sidebarCollapsed={collapsed} openUpward />
-            ) : null}
+            )}
           </div>
         </>
       ) : null}

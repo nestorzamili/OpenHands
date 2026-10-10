@@ -170,6 +170,15 @@ vi.mock("#/components/features/backends/backend-selector", () => ({
   ),
 }));
 
+vi.mock("#/components/features/backends/portal-account-footer", () => ({
+  PortalAccountFooter: ({ collapsed }: { collapsed?: boolean }) => (
+    <div
+      data-testid="portal-account-footer"
+      data-collapsed={collapsed ? "true" : "false"}
+    />
+  ),
+}));
+
 vi.mock("#/components/features/backends/add-backend-modal", () => ({
   AddBackendModal: ({ onClose }: { onClose: () => void }) => (
     <div data-testid="add-backend-modal">
@@ -246,6 +255,9 @@ function renderSidebar(currentPath: string) {
 describe("Sidebar", () => {
   beforeEach(() => {
     window.localStorage.clear();
+    (window as unknown as Record<string, unknown>)[
+      "__AGENT_CANVAS_SERVER_MANAGED_BACKEND__"
+    ] = false;
     // Zustand store is a module singleton; reset it so collapsed state from
     // a prior test doesn't bleed into this one.
     useSidebarStore.setState({ collapsed: false });
@@ -253,6 +265,9 @@ describe("Sidebar", () => {
 
   afterEach(() => {
     window.localStorage.clear();
+    (window as unknown as Record<string, unknown>)[
+      "__AGENT_CANVAS_SERVER_MANAGED_BACKEND__"
+    ] = false;
     useSidebarStore.setState({ collapsed: false });
   });
 
@@ -347,6 +362,40 @@ describe("Sidebar", () => {
     expect(versionTile.compareDocumentPosition(backendSelector)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
+  });
+
+  it("keeps the portal account available when server-managed backend selection is hidden", () => {
+    (window as unknown as Record<string, unknown>)[
+      "__AGENT_CANVAS_SERVER_MANAGED_BACKEND__"
+    ] = true;
+    const { navigate } = renderSidebar("/conversations");
+
+    expect(
+      screen.queryByTestId("sidebar-settings-link"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId("portal-account-footer")).toHaveAttribute(
+      "data-collapsed",
+      "false",
+    );
+    expect(screen.queryByTestId("backend-selector")).not.toBeInTheDocument();
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("keeps the compact portal account menu available in the collapsed server-managed rail", () => {
+    useSidebarStore.setState({ collapsed: true });
+    (window as unknown as Record<string, unknown>)[
+      "__AGENT_CANVAS_SERVER_MANAGED_BACKEND__"
+    ] = true;
+    renderSidebar("/conversations");
+
+    expect(screen.getByTestId("portal-account-footer")).toHaveAttribute(
+      "data-collapsed",
+      "true",
+    );
+    expect(
+      screen.queryByTestId("collapsed-settings-link"),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByTestId("backend-selector")).not.toBeInTheDocument();
   });
 
   it("hides the version tile when the sidebar is collapsed", () => {

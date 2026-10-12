@@ -66,6 +66,12 @@ vi.mock("#/hooks/query/use-project-skills", () => ({
         triggers: ["scaffold"],
         editable: true,
       },
+      {
+        name: "research-brief",
+        description: null,
+        triggers: ["research"],
+        editable: true,
+      },
     ],
     editableSkills: [],
     publicSkills: [],
@@ -87,7 +93,18 @@ function customConfig() {
         iconName: "mail",
         description: "Drip sequences",
         promptTemplate: "Draft an email campaign.",
+        skillName: "web-generator",
+        personaId: "legacy-writer",
         order: 0,
+      },
+    ],
+    personas: [
+      {
+        id: "legacy-writer",
+        name: "Writer",
+        roleInstructions: "Be concise.",
+        requiredSkills: ["web-generator"],
+        optionalSkills: [],
       },
     ],
   });
@@ -163,9 +180,12 @@ describe("DckModuleManager", () => {
     expect(
       screen.getByTestId("dck-module-agent-profile-selector-webgen"),
     ).toBeInTheDocument();
-    expect(screen.getByTestId("dck-module-form-skill")).toContainElement(
-      screen.getByRole("option", { name: "web-generator" }),
+    const webgenSkill = screen.getByTestId(
+      "dck-module-form-skill-web-generator",
     );
+    expect(webgenSkill).toBeChecked();
+    await user.click(webgenSkill);
+    expect(webgenSkill).not.toBeChecked();
 
     const name = screen.getByTestId("dck-module-form-name");
     await user.clear(name);
@@ -184,6 +204,7 @@ describe("DckModuleManager", () => {
           id: "webgen",
           name: "Site Studio",
           promptTemplate: "Scaffold a marketing website.",
+          skillNames: [],
         },
       ],
     });
@@ -205,6 +226,10 @@ describe("DckModuleManager", () => {
       "dck-module-agent-profile-selector-custom-email",
     ) as HTMLSelectElement;
     expect(profileSelector).toHaveValue("research-profile");
+    expect(
+      screen.getByTestId("dck-module-form-skill-web-generator"),
+    ).toBeChecked();
+    expect(screen.queryByTestId("dck-module-form-persona")).toBeNull();
     await user.selectOptions(profileSelector, profileSelector.options[0].value);
     expect(setAgentProfileForModuleMock).not.toHaveBeenCalled();
 
@@ -223,7 +248,11 @@ describe("DckModuleManager", () => {
       id: "custom-email",
       name: "Lifecycle Campaigns",
       slug: "email",
+      skillNames: ["web-generator"],
     });
+    expect(JSON.parse(text).modules[0]).not.toHaveProperty("skillName");
+    expect(JSON.parse(text).modules[0]).not.toHaveProperty("personaId");
+    expect(JSON.parse(text)).not.toHaveProperty("personas");
     expect(JSON.parse(text).builtinOverrides).toEqual([]);
     expect(setAgentProfileForModuleMock).toHaveBeenCalledWith(
       "custom-email",
@@ -284,6 +313,10 @@ describe("DckModuleManager", () => {
       screen.getByTestId("dck-module-form-prompt"),
       "Write a weekly report.",
     );
+    await user.click(screen.getByTestId("dck-module-form-skill-web-generator"));
+    await user.click(
+      screen.getByTestId("dck-module-form-skill-research-brief"),
+    );
     await user.click(screen.getByTestId("dck-module-form-save"));
 
     await waitFor(() => expect(uploadTextFileMock).toHaveBeenCalledTimes(1));
@@ -293,6 +326,7 @@ describe("DckModuleManager", () => {
     expect(JSON.parse(text).modules[0]).toMatchObject({
       name: "Reports",
       slug: "reports",
+      skillNames: ["web-generator", "research-brief"],
     });
     expect(setAgentProfileForModuleMock).not.toHaveBeenCalled();
   });

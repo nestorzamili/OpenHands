@@ -22,7 +22,12 @@ export function WebgenLifecycleActions({
   appName: string;
   port: number | null;
   projectPath: string;
-  onDispatch: (projectPath: string, command: string) => void;
+  onDispatch: (
+    projectPath: string,
+    command: string,
+    action: WebgenLifecycleAction,
+    appName: string,
+  ) => void;
   disabled?: boolean;
 }) {
   const { t } = useTranslation("openhands");
@@ -36,6 +41,8 @@ export function WebgenLifecycleActions({
     onDispatch(
       projectPath,
       buildWebgenLifecycleCommand(action, { appName, port }),
+      action,
+      appName,
     );
   };
 
@@ -105,7 +112,7 @@ export function WebgenLifecycleActions({
       <ContextMenu
         ref={menuRef}
         theme="popover"
-        className="min-w-[10rem]"
+        className="min-w-40"
         testId="dck-webgen-lifecycle-menu-list"
       >
         <li>

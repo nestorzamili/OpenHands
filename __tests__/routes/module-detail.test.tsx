@@ -9,6 +9,17 @@ import { ModuleDetailView } from "#/routes/module-detail";
 import { getDckModuleById } from "#/dck/modules";
 import { getDckModuleAgentProfilesStorageKey } from "#/hooks/use-dck-module-agent-profiles";
 
+const mockOwnerSeedService = vi.hoisted(() => ({
+  stage: vi.fn(),
+  authorize: vi.fn(),
+}));
+vi.mock("#/dck/webgen-owner-seed-service", () => ({
+  stageWebgenOwnerSeed: mockOwnerSeedService.stage,
+  authorizeWebgenOwnerSeedDeploy: mockOwnerSeedService.authorize,
+  isOwnerSeedReentryRequired: (error: unknown) =>
+    error instanceof Error && "status" in error && error.status === 410,
+}));
+
 const mockAgentProfiles = vi.hoisted(() => ({
   data: {
     profiles: [
@@ -129,6 +140,12 @@ beforeEach(() => {
     getDckModuleAgentProfilesStorageKey("test-backend", null),
   );
   mockCreateConversation.mockClear();
+  mockOwnerSeedService.stage.mockReset().mockResolvedValue({
+    verification_key: "public-verification-key",
+  });
+  mockOwnerSeedService.authorize.mockReset().mockResolvedValue({
+    status: "authorized",
+  });
   mockSetMessageToSend.mockClear();
   vi.mocked(
     AgentServerConversationService.searchConversations,
@@ -374,6 +391,50 @@ describe("ModuleDetailView projects list", () => {
     ).toBeInTheDocument();
     expect(screen.getByTestId("webgen-new-project-submit")).toBeDisabled();
     expect(mockCreateConversation).not.toHaveBeenCalled();
+  });
+
+  it("keeps the Better Auth project dialog open after staging fails and retries the same conversation", async () => {
+    mockOwnerSeedService.stage
+      .mockRejectedValueOnce(new Error("secure provisioning unavailable"))
+      .mockResolvedValueOnce({ verification_key: "public-verification-key" });
+    const user = userEvent.setup();
+    renderWithProviders(
+      <ModuleDetailView dckModule={getDckModuleById("webgen")} />,
+    );
+
+    await user.click(await screen.findByTestId("dck-module-new-project"));
+    await user.type(screen.getByTestId("webgen-new-project-name"), "members");
+    await user.click(screen.getByTestId("webgen-new-project-auth"));
+    await user.type(
+      screen.getByTestId("webgen-owner-seed-email"),
+      "owner@example.com",
+    );
+    await user.type(
+      screen.getByTestId("webgen-owner-seed-password"),
+      "Correct Horse Battery Staple!",
+    );
+
+    await user.click(screen.getByTestId("webgen-new-project-submit"));
+    await waitFor(() =>
+      expect(mockOwnerSeedService.stage).toHaveBeenCalledOnce(),
+    );
+    expect(screen.getByTestId("webgen-new-project-dialog")).toBeInTheDocument();
+    expect(mockSetMessageToSend).not.toHaveBeenCalled();
+
+    await user.click(screen.getByTestId("webgen-new-project-submit"));
+    await waitFor(() =>
+      expect(mockOwnerSeedService.stage).toHaveBeenCalledTimes(2),
+    );
+    expect(mockCreateConversation).toHaveBeenCalledOnce();
+    expect(mockSetMessageToSend.mock.calls[0][0]).toContain(
+      "public-verification-key",
+    );
+    expect(mockSetMessageToSend.mock.calls[0][0]).not.toContain(
+      "Correct Horse Battery Staple!",
+    );
+    expect(
+      screen.queryByTestId("webgen-new-project-dialog"),
+    ).not.toBeInTheDocument();
   });
 });
 

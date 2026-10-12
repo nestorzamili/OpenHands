@@ -10,6 +10,11 @@ import {
   validateWebgenAppName,
   type WebgenNewProjectSpec,
 } from "#/dck/webgen-new-project";
+import {
+  validateWebgenOwnerSeed,
+  WebgenOwnerSeedFields,
+  type WebgenOwnerSeedInput,
+} from "./webgen-owner-seed-fields";
 
 interface WebgenNewProjectDialogProps {
   /** Existing project names under `webgen/`, used for collision checks. */
@@ -20,7 +25,7 @@ interface WebgenNewProjectDialogProps {
   profileSelectionBlocked?: boolean;
   /** Localized reason the module profile currently blocks submission. */
   profileSelectionBlockedMessage?: string;
-  onSubmit: (spec: WebgenNewProjectSpec) => void;
+  onSubmit: (spec: WebgenNewProjectSpec, seed?: WebgenOwnerSeedInput) => void;
   onCancel: () => void;
 }
 
@@ -44,11 +49,23 @@ export function WebgenNewProjectDialog({
   const [description, setDescription] = React.useState("");
   const [needsDatabase, setNeedsDatabase] = React.useState(false);
   const [needsAuth, setNeedsAuth] = React.useState(false);
+  const [authProvider, setAuthProvider] = React.useState<
+    "better-auth" | "other"
+  >("better-auth");
+  const [otherAuthProvider, setOtherAuthProvider] = React.useState("");
+  const [seed, setSeed] = React.useState<WebgenOwnerSeedInput>({
+    email: "",
+    username: "",
+    password: "",
+  });
+  const [seedTouched, setSeedTouched] = React.useState(false);
   // Only surface the name error after the field has been touched, so the
   // dialog doesn't open shouting "required" at an untouched input.
   const [nameTouched, setNameTouched] = React.useState(false);
 
   const validation = validateWebgenAppName(name, existingNames);
+  const needsOwnerSeed = needsAuth && authProvider === "better-auth";
+  const seedValidation = validateWebgenOwnerSeed(seed);
   const showNameError = nameTouched && !validation.valid;
 
   const handleSubmit = (event: React.FormEvent) => {
@@ -57,8 +74,27 @@ export function WebgenNewProjectDialog({
       setNameTouched(true);
       return;
     }
+    if (needsOwnerSeed && !seedValidation.valid) {
+      setSeedTouched(true);
+      return;
+    }
     if (isSubmitting || profileSelectionBlocked) return;
-    onSubmit({ name: name.trim(), description, needsDatabase, needsAuth });
+    const spec: WebgenNewProjectSpec = {
+      name: name.trim(),
+      description,
+      needsDatabase,
+      needsAuth,
+      ...(needsAuth ? { authProvider, otherAuthProvider } : {}),
+    };
+    if (!needsOwnerSeed) {
+      onSubmit(spec);
+      return;
+    }
+    onSubmit(spec, {
+      email: seed.email.trim(),
+      username: seed.username.trim(),
+      password: seed.password,
+    });
   };
 
   return (
@@ -71,7 +107,7 @@ export function WebgenNewProjectDialog({
       <form
         onSubmit={handleSubmit}
         data-testid="webgen-new-project-dialog"
-        className="flex w-[28rem] max-w-[90vw] flex-col gap-4 rounded-xl border border-border bg-base-secondary p-5"
+        className="flex w-full max-w-md flex-col gap-4 rounded-xl border border-border bg-base-secondary p-5"
       >
         <div className="flex flex-col gap-1">
           <h2 className="text-lg font-semibold text-contrast">
@@ -148,6 +184,56 @@ export function WebgenNewProjectDialog({
             />
             {t(I18nKey.DCK$NEW_PROJECT_NEEDS_AUTH)}
           </label>
+          {needsAuth && (
+            <>
+              <label className="flex flex-col gap-1 text-sm text-contrast">
+                <span>{t(I18nKey.DCK$NEW_PROJECT_AUTH_PROVIDER)}</span>
+                <select
+                  data-testid="webgen-new-project-auth-provider"
+                  value={authProvider}
+                  onChange={(event) =>
+                    setAuthProvider(
+                      event.target.value as "better-auth" | "other",
+                    )
+                  }
+                  disabled={isSubmitting}
+                  className={formControlSettingsFieldClassName}
+                >
+                  <option value="better-auth">
+                    {t(I18nKey.DCK$NEW_PROJECT_AUTH_PROVIDER_BETTER_AUTH)}
+                  </option>
+                  <option value="other">
+                    {t(I18nKey.DCK$NEW_PROJECT_AUTH_PROVIDER_OTHER)}
+                  </option>
+                </select>
+              </label>
+              {authProvider === "other" && (
+                <SettingsInput
+                  testId="webgen-new-project-other-auth-provider"
+                  label={t(I18nKey.DCK$NEW_PROJECT_AUTH_PROVIDER_OTHER_LABEL)}
+                  type="text"
+                  value={otherAuthProvider}
+                  onChange={setOtherAuthProvider}
+                  isDisabled={isSubmitting}
+                  required
+                  showRequiredTag
+                />
+              )}
+              {needsOwnerSeed && (
+                <>
+                  <p className="text-xs text-text-tertiary">
+                    {t(I18nKey.DCK$OWNER_SEED_CREATE_DESCRIPTION)}
+                  </p>
+                  <WebgenOwnerSeedFields
+                    value={seed}
+                    onChange={setSeed}
+                    disabled={isSubmitting}
+                    showPasswordError={seedTouched}
+                  />
+                </>
+              )}
+            </>
+          )}
         </div>
 
         <div className="flex w-full justify-end gap-2">
@@ -165,7 +251,10 @@ export function WebgenNewProjectDialog({
             type="submit"
             variant="primary"
             isDisabled={
-              !validation.valid || isSubmitting || profileSelectionBlocked
+              !validation.valid ||
+              (needsOwnerSeed && !seedValidation.valid) ||
+              isSubmitting ||
+              profileSelectionBlocked
             }
             aria-busy={isSubmitting}
           >

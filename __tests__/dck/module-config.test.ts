@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildDckModulePrompt,
   buildModuleFolderDeleteCommand,
   composePromptWithSkillTrigger,
   parseDckBuiltinModuleOverrides,
@@ -19,7 +20,7 @@ function module(overrides: Partial<DckCustomModule>): DckCustomModule {
     iconName: "mail",
     description: "",
     promptTemplate: "Draft an email.",
-    skillName: "",
+    skillNames: [],
     order: 0,
     ...overrides,
   };
@@ -126,6 +127,7 @@ describe("serializeDckModulesConfig", () => {
       id: "research",
       name: "Desk Research",
       description: "",
+      skillNames: ["research-brief", "seo-audit"],
     };
     const text = serializeDckModulesConfig([module({})], [override]);
 
@@ -150,6 +152,57 @@ describe("serializeDckModulesConfig", () => {
       [{ id: "research", name: "Desk Research" }],
     );
   });
+
+  it("migrates legacy Skill fields and ignores Persona data without losing links", () => {
+    const legacy = JSON.stringify({
+      modules: [
+        {
+          ...module({ skillNames: ["research-brief", "seo-audit"] }),
+          skillName: "analytics",
+          personaId: "writer",
+        },
+      ],
+      builtinOverrides: [{ id: "research", skillName: "research-brief" }],
+      personas: [
+        {
+          id: "writer",
+          name: "Writer",
+          roleInstructions: "Write clearly.",
+          requiredSkills: ["research-brief"],
+          optionalSkills: ["persona-optional"],
+        },
+      ],
+    });
+    const parsedModules = parseDckModulesConfig(legacy);
+    const parsedOverrides = parseDckBuiltinModuleOverrides(legacy, [
+      "research",
+    ]);
+    const serialized = JSON.parse(
+      serializeDckModulesConfig(parsedModules, parsedOverrides),
+    );
+
+    expect(parsedModules[0].skillNames).toEqual([
+      "research-brief",
+      "seo-audit",
+      "analytics",
+      "persona-optional",
+    ]);
+    expect(parsedModules[0]).not.toHaveProperty("personaId");
+    expect(parsedOverrides[0].skillNames).toEqual(["research-brief"]);
+    expect(serialized.modules[0].skillNames).toEqual([
+      "research-brief",
+      "seo-audit",
+      "analytics",
+      "persona-optional",
+    ]);
+    expect(serialized.modules[0]).not.toHaveProperty("skillName");
+    expect(serialized.builtinOverrides[0].skillNames).toEqual([
+      "research-brief",
+    ]);
+    expect(serialized.builtinOverrides[0]).not.toHaveProperty("skillName");
+    expect(serialized.modules[0]).not.toHaveProperty("personaId");
+    expect(serialized).not.toHaveProperty("personas");
+  });
 });
 
 describe("validateCustomModuleDraft", () => {
@@ -159,7 +212,7 @@ describe("validateCustomModuleDraft", () => {
     iconName: "mail",
     description: "",
     promptTemplate: "Draft an email.",
-    skillName: "",
+    skillNames: [],
   };
 
   it("accepts a valid draft", () => {
@@ -236,5 +289,27 @@ describe("composePromptWithSkillTrigger", () => {
 
   it("returns the prompt unchanged when there are no triggers", () => {
     expect(composePromptWithSkillTrigger("Hello.", [])).toBe("Hello.");
+  });
+});
+
+describe("buildDckModulePrompt", () => {
+  it("activates every selected catalog Skill and leaves the task unchanged when none is linked", () => {
+    const triggers = new Map([
+      ["email-writing", ["email writing"]],
+      ["seo-audit", ["SEO audit"]],
+    ]);
+
+    expect(
+      buildDckModulePrompt(
+        "Draft a launch email.",
+        ["email-writing", "seo-audit"],
+        triggers,
+      ),
+    ).toBe(
+      "Draft a launch email.\n\nUse the email writing skill for this.\n\nUse the SEO audit skill for this.",
+    );
+    expect(buildDckModulePrompt("Draft a launch email.", [], triggers)).toBe(
+      "Draft a launch email.",
+    );
   });
 });

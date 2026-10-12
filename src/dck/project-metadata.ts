@@ -11,6 +11,7 @@ export interface DckProjectMeta {
   name: string | null;
   port: number | null;
   stack: string | null;
+  authProvider?: string | null;
   url: string | null;
   previewPath: string | null;
   subdomain: string | null;
@@ -108,6 +109,7 @@ export function parseDckProjectMeta(raw: string | null): DckProjectMeta | null {
   const name = coerceString(record.name);
   const port = coercePort(record.port);
   const stack = coerceString(record.stack);
+  const authProvider = coerceString(record.authProvider)?.toLowerCase() ?? null;
   const previewPath = coerceString(record.previewPath);
   const subdomain = coerceString(record.subdomain);
   const lastStatus = coerceRuntimeStatus(record.lastStatus);
@@ -117,6 +119,7 @@ export function parseDckProjectMeta(raw: string | null): DckProjectMeta | null {
     name,
     port,
     stack,
+    authProvider,
     url: projectUrlForPort(port),
     previewPath,
     subdomain,

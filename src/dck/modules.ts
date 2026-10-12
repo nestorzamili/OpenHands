@@ -60,7 +60,7 @@ export interface DckModule {
   name: string;
   slug: string;
   workspacePath: string;
-  skillName: string;
+  skillNames: string[];
   kind: DckModuleKind;
   icon: LucideIcon;
   iconName: string;
@@ -73,7 +73,7 @@ interface DckModuleDef {
   id: string;
   name: string;
   slug: string;
-  skillName: string;
+  skillNames: string[];
   kind: DckModuleKind;
   iconName: string;
   description: string;
@@ -85,18 +85,18 @@ const DCK_BUILTIN_MODULE_DEFS: DckModuleDef[] = [
     id: "webgen",
     name: "Web Generator",
     slug: "webgen",
-    skillName: "web-generator",
+    skillNames: ["web-generator"],
     kind: "projects",
     iconName: "globe",
     description: "",
     promptTemplate:
-      "Scaffold a new containerized Next.js fullstack app under webgen/ following the web-generator standard. Ask me for the app name and whether it needs a database or auth before scaffolding.",
+      "Scaffold a new containerized Next.js fullstack app under webgen/ following the web-generator standard. Use Better Auth whenever authentication is requested unless I explicitly name another provider. Ask me for the app name and whether it needs a database or auth before scaffolding.",
   },
   {
     id: "research",
     name: "Research",
     slug: "research",
-    skillName: "social-trends-researcher",
+    skillNames: ["social-trends-researcher"],
     kind: "conversations",
     iconName: "search",
     description: "Deep literature synthesis with cited reports",
@@ -107,7 +107,7 @@ const DCK_BUILTIN_MODULE_DEFS: DckModuleDef[] = [
     id: "analytics",
     name: "Analytics",
     slug: "analytics",
-    skillName: "data-analytics",
+    skillNames: ["data-analytics"],
     kind: "conversations",
     iconName: "line-chart",
     description: "SQL exploration, charts, and Power BI / DAX modeling",
@@ -118,7 +118,7 @@ const DCK_BUILTIN_MODULE_DEFS: DckModuleDef[] = [
     id: "content",
     name: "Content",
     slug: "content",
-    skillName: "content-creator",
+    skillNames: ["content-creator"],
     kind: "conversations",
     iconName: "pen-line",
     description: "Marketing and social content, calendars, and SEO copy",
@@ -152,7 +152,7 @@ function customModuleToDef(custom: DckCustomModule): DckModuleDef {
     id: custom.id,
     name: custom.name,
     slug: custom.slug,
-    skillName: "",
+    skillNames: custom.skillNames,
     kind: "conversations",
     iconName: custom.iconName,
     description: custom.description,

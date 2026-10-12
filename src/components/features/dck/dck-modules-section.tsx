@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Settings2 } from "lucide-react";
 import { useSearchSubdirs } from "#/hooks/query/use-search-subdirs";
 import { useDckModulesConfig } from "#/hooks/query/use-dck-modules-config";
+import { useProjectSkills } from "#/hooks/query/use-project-skills";
 import { useAgentProfiles } from "#/hooks/query/use-agent-profiles";
 import {
   getDckModuleAgentProfileIdForLaunch,
@@ -32,12 +33,15 @@ import {
   useOpenConversation,
 } from "#/components/features/dck/use-dck-conversations";
 import { WebgenNewProjectDialog } from "#/components/features/dck/webgen-new-project-dialog";
+import type { WebgenOwnerSeedInput } from "#/components/features/dck/webgen-owner-seed-fields";
 import { DckModuleManager } from "#/components/features/dck/dck-module-manager";
 import { DckModuleAgentProfileSummary } from "#/components/features/dck/dck-module-agent-profile-selector";
+import { buildDckModulePrompt } from "#/dck/module-config";
 import {
   buildWebgenScaffoldPrompt,
   type WebgenNewProjectSpec,
 } from "#/dck/webgen-new-project";
+import { stageWebgenOwnerSeed } from "#/dck/webgen-owner-seed-service";
 
 function ViewAllLink({ module }: { module: DckModule }) {
   const { t } = useTranslation("openhands");
@@ -92,6 +96,7 @@ function ProjectsCard({
 
 function ConversationsCard({
   module,
+  launchPrompt,
   conversations,
   createNew,
   isCreating,
@@ -100,6 +105,7 @@ function ConversationsCard({
   agentProfileId,
 }: {
   module: DckModule;
+  launchPrompt: string;
   conversations: AppConversation[];
   createNew: (
     workingDir: string,
@@ -127,11 +133,7 @@ function ConversationsCard({
           type="button"
           disabled={isCreating || profileSelectionBlocked}
           onClick={() =>
-            createNew(
-              module.workspacePath,
-              module.promptTemplate,
-              agentProfileId,
-            )
+            createNew(module.workspacePath, launchPrompt, agentProfileId)
           }
           className="inline-flex min-h-11 shrink-0 items-center whitespace-nowrap rounded-md px-2 text-sm font-medium text-accent hover:bg-surface hover:text-contrast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50"
         >
@@ -149,6 +151,12 @@ export function DckModulesSection() {
   const conversations = useAllConversations();
   const { createScoped, isCreating } = useOpenConversation();
   const { modules: customModules, builtinOverrides } = useDckModulesConfig();
+  const { skills } = useProjectSkills();
+  const triggersBySkill = React.useMemo(() => {
+    const map = new Map<string, string[]>();
+    skills.forEach((skill) => map.set(skill.name, skill.triggers));
+    return map;
+  }, [skills]);
   const agentProfilesQuery = useAgentProfiles();
   const agentProfiles = agentProfilesQuery.data?.profiles ?? [];
   const isCheckingAgentProfiles = Boolean(
@@ -169,6 +177,10 @@ export function DckModulesSection() {
     [customModules, builtinOverrides],
   );
   const [showModuleManager, setShowModuleManager] = React.useState(false);
+  const launchPrompt = (
+    module: DckModule,
+    taskPrompt = module.promptTemplate,
+  ) => buildDckModulePrompt(taskPrompt, module.skillNames, triggersBySkill);
   const createNew = (
     workingDir: string,
     promptTemplate?: string,
@@ -202,11 +214,74 @@ export function DckModulesSection() {
           })
         : undefined;
   const [showWebgenDialog, setShowWebgenDialog] = React.useState(false);
+  const pendingSeedConversation = React.useRef<{
+    workingDir: string;
+    conversationId: string;
+  } | null>(null);
   const webgenSubdirs = useSearchSubdirs(webgenModule?.workspacePath ?? null);
   const existingWebgenNames = React.useMemo(
     () => (webgenSubdirs.data?.items ?? []).map((entry) => entry.name),
     [webgenSubdirs.data],
   );
+
+  const handleWebgenProjectSubmit = async (
+    spec: WebgenNewProjectSpec,
+    seed?: WebgenOwnerSeedInput,
+  ) => {
+    if (!webgenModule) return;
+    if (webgenProfileSelectionBlocked) {
+      displayErrorToast(
+        webgenProfileSelectionBlockedMessage ??
+          t(I18nKey.DCK$MODULE_AGENT_PROFILE_STALE),
+      );
+      return;
+    }
+    const requiresOwnerSeed = spec.needsAuth && spec.authProvider !== "other";
+    if (requiresOwnerSeed && !seed) {
+      displayErrorToast(t(I18nKey.DCK$OWNER_SEED_REQUIRED));
+      return;
+    }
+    const prompt = (verificationKey?: string) =>
+      launchPrompt(
+        webgenModule,
+        buildWebgenScaffoldPrompt(spec, verificationKey),
+      );
+    const pending = pendingSeedConversation.current;
+    const succeeded =
+      requiresOwnerSeed && seed
+        ? await createScoped(
+            webgenModule.workspacePath,
+            "",
+            webgenAgentProfileId,
+            {
+              ...(pending?.workingDir === webgenModule.workspacePath
+                ? { conversationId: pending.conversationId }
+                : {}),
+              prepareInitialMessage: async (conversationId) => {
+                pendingSeedConversation.current = {
+                  workingDir: webgenModule.workspacePath,
+                  conversationId,
+                };
+                const staged = await stageWebgenOwnerSeed(
+                  spec.name,
+                  conversationId,
+                  webgenModule.workspacePath,
+                  seed,
+                );
+                return prompt(staged.verification_key);
+              },
+            },
+          )
+        : await createScoped(
+            webgenModule.workspacePath,
+            prompt(),
+            webgenAgentProfileId,
+          );
+    if (succeeded) {
+      pendingSeedConversation.current = null;
+      setShowWebgenDialog(false);
+    }
+  };
 
   return (
     <section
@@ -263,7 +338,7 @@ export function DckModulesSection() {
                     : () =>
                         createNew(
                           module.workspacePath,
-                          module.promptTemplate,
+                          launchPrompt(module),
                           moduleAgentProfileId,
                         )
                 }
@@ -275,6 +350,7 @@ export function DckModulesSection() {
             <ConversationsCard
               key={module.id}
               module={module}
+              launchPrompt={launchPrompt(module)}
               conversations={conversations}
               createNew={createNew}
               agentProfileId={moduleAgentProfileId}
@@ -292,21 +368,7 @@ export function DckModulesSection() {
           profileSelectionBlocked={webgenProfileSelectionBlocked}
           profileSelectionBlockedMessage={webgenProfileSelectionBlockedMessage}
           onCancel={() => setShowWebgenDialog(false)}
-          onSubmit={(spec: WebgenNewProjectSpec) => {
-            if (webgenProfileSelectionBlocked) {
-              displayErrorToast(
-                webgenProfileSelectionBlockedMessage ??
-                  t(I18nKey.DCK$MODULE_AGENT_PROFILE_STALE),
-              );
-              return;
-            }
-            void createScoped(
-              webgenModule.workspacePath,
-              buildWebgenScaffoldPrompt(spec),
-              webgenAgentProfileId,
-            );
-            setShowWebgenDialog(false);
-          }}
+          onSubmit={handleWebgenProjectSubmit}
         />
       )}
       {showModuleManager && (

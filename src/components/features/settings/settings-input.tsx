@@ -6,6 +6,8 @@ import { OptionalTag } from "./optional-tag";
 interface SettingsInputProps {
   testId?: string;
   name?: string;
+  autoComplete?: string;
+  maxLength?: number;
   label: string;
   type: React.HTMLInputTypeAttribute;
   defaultValue?: string;
@@ -58,6 +60,8 @@ export const SettingsInput = forwardRef<HTMLInputElement, SettingsInputProps>(
     {
       testId,
       name,
+      autoComplete,
+      maxLength,
       label,
       type,
       defaultValue,
@@ -118,6 +122,8 @@ export const SettingsInput = forwardRef<HTMLInputElement, SettingsInputProps>(
           onKeyDown={onKeyDown}
           onBlur={onBlur}
           name={name}
+          autoComplete={autoComplete}
+          maxLength={maxLength}
           disabled={isDisabled}
           type={type}
           defaultValue={defaultValue}

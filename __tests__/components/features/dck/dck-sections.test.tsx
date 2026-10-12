@@ -8,6 +8,19 @@ import { renderWithProviders } from "test-utils";
 import { DckModulesSection } from "#/components/features/dck/dck-modules-section";
 import { getDckModuleAgentProfilesStorageKey } from "#/hooks/use-dck-module-agent-profiles";
 
+const mockSetMessageToSend = vi.fn();
+vi.mock("#/stores/conversation-store", () => ({
+  useConversationStore: (selector: (state: unknown) => unknown) =>
+    selector({ setMessageToSend: mockSetMessageToSend }),
+}));
+
+const mockOwnerSeedService = vi.hoisted(() => ({
+  stage: vi.fn(),
+}));
+vi.mock("#/dck/webgen-owner-seed-service", () => ({
+  stageWebgenOwnerSeed: mockOwnerSeedService.stage,
+}));
+
 const mockAgentProfiles = vi.hoisted(() => ({
   data: {
     profiles: [
@@ -150,6 +163,10 @@ beforeEach(() => {
     getDckModuleAgentProfilesStorageKey("test-backend", null),
   );
   mockCreateConversation.mockClear();
+  mockSetMessageToSend.mockClear();
+  mockOwnerSeedService.stage.mockReset().mockResolvedValue({
+    verification_key: "public-verification-key",
+  });
   vi.mocked(
     AgentServerConversationService.searchConversations,
   ).mockResolvedValue({
@@ -216,6 +233,21 @@ describe("DckModulesSection", () => {
     expect(
       screen.getByTestId("dck-module-edit-custom-email"),
     ).toBeInTheDocument();
+  });
+
+  it("keeps module and Agent Profile configuration in the module manager", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<DckModulesSection />);
+
+    await user.click(await screen.findByTestId("dck-manage-modules"));
+    expect(await screen.findByTestId("dck-module-manager")).toBeInTheDocument();
+    expect(screen.queryByTestId("dck-module-manage-personas")).toBeNull();
+    await user.click(screen.getByTestId("dck-module-edit-research"));
+    expect(
+      screen.getByTestId("dck-module-agent-profile-selector-research"),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("dck-module-form-skills")).toBeInTheDocument();
+    expect(screen.queryByTestId("dck-module-form-persona")).toBeNull();
   });
 
   it("links View all to the module detail page", async () => {
@@ -434,5 +466,50 @@ describe("DckModulesSection", () => {
     const payload = mockCreateConversation.mock.calls[0][0];
     expect(payload.workingDir).toBe("/projects/webgen");
     expect(payload.query).toContain("promo-site");
+  });
+
+  it("stages Better Auth owner credentials before sending the home-dialog opening task", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<DckModulesSection />);
+
+    const webgenCard = await screen.findByTestId("dck-module-card-webgen");
+    await user.click(within(webgenCard).getByRole("button"));
+    await user.type(screen.getByTestId("webgen-new-project-name"), "members");
+    await user.click(screen.getByTestId("webgen-new-project-auth"));
+    await user.type(
+      screen.getByTestId("webgen-owner-seed-email"),
+      "owner@example.com",
+    );
+    await user.type(
+      screen.getByTestId("webgen-owner-seed-password"),
+      "Correct Horse Battery Staple!",
+    );
+    await user.click(screen.getByTestId("webgen-new-project-submit"));
+
+    await waitFor(() =>
+      expect(mockOwnerSeedService.stage).toHaveBeenCalledOnce(),
+    );
+    expect(mockCreateConversation).toHaveBeenCalledOnce();
+    expect(mockCreateConversation.mock.calls[0][0]).not.toHaveProperty("query");
+    expect(mockOwnerSeedService.stage).toHaveBeenCalledWith(
+      "members",
+      "conv-new",
+      "/projects/webgen",
+      {
+        email: "owner@example.com",
+        username: "",
+        password: "Correct Horse Battery Staple!",
+      },
+    );
+    expect(mockSetMessageToSend).toHaveBeenCalledOnce();
+    expect(mockSetMessageToSend.mock.calls[0][0]).toContain(
+      "public-verification-key",
+    );
+    expect(mockSetMessageToSend.mock.calls[0][0]).not.toContain(
+      "Correct Horse Battery Staple!",
+    );
+    expect(
+      screen.queryByTestId("webgen-new-project-dialog"),
+    ).not.toBeInTheDocument();
   });
 });

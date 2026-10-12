@@ -9,8 +9,8 @@ export interface DckCustomModule {
   iconName: string;
   description: string;
   promptTemplate: string;
-  /** Optional project/public skill linked to this module. */
-  skillName: string;
+  /** Optional project/public Skills linked to this module. */
+  skillNames: string[];
   order: number;
 }
 
@@ -20,7 +20,7 @@ export interface DckBuiltinModuleOverride {
   iconName?: string;
   description?: string;
   promptTemplate?: string;
-  skillName?: string;
+  skillNames?: string[];
 }
 
 export const DCK_MODULE_SLUG_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
@@ -33,6 +33,53 @@ function coerceString(value: unknown): string | null {
     return trimmed.length > 0 ? trimmed : null;
   }
   return null;
+}
+
+function coerceStringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return [
+    ...new Set(
+      value.flatMap((entry) => {
+        const normalized = coerceString(entry);
+        return normalized ? [normalized] : [];
+      }),
+    ),
+  ];
+}
+
+function coerceModuleSkillNames(record: Record<string, unknown>): string[] {
+  const legacySkillName = coerceString(record.skillName);
+  return [
+    ...new Set([
+      ...coerceStringList(record.skillNames),
+      ...(legacySkillName ? [legacySkillName] : []),
+    ]),
+  ];
+}
+
+function legacyPersonaSkillsById(parsed: unknown): Map<string, string[]> {
+  if (
+    typeof parsed !== "object" ||
+    parsed === null ||
+    !Array.isArray((parsed as { personas?: unknown }).personas)
+  ) {
+    return new Map();
+  }
+
+  const byId = new Map<string, string[]>();
+  (parsed as { personas: unknown[] }).personas.forEach((entry) => {
+    if (typeof entry !== "object" || entry === null) return;
+    const record = entry as Record<string, unknown>;
+    const id = coerceString(record.id);
+    if (!id || byId.has(id)) return;
+    byId.set(
+      id,
+      coerceStringList(record.requiredSkills).concat(
+        coerceStringList(record.optionalSkills),
+      ),
+    );
+  });
+  return byId;
 }
 
 function coerceOrder(value: unknown): number | null {
@@ -83,6 +130,7 @@ export function parseDckModulesConfig(
 
   if (!list) return [];
 
+  const personaSkills = legacyPersonaSkillsById(parsed);
   const reservedIds = new Set(options.reservedIds ?? []);
   const seenIds = new Set<string>();
   const seenSlugs = new Set<string>();
@@ -115,7 +163,12 @@ export function parseDckModulesConfig(
       iconName: coerceString(record.iconName) ?? "",
       description: coerceString(record.description) ?? "",
       promptTemplate,
-      skillName: coerceString(record.skillName) ?? "",
+      skillNames: [
+        ...new Set([
+          ...coerceModuleSkillNames(record),
+          ...(personaSkills.get(coerceString(record.personaId) ?? "") ?? []),
+        ]),
+      ],
       order: coerceOrder(record.order) ?? index,
     });
   });
@@ -150,13 +203,7 @@ export function parseDckBuiltinModuleOverrides(
 
   const allowedIds = new Set(builtinIds);
   const seenIds = new Set<string>();
-  const fields = [
-    "name",
-    "iconName",
-    "description",
-    "promptTemplate",
-    "skillName",
-  ] as const;
+  const fields = ["name", "iconName", "description", "promptTemplate"] as const;
   const requiredFields = new Set(["name", "iconName", "promptTemplate"]);
 
   return (parsed as { builtinOverrides: unknown[] }).builtinOverrides.flatMap(
@@ -174,6 +221,13 @@ export function parseDckBuiltinModuleOverrides(
         if (requiredFields.has(field) && normalized.length === 0) return;
         override[field] = normalized;
       });
+
+      if (
+        Array.isArray(record.skillNames) ||
+        typeof record.skillName === "string"
+      ) {
+        override.skillNames = coerceModuleSkillNames(record);
+      }
 
       if (Object.keys(override).length === 1) return [];
       seenIds.add(id);
@@ -193,7 +247,7 @@ export function serializeDckModulesConfig(
     iconName: module.iconName,
     description: module.description,
     promptTemplate: module.promptTemplate,
-    skillName: module.skillName,
+    skillNames: coerceStringList(module.skillNames),
     order: index,
   }));
   const normalizedOverrides = builtinOverrides.map((override) => ({
@@ -206,7 +260,9 @@ export function serializeDckModulesConfig(
     ...(override.promptTemplate !== undefined && {
       promptTemplate: override.promptTemplate,
     }),
-    ...(override.skillName !== undefined && { skillName: override.skillName }),
+    ...(override.skillNames !== undefined && {
+      skillNames: coerceStringList(override.skillNames),
+    }),
   }));
   return `${JSON.stringify(
     { modules: normalized, builtinOverrides: normalizedOverrides },
@@ -221,7 +277,7 @@ export interface CustomModuleDraft {
   iconName: string;
   description: string;
   promptTemplate: string;
-  skillName: string;
+  skillNames: string[];
 }
 
 export interface ValidateCustomModuleOptions {
@@ -285,8 +341,12 @@ export function validateCustomModuleDraft(
 }
 
 export function makeCustomModuleId(): string {
+  return makeDckEntityId("custom");
+}
+
+function makeDckEntityId(prefix: string): string {
   const random = Math.random().toString(36).slice(2, 10);
-  return `custom-${Date.now().toString(36)}-${random}`;
+  return `${prefix}-${Date.now().toString(36)}-${random}`;
 }
 
 /**
@@ -314,6 +374,24 @@ export function composePromptWithSkillTrigger(
   const trigger = usableTriggers[0];
   const suffix = `Use the ${trigger} skill for this.`;
   return prompt.length > 0 ? `${prompt}\n\n${suffix}` : suffix;
+}
+
+/** Compose a DCK task prompt with the module's optional catalog Skill. */
+export function buildDckModulePrompt(
+  promptTemplate: string,
+  moduleSkillNames: readonly string[],
+  triggersBySkill: ReadonlyMap<string, readonly string[]>,
+): string {
+  return [
+    ...new Set(moduleSkillNames.map((name) => name.trim()).filter(Boolean)),
+  ].reduce(
+    (prompt, skillName) =>
+      composePromptWithSkillTrigger(
+        prompt,
+        triggersBySkill.get(skillName) ?? [],
+      ),
+    promptTemplate.trim(),
+  );
 }
 
 /**

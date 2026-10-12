@@ -24,7 +24,7 @@ export interface DckModulesConfig {
 
 type BuiltinEditableFields = Pick<
   DckModule,
-  "name" | "iconName" | "description" | "promptTemplate" | "skillName"
+  "name" | "iconName" | "description" | "promptTemplate" | "skillNames"
 >;
 
 function getFileClient(): FileClient {
@@ -136,16 +136,16 @@ export function useDckModulesConfig() {
     if (!defaults) return Promise.reject(new Error("Unknown built-in module"));
 
     const override: DckBuiltinModuleOverride = { id };
-    const keys = [
-      "name",
-      "iconName",
-      "description",
-      "promptTemplate",
-      "skillName",
-    ] as const;
+    const keys = ["name", "iconName", "description", "promptTemplate"] as const;
     keys.forEach((key) => {
       if (fields[key] !== defaults[key]) override[key] = fields[key];
     });
+    const sameSkillNames =
+      fields.skillNames.length === defaults.skillNames.length &&
+      fields.skillNames.every(
+        (skillName, index) => skillName === defaults.skillNames[index],
+      );
+    if (!sameSkillNames) override.skillNames = [...fields.skillNames];
 
     const builtinOverrides = config.builtinOverrides.filter(
       (entry) => entry.id !== id,

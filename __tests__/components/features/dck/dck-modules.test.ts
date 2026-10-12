@@ -53,7 +53,7 @@ describe("DCK module registry", () => {
       modules.every(
         (module) =>
           module.workspacePath === `/projects/${module.slug}` &&
-          module.skillName &&
+          module.skillNames.length > 0 &&
           module.source === "builtin",
       ),
     ).toBe(true);
@@ -116,7 +116,7 @@ describe("DCK module registry", () => {
         iconName: "mail",
         description: "Drip sequences",
         promptTemplate: "Draft an email campaign.",
-        skillName: "",
+        skillNames: ["email-writing", "seo-audit"],
         order: 0,
       },
     ];
@@ -130,6 +130,7 @@ describe("DCK module registry", () => {
     ]);
     const customModule = merged.find((module) => module.id === "custom-1");
     expect(customModule?.source).toBe("custom");
+    expect(customModule?.skillNames).toEqual(["email-writing", "seo-audit"]);
     expect(customModule?.kind).toBe("conversations");
     expect(customModule?.workspacePath).toBe("/projects/email");
     expect(findDckModuleById(merged, "custom-1")?.name).toBe("Email Campaigns");

@@ -7,6 +7,8 @@ export interface WebgenNewProjectSpec {
   description: string;
   needsDatabase: boolean;
   needsAuth: boolean;
+  authProvider?: "better-auth" | "other";
+  otherAuthProvider?: string;
 }
 
 /** App-name rule: a lowercase slug the agent can use verbatim as the
@@ -56,7 +58,10 @@ export function validateWebgenAppName(
  * agent to start immediately. A one-line description (when given) rides along
  * so the auto-generated conversation title differs per project.
  */
-export function buildWebgenScaffoldPrompt(spec: WebgenNewProjectSpec): string {
+export function buildWebgenScaffoldPrompt(
+  spec: WebgenNewProjectSpec,
+  ownerSeedVerificationKey?: string,
+): string {
   const name = spec.name.trim();
   const description = spec.description.trim();
   const lines: string[] = [
@@ -66,12 +71,26 @@ export function buildWebgenScaffoldPrompt(spec: WebgenNewProjectSpec): string {
     `- Database: ${spec.needsDatabase ? "yes — provision a database per the web-generator standard" : "no"}`,
     `- Auth / login: ${spec.needsAuth ? "yes — include authentication" : "no"}`,
   ];
+  if (spec.needsAuth) {
+    const provider =
+      spec.authProvider === "other"
+        ? spec.otherAuthProvider?.trim()
+        : "Better Auth";
+    if (provider) lines.push(`- Auth provider: ${provider}`);
+    if (provider === "Better Auth" && ownerSeedVerificationKey) {
+      lines.push(
+        `- DCK first-owner bootstrap verification key (public, safe to store in source): ${ownerSeedVerificationKey}`,
+        "- Implement the signed, one-time Better Auth owner bootstrap route exactly as specified in the web-generator skill. Disable public sign-up; call Better Auth server APIs only. Never ask for, echo, log, persist, or include owner credentials in prompts, chat, source, .env, telemetry, or the portal Secrets Manager.",
+        '- Record authProvider as "better-auth" in .dck.json. The DCK server delivers the seed only after an explicit Deploy/Rebuild action; do not create a seed user during ordinary app start or when the endpoint is merely health-checked.',
+      );
+    }
+  }
   if (description.length > 0) {
     lines.push(`- Purpose: ${description}`);
   }
   lines.push(
     "",
-    "Pick the first free port ≥ 3000, write .dck.json and .env.example, and apply the antislop skills to all UI, layout, copy, and motion. Verify the deploy with docker compose ps, logs, and an endpoint health check.",
+    "Pick the first free port ≥ 3000, write .dck.json and .env.example, and apply the antislop skills to all UI, layout, copy, and motion. Verify the deploy with docker compose ps, logs, and an endpoint health check. Name the app container <app-name>-app so the authenticated DCK provisioning capability can reach it on the shared dck network.",
   );
   return lines.join("\n");
 }

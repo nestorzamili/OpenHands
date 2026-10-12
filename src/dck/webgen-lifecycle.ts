@@ -3,6 +3,7 @@ export type WebgenLifecycleAction = "deploy" | "rebuild" | "stop" | "delete";
 export interface WebgenLifecycleContext {
   appName: string;
   port: number | null;
+  ownerSeedVerificationKey?: string;
 }
 
 function appDir(appName: string): string {
@@ -21,6 +22,31 @@ function verifySuffix(port: number | null): string {
   ].join(" && ");
 }
 
+export function addWebgenOwnerSeedVerificationKey(
+  command: string,
+  verificationKey: string,
+): string {
+  return [
+    command,
+    "",
+    "DCK owner-seed integration: ensure the app has the signed one-time Better Auth owner-bootstrap route from the web-generator skill and advertises its verification key from the health endpoint. Use only this public key (never a password or other credential):",
+    verificationKey,
+    "Disable public sign-up and use Better Auth server APIs to create the first owner only after the authenticated DCK deploy flow posts a valid signature. Never ask for or place credential values in this conversation, source, .env, logs, or analytics.",
+  ].join("\n");
+}
+
+function withOwnerSeedInstructions(
+  command: string,
+  context: WebgenLifecycleContext,
+): string {
+  return context.ownerSeedVerificationKey
+    ? addWebgenOwnerSeedVerificationKey(
+        command,
+        context.ownerSeedVerificationKey,
+      )
+    : command;
+}
+
 export function buildWebgenLifecycleCommand(
   action: WebgenLifecycleAction,
   context: WebgenLifecycleContext,
@@ -30,19 +56,25 @@ export function buildWebgenLifecycleCommand(
 
   switch (action) {
     case "deploy":
-      return [
-        `Deploy the "${context.appName}" webgen app via its conversation (containerized, never on the host):`,
-        `${enter} && docker compose up -d --build`,
-        `then verify: ${verifySuffix(context.port)}`,
-        `then update ${dir}/.dck.json: set "lastStatus" to "running" if healthy (else "error") and "lastCheckedAt" to the current ISO-8601 UTC time.`,
-      ].join("\n");
+      return withOwnerSeedInstructions(
+        [
+          `Deploy the "${context.appName}" webgen app via its conversation (containerized, never on the host):`,
+          `${enter} && docker compose up -d --build`,
+          `then verify: ${verifySuffix(context.port)}`,
+          `then update ${dir}/.dck.json: set "lastStatus" to "running" if healthy (else "error") and "lastCheckedAt" to the current ISO-8601 UTC time.`,
+        ].join("\n"),
+        context,
+      );
     case "rebuild":
-      return [
-        `Rebuild the "${context.appName}" webgen app with a clean restart (containerized, never on the host):`,
-        `${enter} && docker compose down && docker compose up -d --build`,
-        `then verify: ${verifySuffix(context.port)}`,
-        `then update ${dir}/.dck.json: set "lastStatus" to "running" if healthy (else "error") and "lastCheckedAt" to the current ISO-8601 UTC time.`,
-      ].join("\n");
+      return withOwnerSeedInstructions(
+        [
+          `Rebuild the "${context.appName}" webgen app with a clean restart (containerized, never on the host):`,
+          `${enter} && docker compose down && docker compose up -d --build`,
+          `then verify: ${verifySuffix(context.port)}`,
+          `then update ${dir}/.dck.json: set "lastStatus" to "running" if healthy (else "error") and "lastCheckedAt" to the current ISO-8601 UTC time.`,
+        ].join("\n"),
+        context,
+      );
     case "stop":
       return [
         `Stop the "${context.appName}" webgen app:`,

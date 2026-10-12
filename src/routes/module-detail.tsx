@@ -7,16 +7,29 @@ import { ConversationStatusDot } from "#/components/features/conversation-panel/
 import { ProjectRow } from "#/components/features/dck/project-row";
 import { WebgenProjectTable } from "#/components/features/dck/webgen-project-table";
 import { WebgenNewProjectDialog } from "#/components/features/dck/webgen-new-project-dialog";
+import { WebgenOwnerSeedDialog } from "#/components/features/dck/webgen-owner-seed-dialog";
+import type { WebgenOwnerSeedInput } from "#/components/features/dck/webgen-owner-seed-fields";
 import {
   useAllConversationsQuery,
   useOpenConversation,
 } from "#/components/features/dck/use-dck-conversations";
 import { useSearchSubdirs } from "#/hooks/query/use-search-subdirs";
+import { useProjectSkills } from "#/hooks/query/use-project-skills";
 import { formatRelativeTime } from "#/utils/format-relative-time";
+import { buildDckModulePrompt } from "#/dck/module-config";
 import {
   buildWebgenScaffoldPrompt,
   type WebgenNewProjectSpec,
 } from "#/dck/webgen-new-project";
+import {
+  addWebgenOwnerSeedVerificationKey,
+  type WebgenLifecycleAction,
+} from "#/dck/webgen-lifecycle";
+import {
+  authorizeWebgenOwnerSeedDeploy,
+  isOwnerSeedReentryRequired,
+  stageWebgenOwnerSeed,
+} from "#/dck/webgen-owner-seed-service";
 import {
   DCK_COPY,
   conversationWorkingDir,
@@ -36,6 +49,14 @@ import {
   useDckModuleAgentProfiles,
 } from "#/hooks/use-dck-module-agent-profiles";
 import { displayErrorToast } from "#/utils/custom-toast-handlers";
+
+interface PendingOwnerSeedDeploy {
+  appName: string;
+  projectPath: string;
+  conversationId: string;
+  command: string;
+  action: "deploy" | "rebuild";
+}
 
 function ListState({
   state,
@@ -106,7 +127,13 @@ function ModuleProjectsList({
   conversations: AppConversation[];
   openPath: (path: string) => void;
   isCreating: boolean;
-  dispatchLifecycle: (path: string, command: string) => void;
+  dispatchLifecycle: (
+    path: string,
+    command: string,
+    action: WebgenLifecycleAction,
+    appName: string,
+    authProvider: string | null,
+  ) => void;
   conversationsLoading: boolean;
   conversationsError: boolean;
   emptyCta?: React.ReactNode;
@@ -260,8 +287,19 @@ export function ModuleDetailView({
     isError: conversationsError,
     refetch: refetchConversations,
   } = useAllConversationsQuery();
-  const { openPath, createScoped, prefillAndOpen, isCreating } =
-    useOpenConversation();
+  const {
+    openPath,
+    createScoped,
+    prefillAndOpen,
+    continueConversation,
+    isCreating,
+  } = useOpenConversation();
+  const { skills } = useProjectSkills();
+  const triggersBySkill = React.useMemo(() => {
+    const map = new Map<string, string[]>();
+    skills.forEach((skill) => map.set(skill.name, skill.triggers));
+    return map;
+  }, [skills]);
   const agentProfilesQuery = useAgentProfiles();
   const agentProfiles = agentProfilesQuery.data?.profiles ?? [];
   const isCheckingAgentProfiles = Boolean(
@@ -304,7 +342,19 @@ export function ModuleDetailView({
     canCreateNew: !moduleProfileSelectionBlocked,
     blockedMessage: moduleProfileSelectionBlockedMessage,
   };
+  const buildModulePrompt = (taskPrompt: string) =>
+    dckModule
+      ? buildDckModulePrompt(taskPrompt, dckModule.skillNames, triggersBySkill)
+      : taskPrompt;
   const [showNewProjectDialog, setShowNewProjectDialog] = React.useState(false);
+  const [pendingOwnerSeedDeploy, setPendingOwnerSeedDeploy] =
+    React.useState<PendingOwnerSeedDeploy | null>(null);
+  const [isSubmittingOwnerSeed, setIsSubmittingOwnerSeed] =
+    React.useState(false);
+  const pendingSeedConversation = React.useRef<{
+    workingDir: string;
+    conversationId: string;
+  } | null>(null);
 
   // Existing webgen project names, used to block duplicate names in the New
   // Project dialog. Only the webgen module needs this; the query is gated on
@@ -341,8 +391,126 @@ export function ModuleDetailView({
   const Icon = dckModule.icon;
   const open = (path: string) =>
     void openPath(path, conversations, undefined, moduleLaunchOptions);
-  const dispatchLifecycle = (path: string, command: string) =>
+  const dispatchLifecycle = (
+    path: string,
+    command: string,
+    action: WebgenLifecycleAction,
+    appName: string,
+    authProvider: string | null,
+  ) => {
+    if (
+      (action === "deploy" || action === "rebuild") &&
+      authProvider === "better-auth"
+    ) {
+      void prefillAndOpen(path, conversations, command, {
+        ...moduleLaunchOptions,
+        beforeDispatch: async (conversationId) => {
+          try {
+            await authorizeWebgenOwnerSeedDeploy(appName, conversationId, path);
+            return "ready";
+          } catch (error) {
+            if (isOwnerSeedReentryRequired(error)) return "seed-required";
+            throw error;
+          }
+        },
+        onSeedRequired: (conversationId) =>
+          setPendingOwnerSeedDeploy({
+            appName,
+            projectPath: path,
+            conversationId,
+            command,
+            action,
+          }),
+      });
+      return;
+    }
     void prefillAndOpen(path, conversations, command, moduleLaunchOptions);
+  };
+
+  const handleNewWebgenProject = async (
+    spec: WebgenNewProjectSpec,
+    seed?: WebgenOwnerSeedInput,
+  ) => {
+    if (moduleProfileSelectionBlocked) {
+      displayErrorToast(
+        moduleProfileSelectionBlockedMessage ??
+          t(I18nKey.DCK$MODULE_AGENT_PROFILE_STALE),
+      );
+      return;
+    }
+    const requiresOwnerSeed = spec.needsAuth && spec.authProvider !== "other";
+    if (requiresOwnerSeed && !seed) {
+      displayErrorToast(t(I18nKey.DCK$OWNER_SEED_REQUIRED));
+      return;
+    }
+    const prompt = (verificationKey?: string) =>
+      buildModulePrompt(buildWebgenScaffoldPrompt(spec, verificationKey));
+    const pending = pendingSeedConversation.current;
+    const succeeded =
+      requiresOwnerSeed && seed
+        ? await createScoped(
+            dckModule!.workspacePath,
+            "",
+            moduleAgentProfileId,
+            {
+              ...(pending?.workingDir === dckModule!.workspacePath
+                ? { conversationId: pending.conversationId }
+                : {}),
+              prepareInitialMessage: async (conversationId) => {
+                pendingSeedConversation.current = {
+                  workingDir: dckModule!.workspacePath,
+                  conversationId,
+                };
+                const staged = await stageWebgenOwnerSeed(
+                  spec.name,
+                  conversationId,
+                  dckModule!.workspacePath,
+                  seed,
+                );
+                return prompt(staged.verification_key);
+              },
+            },
+          )
+        : await createScoped(
+            dckModule!.workspacePath,
+            prompt(),
+            moduleAgentProfileId,
+          );
+    if (succeeded) {
+      pendingSeedConversation.current = null;
+      setShowNewProjectDialog(false);
+    }
+  };
+
+  const handleOwnerSeedReentry = async (seed: WebgenOwnerSeedInput) => {
+    if (!pendingOwnerSeedDeploy) return;
+    setIsSubmittingOwnerSeed(true);
+    try {
+      const staged = await stageWebgenOwnerSeed(
+        pendingOwnerSeedDeploy.appName,
+        pendingOwnerSeedDeploy.conversationId,
+        pendingOwnerSeedDeploy.projectPath,
+        seed,
+      );
+      await authorizeWebgenOwnerSeedDeploy(
+        pendingOwnerSeedDeploy.appName,
+        pendingOwnerSeedDeploy.conversationId,
+        pendingOwnerSeedDeploy.projectPath,
+      );
+      continueConversation(
+        pendingOwnerSeedDeploy.conversationId,
+        addWebgenOwnerSeedVerificationKey(
+          pendingOwnerSeedDeploy.command,
+          staged.verification_key,
+        ),
+      );
+      setPendingOwnerSeedDeploy(null);
+    } catch (error) {
+      displayErrorToast(error instanceof Error ? error.message : null);
+    } finally {
+      setIsSubmittingOwnerSeed(false);
+    }
+  };
 
   let headerAction: React.ReactNode = null;
   if (dckModule.kind === "projects") {
@@ -351,7 +519,7 @@ export function ModuleDetailView({
       : () =>
           void createScoped(
             dckModule.workspacePath,
-            dckModule.promptTemplate,
+            buildModulePrompt(dckModule.promptTemplate),
             moduleAgentProfileId,
           );
     headerAction = (
@@ -373,7 +541,7 @@ export function ModuleDetailView({
         onClick={() =>
           void createScoped(
             dckModule.workspacePath,
-            dckModule.promptTemplate,
+            buildModulePrompt(dckModule.promptTemplate),
             moduleAgentProfileId,
           )
         }
@@ -453,21 +621,15 @@ export function ModuleDetailView({
           profileSelectionBlocked={moduleProfileSelectionBlocked}
           profileSelectionBlockedMessage={moduleProfileSelectionBlockedMessage}
           onCancel={() => setShowNewProjectDialog(false)}
-          onSubmit={(spec: WebgenNewProjectSpec) => {
-            if (moduleProfileSelectionBlocked) {
-              displayErrorToast(
-                moduleProfileSelectionBlockedMessage ??
-                  t(I18nKey.DCK$MODULE_AGENT_PROFILE_STALE),
-              );
-              return;
-            }
-            void createScoped(
-              dckModule.workspacePath,
-              buildWebgenScaffoldPrompt(spec),
-              moduleAgentProfileId,
-            );
-            setShowNewProjectDialog(false);
-          }}
+          onSubmit={handleNewWebgenProject}
+        />
+      )}
+      {pendingOwnerSeedDeploy && (
+        <WebgenOwnerSeedDialog
+          appName={pendingOwnerSeedDeploy.appName}
+          isSubmitting={isCreating || isSubmittingOwnerSeed}
+          onCancel={() => setPendingOwnerSeedDeploy(null)}
+          onSubmit={(seed) => void handleOwnerSeedReentry(seed)}
         />
       )}
     </div>

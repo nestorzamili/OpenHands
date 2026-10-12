@@ -107,7 +107,7 @@ describe("useDckModulesConfig", () => {
         iconName: "mail",
         description: "",
         promptTemplate: "Write a report.",
-        skillName: "",
+        skillNames: [],
         order: 0,
       });
     });
@@ -144,7 +144,7 @@ describe("useDckModulesConfig", () => {
         iconName: "search",
         description: "",
         promptTemplate: "Investigate the topic.",
-        skillName: "",
+        skillNames: [],
       });
     });
 
@@ -157,11 +157,68 @@ describe("useDckModulesConfig", () => {
           name: "Desk Research",
           description: "",
           promptTemplate: "Investigate the topic.",
-          skillName: "",
+          skillNames: [],
         },
       ],
     });
     expect(JSON.parse(text).builtinOverrides[0]).not.toHaveProperty("iconName");
+  });
+
+  it("migrates legacy Persona config on save without losing module Skills", async () => {
+    downloadTextFileMock.mockResolvedValue(
+      JSON.stringify({
+        modules: [
+          {
+            id: "custom-writer",
+            name: "Writer",
+            slug: "writer",
+            iconName: "pen-line",
+            description: "",
+            promptTemplate: "Write.",
+            skillName: "research-brief",
+            personaId: "legacy-writer",
+            order: 0,
+          },
+        ],
+        builtinOverrides: [],
+        personas: [
+          {
+            id: "legacy-writer",
+            name: "Writer",
+            roleInstructions: "Be accurate.",
+            requiredSkills: ["research-brief"],
+            optionalSkills: ["seo-audit"],
+          },
+        ],
+      }),
+    );
+
+    const { result } = renderHook(() => useDckModulesConfig(), {
+      wrapper: makeWrapper(),
+    });
+    await waitFor(() => expect(result.current.modules).toHaveLength(1));
+    expect(result.current.modules[0].skillNames).toEqual([
+      "research-brief",
+      "seo-audit",
+    ]);
+    expect(result.current.modules[0]).not.toHaveProperty("personaId");
+
+    await act(async () => {
+      await result.current.upsert({
+        ...result.current.modules[0],
+        promptTemplate: "Write a concise report.",
+      });
+    });
+
+    const [text] = uploadTextFileMock.mock.calls[0];
+    const saved = JSON.parse(text);
+    expect(saved.modules[0]).toMatchObject({
+      skillNames: ["research-brief", "seo-audit"],
+      promptTemplate: "Write a concise report.",
+    });
+    expect(saved.modules[0]).not.toHaveProperty("skillName");
+    expect(saved.modules[0]).not.toHaveProperty("personaId");
+    expect(saved).not.toHaveProperty("personas");
   });
 
   it("removes a module", async () => {

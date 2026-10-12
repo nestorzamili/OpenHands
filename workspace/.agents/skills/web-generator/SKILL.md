@@ -61,7 +61,7 @@ explicitly asks for that separate action.
 ## 2. Stack Defaults
 
 - Next.js (App Router + API routes), TypeScript, Tailwind CSS, shadcn, Lucide icons.
-- better-auth and Prisma: scaffold only when the app needs login or a database. Landing pages and static prototypes ship without them.
+- better-auth and Prisma: scaffold only when the app needs login or a database. When authentication is requested, use Better Auth by default unless the project spec explicitly names another provider. Landing pages and static prototypes ship without them.
 - Database and cache connectivity (prod topology — see `docs/DEPLOYMENT.md`):
   - **PostgreSQL** is the dedicated DCK cluster, reached by the compose
     **service name `postgres`** on the shared `dck` network (it is NOT published
@@ -199,6 +199,64 @@ docker compose down
 ```
 
 Verify every deploy with `ps`, logs, and an endpoint health check. `docker compose down -v` only with explicit operator confirmation. Never run long-lived dev servers or install packages on the host.
+
+## 6a. Better Auth First-Owner Seed (mandatory when auth is Better Auth)
+
+The New Project dialog collects the first owner's email, optional username, and
+password separately from the agent prompt. The Agent Server keeps that seed
+encrypted for 15 minutes and delivers it once only after an explicit Deploy or
+Rebuild action. Treat the public verification key in the scaffold/deploy message
+as public; it is not a credential.
+
+- Store `"authProvider": "better-auth"` in `.dck.json`. Give the sole Compose
+  service the deterministic `container_name: <app-name>-app`, expose app port
+  `3000` inside the container, and join the shared external `dck` network. The
+  Agent Server reaches `http://<app-name>-app:3000/api/dck/owner-seed` on that
+  network.
+- Configure Better Auth with email/password sign-up disabled
+  (`emailAndPassword.disableSignUp: true`), `minPasswordLength: 15`, and a
+  `maxPasswordLength` of at least `512` (use `1024` to accept the full Unicode
+  limit below). Keep public sign-up disabled on every environment. Use the
+  Better Auth `admin()` plugin for the server `createUser` API and the username
+  plugin when accepting an optional username; apply its schema migration.
+- Implement a server-only `GET /api/dck/owner-seed` health response with only
+  `{version: 1, project_slug, verification_key, state}`. Set `state` to
+  `awaiting_owner` or `owner_exists`; return the exact public key embedded in
+  the app. Never return user data or credentials from this endpoint.
+- Implement `POST /api/dck/owner-seed` as a server-only bootstrap handler. It
+  must accept only the signed payload and verify its Ed25519 signature against
+  that public key, protocol version, exact app slug, issue/expiry timestamps
+  (maximum 120 seconds), and every signed field before touching Better Auth.
+  Canonicalize the signature input as the ordered JSON array
+  `[version, project_slug, conversation_id, issued_at, expires_at, nonce,
+  email, username, password]`, serialized as UTF-8 JSON without ASCII escaping
+  or whitespace. Reject invalid signatures, wrong projects, expired payloads,
+  malformed email, passwords under 15 or over 1024 UTF-16 code units, and
+  malformed Unicode. Preserve password whitespace and Unicode exactly; never
+  trim or truncate it.
+- Enforce one-time use and first-owner uniqueness with a durable unique nonce
+  record and a singleton bootstrap/owner lock in the app's existing auth
+  database. Serialize concurrent requests, reject a replay, and if an owner
+  already exists return `409` without creating another. Do not add a credential
+  store or put the seed in Prisma/Better Auth tables.
+- Create the owner only by calling Better Auth's server API, e.g.
+  `auth.api.createUser({ body: { email, name, password, role: "admin", ... } })`
+  from this verified server handler, without forwarding browser headers or a
+  client session. Include the optional username through Better Auth's username
+  plugin. Never insert directly into Better Auth tables. Keep the public admin
+  management routes session-protected; only the verified server handler may
+  bootstrap the first owner.
+- Return `{ok: true}` only after creation succeeds. Return `409` for an owner
+  that already exists; the DCK server treats that as an idempotent completion.
+  Do not log request bodies, passwords, signatures, or user identifiers. Never
+  place the seed in prompts, chat/transcripts, model context, source, `.env`,
+  `.env.example`, `.dck.json`, analytics, or the persistent Secret Manager.
+- Do not create the owner on app start, health checks, source generation, or
+  ordinary conversation messages. If a capability expires or the first-owner
+  delivery fails, let the next explicit Deploy/Rebuild request collect a fresh
+  seed. Exercise invalid signatures, public sign-up rejection, concurrent
+  bootstrap, duplicate owner, nonce replay, Unicode/whitespace, and expiry
+  using dummy credentials only.
 
 **Always update `.dck.json` status after a lifecycle action** so the portal
 badge stays honest — the frontend reads this file, it cannot query Docker:

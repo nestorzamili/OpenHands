@@ -76,6 +76,67 @@ describe("WebgenNewProjectDialog", () => {
     });
   });
 
+  it("defaults to Better Auth when enabled and submits an explicitly named alternative", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderDialog({ existingNames: [] });
+    await user.type(screen.getByTestId("webgen-new-project-name"), "members");
+    await user.click(screen.getByTestId("webgen-new-project-auth"));
+
+    const provider = screen.getByTestId("webgen-new-project-auth-provider");
+    expect(provider).toHaveValue("better-auth");
+    await user.selectOptions(provider, "other");
+    await user.type(
+      screen.getByTestId("webgen-new-project-other-auth-provider"),
+      "Clerk",
+    );
+    await user.click(screen.getByTestId("webgen-new-project-submit"));
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        needsAuth: true,
+        authProvider: "other",
+        otherAuthProvider: "Clerk",
+      }),
+    );
+  });
+
+  it("collects Better Auth owner seed separately and preserves password whitespace", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderDialog({ existingNames: [] });
+    const password = "  Correct Horse🔐 Battery Staple  ";
+
+    await user.type(screen.getByTestId("webgen-new-project-name"), "members");
+    await user.click(screen.getByTestId("webgen-new-project-auth"));
+    await user.type(
+      screen.getByTestId("webgen-owner-seed-email"),
+      "owner@example.test",
+    );
+    await user.type(screen.getByTestId("webgen-owner-seed-username"), "nestor");
+    const passwordInput = screen.getByTestId("webgen-owner-seed-password");
+    expect(passwordInput).toHaveAttribute("type", "password");
+    expect(passwordInput).toHaveAttribute("autocomplete", "new-password");
+    await user.type(passwordInput, password);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("webgen-new-project-submit")).toBeEnabled(),
+    );
+    await user.click(screen.getByTestId("webgen-new-project-submit"));
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit).toHaveBeenCalledWith(
+      {
+        name: "members",
+        description: "",
+        needsDatabase: false,
+        needsAuth: true,
+        authProvider: "better-auth",
+        otherAuthProvider: "",
+      },
+      { email: "owner@example.test", username: "nestor", password },
+    );
+  });
+
   it("calls onCancel from the cancel button", async () => {
     const user = userEvent.setup();
     const { onCancel } = renderDialog();

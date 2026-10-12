@@ -64,12 +64,34 @@ describe("useDckProjectMeta", () => {
       name: "shop",
       port: 3100,
       stack: "nextjs",
+      authProvider: null,
       url: "http://localhost:3100",
       previewPath: null,
       subdomain: null,
       lastStatus: null,
       lastCheckedAt: null,
     });
+  });
+
+  it("normalizes the Better Auth provider marker for existing projects", async () => {
+    downloadFileMock.mockResolvedValue(
+      encode(
+        JSON.stringify({
+          name: "members",
+          port: 3101,
+          stack: "nextjs",
+          authProvider: "Better-Auth",
+        }),
+      ),
+    );
+
+    const { result } = renderHook(
+      () => useDckProjectMeta("/projects/webgen/members"),
+      { wrapper: makeWrapper() },
+    );
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data?.authProvider).toBe("better-auth");
   });
 
   it("returns null when the file is missing", async () => {

@@ -37,6 +37,19 @@ export interface DckConversationLaunchOptions {
   agentProfileId?: string;
   canCreateNew?: boolean;
   blockedMessage?: string;
+  /** Runs before the prepared message is sent to the newly selected chat. */
+  beforeDispatch?: (
+    conversationId: string,
+  ) => Promise<"ready" | "seed-required" | void>;
+  /** Keep the created blank conversation and request required seed input. */
+  onSeedRequired?: (conversationId: string) => void;
+}
+
+export interface DckScopedConversationOptions {
+  /** Create without a query, then stage the server capability, then send. */
+  prepareInitialMessage?: (conversationId: string) => Promise<string>;
+  /** Reuse a blank conversation when preparation failed after creation. */
+  conversationId?: string;
 }
 
 export function useOpenConversation() {
@@ -45,6 +58,15 @@ export function useOpenConversation() {
     useCreateConversation();
   const setMessageToSend = useConversationStore(
     (state) => state.setMessageToSend,
+  );
+  const [isPreparing, setIsPreparing] = React.useState(false);
+
+  const continueConversation = React.useCallback(
+    (conversationId: string, command: string) => {
+      setMessageToSend(command);
+      navigate(`/conversations/${conversationId}`);
+    },
+    [navigate, setMessageToSend],
   );
 
   const openPath = React.useCallback(
@@ -80,19 +102,35 @@ export function useOpenConversation() {
   );
 
   const createScoped = React.useCallback(
-    async (workingDir: string, query: string, agentProfileId?: string) => {
+    async (
+      workingDir: string,
+      query: string,
+      agentProfileId?: string,
+      options?: DckScopedConversationOptions,
+    ): Promise<boolean> => {
+      setIsPreparing(true);
       try {
-        const data = await createConversation({
-          workingDir,
-          query,
-          ...(agentProfileId ? { agentProfileId } : {}),
-        });
+        const data = options?.conversationId
+          ? { conversation_id: options.conversationId }
+          : await createConversation({
+              workingDir,
+              ...(!options?.prepareInitialMessage ? { query } : {}),
+              ...(agentProfileId ? { agentProfileId } : {}),
+            });
+        const preparedQuery = options?.prepareInitialMessage
+          ? await options.prepareInitialMessage(data.conversation_id)
+          : query;
+        if (options?.prepareInitialMessage) setMessageToSend(preparedQuery);
         navigate(`/conversations/${data.conversation_id}`);
+        return true;
       } catch (error) {
         displayErrorToast(error instanceof Error ? error.message : null);
+        return false;
+      } finally {
+        setIsPreparing(false);
       }
     },
-    [createConversation, navigate],
+    [createConversation, navigate, setMessageToSend],
   );
 
   const prefillAndOpen = React.useCallback(
@@ -102,31 +140,46 @@ export function useOpenConversation() {
       command: string,
       options?: DckConversationLaunchOptions,
     ) => {
-      const existing = latestConversationForPath(conversations, workingDir);
-      if (existing) {
-        setMessageToSend(command);
-        navigate(`/conversations/${existing.id}`);
-        return;
-      }
       if (options?.canCreateNew === false) {
-        if (options.blockedMessage) displayErrorToast(options.blockedMessage);
-        return;
+        const existing = latestConversationForPath(conversations, workingDir);
+        if (!existing) {
+          if (options.blockedMessage) displayErrorToast(options.blockedMessage);
+          return;
+        }
       }
+      setIsPreparing(true);
       try {
-        const data = await createConversation({
-          workingDir,
-          ...(options?.agentProfileId
-            ? { agentProfileId: options.agentProfileId }
-            : {}),
-        });
-        setMessageToSend(command);
-        navigate(`/conversations/${data.conversation_id}`);
+        const existing = latestConversationForPath(conversations, workingDir);
+        const data = existing
+          ? { conversation_id: existing.id }
+          : await createConversation({
+              workingDir,
+              ...(options?.agentProfileId
+                ? { agentProfileId: options.agentProfileId }
+                : {}),
+            });
+        const beforeDispatch = await options?.beforeDispatch?.(
+          data.conversation_id,
+        );
+        if (beforeDispatch === "seed-required") {
+          options?.onSeedRequired?.(data.conversation_id);
+          return;
+        }
+        continueConversation(data.conversation_id, command);
       } catch (error) {
         displayErrorToast(error instanceof Error ? error.message : null);
+      } finally {
+        setIsPreparing(false);
       }
     },
-    [createConversation, navigate, setMessageToSend],
+    [continueConversation, createConversation],
   );
 
-  return { openPath, createScoped, prefillAndOpen, isCreating: isPending };
+  return {
+    openPath,
+    createScoped,
+    prefillAndOpen,
+    continueConversation,
+    isCreating: isPending || isPreparing,
+  };
 }

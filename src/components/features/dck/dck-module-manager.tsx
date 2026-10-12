@@ -19,7 +19,6 @@ import {
 } from "#/dck/modules";
 import {
   buildModuleFolderDeleteCommand,
-  composePromptWithSkillTrigger,
   makeCustomModuleId,
   validateCustomModuleDraft,
   type CustomModuleDraft,
@@ -45,7 +44,7 @@ const EMPTY_DRAFT: CustomModuleDraft = {
   iconName: DEFAULT_DCK_MODULE_ICON,
   description: "",
   promptTemplate: "",
-  skillName: "",
+  skillNames: [],
 };
 
 type Mode =
@@ -219,8 +218,17 @@ function ModuleForm({
     existingSlugs,
   });
 
-  const setField = (field: keyof CustomModuleDraft, value: string) =>
-    setDraft((prev) => ({ ...prev, [field]: value }));
+  const setField = (
+    field: Exclude<keyof CustomModuleDraft, "skillNames">,
+    value: string,
+  ) => setDraft((prev) => ({ ...prev, [field]: value }));
+  const setSkillSelected = (skillName: string, selected: boolean) =>
+    setDraft((prev) => ({
+      ...prev,
+      skillNames: selected
+        ? [...new Set([...prev.skillNames, skillName])]
+        : prev.skillNames.filter((name) => name !== skillName),
+    }));
 
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
@@ -360,25 +368,43 @@ function ModuleForm({
         />
       </div>
 
-      <label className={labelClass}>
+      <div className={labelClass}>
         {t(I18nKey.DCK$MODULE_FORM_SKILL_LABEL)}
-        <select
-          data-testid="dck-module-form-skill"
-          value={draft.skillName}
-          onChange={(event) => setField("skillName", event.target.value)}
-          className={fieldClass}
+        <div
+          data-testid="dck-module-form-skills"
+          role="group"
+          aria-label={t(I18nKey.DCK$MODULE_FORM_SKILL_LABEL)}
+          className="flex max-h-52 flex-col gap-1 overflow-y-auto rounded-lg border border-border bg-base p-2"
         >
-          <option value="">{t(I18nKey.DCK$MODULE_FORM_SKILL_NONE)}</option>
-          {skillOptions.map((skill) => (
-            <option key={skill.name} value={skill.name}>
-              {skill.name}
-            </option>
-          ))}
-        </select>
+          {skillOptions.length === 0 ? (
+            <span className="px-2 py-1 text-xs font-normal text-text-tertiary">
+              {t(I18nKey.DCK$MODULE_FORM_SKILL_NONE)}
+            </span>
+          ) : (
+            skillOptions.map((skill) => (
+              <label
+                key={skill.name}
+                className="flex min-h-11 items-center gap-2 rounded-md px-2 text-xs font-normal text-contrast hover:bg-surface"
+              >
+                <input
+                  type="checkbox"
+                  data-testid={`dck-module-form-skill-${skill.name}`}
+                  checked={draft.skillNames.includes(skill.name)}
+                  onChange={(event) =>
+                    setSkillSelected(skill.name, event.target.checked)
+                  }
+                  disabled={isSaving}
+                  className="size-4 shrink-0"
+                />
+                <span>{skill.name}</span>
+              </label>
+            ))
+          )}
+        </div>
         <span className="text-xs font-normal text-text-tertiary">
           {t(I18nKey.DCK$MODULE_FORM_SKILL_HINT)}
         </span>
-      </label>
+      </div>
 
       <div className="sticky bottom-0 flex justify-end gap-2 border-t border-border bg-base-secondary py-3">
         <BrandButton
@@ -489,12 +515,6 @@ export function DckModuleManager({
   const [isDeleting, setIsDeleting] = React.useState(false);
 
   const skillOptions = skills.map((skill) => ({ name: skill.name }));
-  const triggersBySkill = React.useMemo(() => {
-    const map = new Map<string, string[]>();
-    skills.forEach((skill) => map.set(skill.name, skill.triggers));
-    return map;
-  }, [skills]);
-
   const builtins = React.useMemo(
     () => getBuiltinDckModules(builtinOverrides),
     [builtinOverrides],
@@ -510,7 +530,7 @@ export function DckModuleManager({
     name: module.name,
     slug: module.slug,
     workspacePath: `${root}/${module.slug}`,
-    skillName: module.skillName,
+    skillNames: module.skillNames,
     kind: "conversations",
     icon: resolveModuleIcon(module.iconName),
     iconName: module.iconName,
@@ -538,7 +558,7 @@ export function DckModuleManager({
         iconName: module.iconName,
         description: module.description,
         promptTemplate: module.promptTemplate,
-        skillName: module.skillName,
+        skillNames: [...module.skillNames],
       },
     });
 
@@ -558,14 +578,12 @@ export function DckModuleManager({
   ) => {
     if (mode.kind !== "form") return;
     const editingId = mode.editingId;
-    const skillName = draft.skillName.trim();
-    const basePrompt = draft.promptTemplate.trim();
-    const promptTemplate = skillName
-      ? composePromptWithSkillTrigger(
-          basePrompt,
-          triggersBySkill.get(skillName) ?? [],
-        )
-      : basePrompt;
+    const skillNames = [
+      ...new Set(
+        draft.skillNames.map((skillName) => skillName.trim()).filter(Boolean),
+      ),
+    ];
+    const promptTemplate = draft.promptTemplate.trim();
     try {
       if (editingId && isBuiltinModuleId(editingId)) {
         await upsertBuiltinOverride(editingId, {
@@ -573,7 +591,7 @@ export function DckModuleManager({
           iconName: draft.iconName,
           description: draft.description.trim(),
           promptTemplate,
-          skillName,
+          skillNames,
         });
       } else {
         const existing = editingId
@@ -586,7 +604,7 @@ export function DckModuleManager({
           iconName: draft.iconName,
           description: draft.description.trim(),
           promptTemplate,
-          skillName,
+          skillNames,
           order: existing?.order ?? modules.length,
         };
         await upsert(next);

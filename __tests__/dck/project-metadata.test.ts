@@ -15,6 +15,7 @@ describe("parseDckProjectMeta", () => {
       name: "dck-landing",
       port: 3000,
       stack: "nextjs",
+      authProvider: null,
       url: "http://localhost:3000",
       previewPath: null,
       subdomain: null,
@@ -31,6 +32,7 @@ describe("parseDckProjectMeta", () => {
       name: "shop",
       port: 3100,
       stack: "nextjs",
+      authProvider: null,
       url: "http://localhost:3100",
       previewPath: null,
       subdomain: null,
@@ -93,6 +95,7 @@ describe("parseDckProjectMeta", () => {
       name: null,
       port: null,
       stack: null,
+      authProvider: null,
       url: null,
       previewPath: null,
       subdomain: null,
@@ -140,8 +143,12 @@ describe("buildPreviewUrl", () => {
   });
 
   it("returns null when the path or origin is missing", () => {
-    expect(buildPreviewUrl(null, "https://agent.dckautoposting.com")).toBeNull();
-    expect(buildPreviewUrl("   ", "https://agent.dckautoposting.com")).toBeNull();
+    expect(
+      buildPreviewUrl(null, "https://agent.dckautoposting.com"),
+    ).toBeNull();
+    expect(
+      buildPreviewUrl("   ", "https://agent.dckautoposting.com"),
+    ).toBeNull();
     expect(buildPreviewUrl("/preview/shop", null)).toBeNull();
     expect(buildPreviewUrl("/preview/shop", "   ")).toBeNull();
   });

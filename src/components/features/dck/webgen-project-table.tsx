@@ -11,6 +11,7 @@ import {
 } from "#/dck/modules";
 import type { AppConversation } from "#/api/conversation-service/agent-server-conversation-service.types";
 import type { DckProjectMeta } from "#/dck/project-metadata";
+import type { WebgenLifecycleAction } from "#/dck/webgen-lifecycle";
 import { DckProjectStatusBadge } from "./dck-project-status-badge";
 import type { ProjectEntry } from "./project-row";
 import { WebgenLifecycleActions } from "./webgen-lifecycle-actions";
@@ -45,7 +46,13 @@ function WebgenProjectTableRow({
   conversations: AppConversation[];
   onOpen: (path: string) => void;
   isBusy: boolean;
-  dispatchLifecycle: (path: string, command: string) => void;
+  dispatchLifecycle: (
+    path: string,
+    command: string,
+    action: WebgenLifecycleAction,
+    appName: string,
+    authProvider: string | null,
+  ) => void;
 }) {
   const { t, i18n } = useTranslation("openhands");
   const meta: DckProjectMeta | null =
@@ -143,7 +150,15 @@ function WebgenProjectTableRow({
           appName={entry.name}
           port={meta?.port ?? null}
           projectPath={entry.path}
-          onDispatch={dispatchLifecycle}
+          onDispatch={(path, command, action, appName) =>
+            dispatchLifecycle(
+              path,
+              command,
+              action,
+              appName,
+              meta?.authProvider ?? null,
+            )
+          }
           disabled={isBusy}
         />
       </td>
@@ -174,7 +189,13 @@ export function WebgenProjectTable({
   conversations: AppConversation[];
   onOpen: (path: string) => void;
   isBusy: boolean;
-  dispatchLifecycle: (path: string, command: string) => void;
+  dispatchLifecycle: (
+    path: string,
+    command: string,
+    action: WebgenLifecycleAction,
+    appName: string,
+    authProvider: string | null,
+  ) => void;
 }) {
   const { t } = useTranslation("openhands");
   const headClass =

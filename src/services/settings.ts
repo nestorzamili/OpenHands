@@ -19,6 +19,7 @@ export const DEFAULT_SETTINGS: Settings = {
   condenser_max_size: 240,
   enable_sound_notifications: false,
   user_consents_to_analytics: null,
+  dck_module_agent_profile_assignments: {},
   enable_proactive_conversation_starters: false,
   enable_solvability_analysis: false,
   run_router_at_conversation_start: false,

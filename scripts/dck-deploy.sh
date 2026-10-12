@@ -113,6 +113,7 @@ if [ "$REQ_HASH" != "$OLD_REQ_HASH" ]; then
   mv "$WEBGEN_VENV/.requirements.sha256.tmp" "$WEBGEN_VENV/.requirements.sha256"
 fi
 "$WEBGEN_VENV/bin/python" -m py_compile "$TARGET_DIR/services/webgen-control/webgen_control.py"
+install -d -m 0755 /etc/nginx/dck-apps
 install -m 0644 "$TARGET_DIR/services/webgen-control/webgen-control.service" /etc/systemd/system/webgen-control.service
 printf 'WEBGEN_BIND_HOST=%s\n' "$WEBGEN_GATEWAY" > "$TARGET_DIR/webgen-control.env.tmp"
 chmod 600 "$TARGET_DIR/webgen-control.env.tmp"

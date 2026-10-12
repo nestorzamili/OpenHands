@@ -3,33 +3,23 @@ import type { AgentProfileSummary } from "#/api/agent-profiles-service/agent-pro
 import { I18nKey } from "#/i18n/declaration";
 import type { DckModuleAgentProfileSelection } from "#/hooks/use-dck-module-agent-profiles";
 
-const FOLLOW_ACTIVE_PROFILE = "__follow_active_profile__";
-const REMOVED_MODULE_PROFILE = "__removed_module_profile__";
+const UNASSIGNED_MODULE_PROFILE = "__unassigned_module_profile__";
 
 export function DckModuleAgentProfileSummary({
   moduleId,
   profiles,
-  activeAgentProfileId,
   selection,
 }: {
   moduleId: string;
   profiles: readonly AgentProfileSummary[];
-  activeAgentProfileId: string | null;
   selection: DckModuleAgentProfileSelection;
 }) {
   const { t } = useTranslation("openhands");
-  const activeProfile = profiles.find(
-    (profile) => profile.id === activeAgentProfileId,
-  );
   let profileLabel: string;
 
   switch (selection.status) {
-    case "follow-active":
-      profileLabel = activeProfile
-        ? t(I18nKey.DCK$MODULE_AGENT_PROFILE_FOLLOW_ACTIVE_WITH_NAME, {
-            name: activeProfile.name,
-          })
-        : t(I18nKey.DCK$MODULE_AGENT_PROFILE_FOLLOW_ACTIVE);
+    case "unassigned":
+      profileLabel = t(I18nKey.DCK$MODULE_AGENT_PROFILE_NOT_ASSIGNED);
       break;
     case "selected":
       profileLabel =
@@ -46,9 +36,12 @@ export function DckModuleAgentProfileSummary({
         ? t(I18nKey.AUTOMATIONS$UNAVAILABLE_AGENT_PROFILE, {
             id: selection.profileId,
           })
-        : t(I18nKey.DCK$MODULE_AGENT_PROFILE_REMOVED);
+        : t(I18nKey.DCK$MODULE_AGENT_PROFILE_NOT_ASSIGNED);
       break;
   }
+
+  const requiresAssignment =
+    selection.status === "unassigned" || selection.status === "unavailable";
 
   return (
     <div
@@ -64,7 +57,7 @@ export function DckModuleAgentProfileSummary({
       >
         {profileLabel}
       </span>
-      {selection.status === "unavailable" && (
+      {requiresAssignment && (
         <span
           data-testid={`dck-module-agent-profile-summary-warning-${moduleId}`}
           role="alert"
@@ -80,30 +73,26 @@ export function DckModuleAgentProfileSummary({
 export function DckModuleAgentProfileSelector({
   moduleId,
   profiles,
-  activeAgentProfileId,
   selection,
   disabled = false,
   onChange,
 }: {
   moduleId: string;
   profiles: readonly AgentProfileSummary[];
-  activeAgentProfileId: string | null;
   selection: DckModuleAgentProfileSelection;
   disabled?: boolean;
-  onChange: (moduleId: string, profileId: string | null) => void;
+  onChange: (moduleId: string, profileId: string) => void;
 }) {
   const { t } = useTranslation("openhands");
-  const activeProfile = profiles.find(
-    (profile) => profile.id === activeAgentProfileId,
-  );
   const selectorId = `dck-module-agent-profile-${moduleId}`;
   const selectedValue =
-    selection.status === "follow-active"
-      ? FOLLOW_ACTIVE_PROFILE
-      : selection.status === "unavailable"
-        ? (selection.profileId ?? REMOVED_MODULE_PROFILE)
-        : selection.profileId;
-  const hasUnavailableSelection = selection.status === "unavailable";
+    selection.status === "selected" || selection.status === "checking"
+      ? selection.profileId
+      : selection.status === "unavailable" && selection.profileId
+        ? selection.profileId
+        : UNASSIGNED_MODULE_PROFILE;
+  const requiresAssignment =
+    selection.status === "unassigned" || selection.status === "unavailable";
 
   return (
     <label
@@ -116,27 +105,19 @@ export function DckModuleAgentProfileSelector({
         data-testid={`dck-module-agent-profile-selector-${moduleId}`}
         value={selectedValue}
         disabled={disabled || selection.status === "checking"}
-        aria-invalid={hasUnavailableSelection || undefined}
+        aria-invalid={requiresAssignment || undefined}
         aria-describedby={
-          hasUnavailableSelection ? `${selectorId}-warning` : undefined
+          requiresAssignment ? `${selectorId}-warning` : undefined
         }
-        onChange={(event) =>
-          onChange(
-            moduleId,
-            event.target.value === FOLLOW_ACTIVE_PROFILE
-              ? null
-              : event.target.value,
-          )
-        }
+        onChange={(event) => onChange(moduleId, event.target.value)}
         className="min-h-11 w-full min-w-0 rounded-md border border-border bg-base px-2 text-sm text-contrast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-60"
       >
-        <option value={FOLLOW_ACTIVE_PROFILE}>
-          {activeProfile
-            ? t(I18nKey.DCK$MODULE_AGENT_PROFILE_FOLLOW_ACTIVE_WITH_NAME, {
-                name: activeProfile.name,
-              })
-            : t(I18nKey.DCK$MODULE_AGENT_PROFILE_FOLLOW_ACTIVE)}
-        </option>
+        {(selection.status === "unassigned" ||
+          (selection.status === "unavailable" && !selection.profileId)) && (
+          <option value={UNASSIGNED_MODULE_PROFILE} disabled>
+            {t(I18nKey.DCK$MODULE_AGENT_PROFILE_NOT_ASSIGNED)}
+          </option>
+        )}
         {selection.status === "checking" && (
           <option value={selection.profileId} disabled>
             {t(I18nKey.DCK$MODULE_AGENT_PROFILE_CHECKING, {
@@ -144,16 +125,11 @@ export function DckModuleAgentProfileSelector({
             })}
           </option>
         )}
-        {selection.status === "unavailable" && (
-          <option
-            value={selection.profileId ?? REMOVED_MODULE_PROFILE}
-            disabled
-          >
-            {selection.profileId
-              ? t(I18nKey.AUTOMATIONS$UNAVAILABLE_AGENT_PROFILE, {
-                  id: selection.profileId,
-                })
-              : t(I18nKey.DCK$MODULE_AGENT_PROFILE_REMOVED)}
+        {selection.status === "unavailable" && selection.profileId && (
+          <option value={selection.profileId} disabled>
+            {t(I18nKey.AUTOMATIONS$UNAVAILABLE_AGENT_PROFILE, {
+              id: selection.profileId,
+            })}
           </option>
         )}
         {profiles.map((profile) =>
@@ -164,7 +140,7 @@ export function DckModuleAgentProfileSelector({
           ) : null,
         )}
       </select>
-      {hasUnavailableSelection && (
+      {requiresAssignment && (
         <span
           id={`${selectorId}-warning`}
           data-testid={`dck-module-agent-profile-warning-${moduleId}`}

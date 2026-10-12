@@ -59,13 +59,7 @@ type Mode =
 interface DckModuleManagerProps {
   onClose: () => void;
   profiles: readonly AgentProfileSummary[];
-  activeAgentProfileId: string | null;
-  profileAssignments: Record<string, string | null>;
   isCheckingAgentProfiles: boolean;
-  setAgentProfileForModule: (
-    moduleId: string,
-    profileId: string | null,
-  ) => void;
 }
 
 function ModuleRow({
@@ -164,7 +158,6 @@ function ModuleForm({
   initialDraft,
   isEditing,
   profiles,
-  activeAgentProfileId,
   initialProfileSelection,
   isCheckingAgentProfiles,
   reservedSlugs,
@@ -178,7 +171,6 @@ function ModuleForm({
   initialDraft: CustomModuleDraft;
   isEditing: boolean;
   profiles: readonly AgentProfileSummary[];
-  activeAgentProfileId: string | null;
   initialProfileSelection: DckModuleAgentProfileSelection;
   isCheckingAgentProfiles: boolean;
   reservedSlugs: string[];
@@ -188,27 +180,25 @@ function ModuleForm({
   onCancel: () => void;
   onSubmit: (
     draft: CustomModuleDraft,
-    profileIdDraft: string | null | undefined,
+    profileIdDraft: string | undefined,
   ) => void;
 }) {
   const { t } = useTranslation("openhands");
   const [draft, setDraft] = React.useState<CustomModuleDraft>(initialDraft);
   const [showErrors, setShowErrors] = React.useState(false);
   const [profileIdDraft, setProfileIdDraft] = React.useState<
-    string | null | undefined
+    string | undefined
   >(undefined);
 
   const profileSelection =
     profileIdDraft === undefined
       ? initialProfileSelection
-      : profileIdDraft === null
-        ? { status: "follow-active" as const }
-        : resolveDckModuleAgentProfileSelection(
-            moduleId,
-            { [moduleId]: profileIdDraft },
-            profiles,
-            isCheckingAgentProfiles,
-          );
+      : resolveDckModuleAgentProfileSelection(
+          moduleId,
+          { [moduleId]: profileIdDraft },
+          profiles,
+          isCheckingAgentProfiles,
+        );
   const isProfileDraftBlocked =
     profileIdDraft !== undefined &&
     isDckModuleAgentProfileSelectionBlocked(profileSelection);
@@ -355,18 +345,15 @@ function ModuleForm({
         )}
       </label>
 
-      <div className="rounded-lg border border-border bg-base p-3">
-        <DckModuleAgentProfileSelector
-          moduleId={moduleId}
-          profiles={profiles}
-          activeAgentProfileId={activeAgentProfileId}
-          selection={profileSelection}
-          disabled={isSaving}
-          onChange={(_selectedModuleId, profileId) =>
-            setProfileIdDraft(profileId)
-          }
-        />
-      </div>
+      <DckModuleAgentProfileSelector
+        moduleId={moduleId}
+        profiles={profiles}
+        selection={profileSelection}
+        disabled={isSaving || isCheckingAgentProfiles}
+        onChange={(_selectedModuleId, profileId) =>
+          setProfileIdDraft(profileId)
+        }
+      />
 
       <div className={labelClass}>
         {t(I18nKey.DCK$MODULE_FORM_SKILL_LABEL)}
@@ -490,15 +477,13 @@ function DeleteModuleConfirm({
 export function DckModuleManager({
   onClose,
   profiles,
-  activeAgentProfileId,
-  profileAssignments,
   isCheckingAgentProfiles,
-  setAgentProfileForModule,
 }: DckModuleManagerProps) {
   const { t } = useTranslation("openhands");
   const {
     modules,
     builtinOverrides,
+    agentProfileAssignments,
     isSaving,
     upsert,
     upsertBuiltinOverride,
@@ -574,7 +559,7 @@ export function DckModuleManager({
 
   const handleSubmit = async (
     draft: CustomModuleDraft,
-    profileIdDraft: string | null | undefined,
+    profileIdDraft: string | undefined,
   ) => {
     if (mode.kind !== "form") return;
     const editingId = mode.editingId;
@@ -586,13 +571,17 @@ export function DckModuleManager({
     const promptTemplate = draft.promptTemplate.trim();
     try {
       if (editingId && isBuiltinModuleId(editingId)) {
-        await upsertBuiltinOverride(editingId, {
-          name: draft.name.trim(),
-          iconName: draft.iconName,
-          description: draft.description.trim(),
-          promptTemplate,
-          skillNames,
-        });
+        await upsertBuiltinOverride(
+          editingId,
+          {
+            name: draft.name.trim(),
+            iconName: draft.iconName,
+            description: draft.description.trim(),
+            promptTemplate,
+            skillNames,
+          },
+          profileIdDraft,
+        );
       } else {
         const existing = editingId
           ? modules.find((module) => module.id === editingId)
@@ -607,10 +596,7 @@ export function DckModuleManager({
           skillNames,
           order: existing?.order ?? modules.length,
         };
-        await upsert(next);
-      }
-      if (profileIdDraft !== undefined) {
-        setAgentProfileForModule(mode.moduleId, profileIdDraft);
+        await upsert(next, profileIdDraft);
       }
       setMode({ kind: "list" });
     } catch {
@@ -672,10 +658,9 @@ export function DckModuleManager({
               initialDraft={mode.draft}
               isEditing={mode.editingId !== null}
               profiles={profiles}
-              activeAgentProfileId={activeAgentProfileId}
               initialProfileSelection={resolveDckModuleAgentProfileSelection(
                 mode.moduleId,
-                profileAssignments,
+                agentProfileAssignments,
                 profiles,
                 isCheckingAgentProfiles,
               )}

@@ -1,9 +1,36 @@
 import React from "react";
 import { renderHook, waitFor, act } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useDckModulesConfig } from "#/hooks/query/use-dck-modules-config";
+import { getDckModuleAgentProfileScopeKey } from "#/dck/module-config";
+import {
+  __resetActiveStoreForTests,
+  setActiveSelection,
+  setRegisteredBackends,
+} from "#/api/backend-registry/active-store";
+
+const mockSettingsApi = vi.hoisted(() => ({
+  value: {
+    dck_module_agent_profile_assignments: {} as Record<
+      string,
+      Record<string, string | null>
+    >,
+  },
+  save: vi.fn(),
+}));
+
+vi.mock("#/api/settings-service/settings-service.api", () => ({
+  default: {
+    getSettings: vi.fn(async () => mockSettingsApi.value),
+    saveSettings: vi.fn(async (next: Record<string, unknown>) => {
+      mockSettingsApi.save(next);
+      mockSettingsApi.value = { ...mockSettingsApi.value, ...next };
+      return true;
+    }),
+  },
+}));
 
 const downloadTextFileMock = vi.fn();
 const uploadTextFileMock = vi.fn();
@@ -36,6 +63,7 @@ function makeWrapper() {
 
 function configJson(
   modules: { id: string; name: string; slug: string }[],
+  agentProfileAssignments: Record<string, string | null> = {},
 ): string {
   return JSON.stringify({
     modules: modules.map((m, index) => ({
@@ -45,12 +73,15 @@ function configJson(
       promptTemplate: "Do the thing.",
       order: index,
     })),
+    agentProfileAssignments,
   });
 }
 
 describe("useDckModulesConfig", () => {
   beforeEach(() => {
     vi.stubEnv("VITE_DCK_WORKSPACE_ROOT", "");
+    mockSettingsApi.value = { dck_module_agent_profile_assignments: {} };
+    mockSettingsApi.save.mockReset();
     downloadTextFileMock.mockReset();
     uploadTextFileMock.mockReset();
     uploadTextFileMock.mockResolvedValue({ success: true });
@@ -59,6 +90,21 @@ describe("useDckModulesConfig", () => {
       backend: { id: "local-1", kind: "local" },
       orgId: null,
     });
+    __resetActiveStoreForTests();
+    setRegisteredBackends([
+      {
+        id: "local-1",
+        name: "Local",
+        host: "http://localhost:3000",
+        apiKey: "test-key",
+        kind: "local",
+      },
+    ]);
+    setActiveSelection({ backendId: "local-1", orgId: null });
+  });
+
+  afterEach(() => {
+    __resetActiveStoreForTests();
   });
 
   it("returns an empty list when the config file is missing", async () => {
@@ -121,6 +167,71 @@ describe("useDckModulesConfig", () => {
       slug: "reports",
       order: 0,
     });
+  });
+
+  it("persists a module profile selection in scoped server settings", async () => {
+    downloadTextFileMock.mockResolvedValue(configJson([]));
+
+    const { result } = renderHook(() => useDckModulesConfig(), {
+      wrapper: makeWrapper(),
+    });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    await act(async () => {
+      await result.current.upsert(
+        {
+          id: "custom-9",
+          name: "Reports",
+          slug: "reports",
+          iconName: "mail",
+          description: "",
+          promptTemplate: "Write a report.",
+          skillNames: [],
+          order: 0,
+        },
+        "deleted-profile",
+      );
+    });
+
+    expect(uploadTextFileMock).toHaveBeenCalledTimes(1);
+    const [text] = uploadTextFileMock.mock.calls[0];
+    expect(JSON.parse(text)).toMatchObject({
+      modules: [{ id: "custom-9", slug: "reports" }],
+    });
+    expect(JSON.parse(text)).not.toHaveProperty("agentProfileAssignments");
+    const scopeKey = getDckModuleAgentProfileScopeKey(null, "/projects");
+    expect(
+      mockSettingsApi.value.dck_module_agent_profile_assignments[scopeKey],
+    ).toEqual({ "custom-9": "deleted-profile" });
+    expect(mockSettingsApi.save).toHaveBeenCalledWith({
+      dck_module_agent_profile_assignments: {
+        [scopeKey]: { "custom-9": "deleted-profile" },
+      },
+    });
+  });
+
+  it("migrates legacy workspace assignments into settings without replacing stale profile IDs", async () => {
+    downloadTextFileMock.mockResolvedValue(
+      configJson([], { research: "deleted-profile" }),
+    );
+
+    const { result } = renderHook(() => useDckModulesConfig(), {
+      wrapper: makeWrapper(),
+    });
+
+    const scopeKey = getDckModuleAgentProfileScopeKey(null, "/projects");
+    await waitFor(() =>
+      expect(
+        mockSettingsApi.value.dck_module_agent_profile_assignments[scopeKey],
+      ).toEqual({ research: "deleted-profile" }),
+    );
+    await waitFor(() => expect(uploadTextFileMock).toHaveBeenCalled());
+    expect(result.current.agentProfileAssignments).toEqual({
+      research: "deleted-profile",
+    });
+    expect(uploadTextFileMock).toHaveBeenCalled();
+    const [text] = uploadTextFileMock.mock.calls.at(-1)!;
+    expect(JSON.parse(text)).not.toHaveProperty("agentProfileAssignments");
   });
 
   it("persists only changed built-in fields and preserves custom modules", async () => {
@@ -223,25 +334,39 @@ describe("useDckModulesConfig", () => {
 
   it("removes a module", async () => {
     downloadTextFileMock.mockResolvedValue(
-      configJson([
-        { id: "a", name: "A", slug: "a" },
-        { id: "b", name: "B", slug: "b" },
-      ]),
+      configJson(
+        [
+          { id: "a", name: "A", slug: "a" },
+          { id: "b", name: "B", slug: "b" },
+        ],
+        { a: "profile-a", b: "profile-b" },
+      ),
     );
 
     const { result } = renderHook(() => useDckModulesConfig(), {
       wrapper: makeWrapper(),
     });
     await waitFor(() => expect(result.current.modules).toHaveLength(2));
+    const scopeKey = getDckModuleAgentProfileScopeKey(null, "/projects");
+    await waitFor(() =>
+      expect(
+        mockSettingsApi.value.dck_module_agent_profile_assignments[scopeKey],
+      ).toEqual({ a: "profile-a", b: "profile-b" }),
+    );
+    await waitFor(() => expect(uploadTextFileMock).toHaveBeenCalled());
 
     await act(async () => {
       await result.current.remove("a");
     });
 
-    const [text] = uploadTextFileMock.mock.calls[0];
+    const [text] = uploadTextFileMock.mock.calls.at(-1)!;
     expect(JSON.parse(text).modules.map((m: { id: string }) => m.id)).toEqual([
       "b",
     ]);
+    expect(JSON.parse(text)).not.toHaveProperty("agentProfileAssignments");
+    expect(
+      mockSettingsApi.value.dck_module_agent_profile_assignments[scopeKey],
+    ).toEqual({ b: "profile-b" });
   });
 
   it("reorders modules with move", async () => {

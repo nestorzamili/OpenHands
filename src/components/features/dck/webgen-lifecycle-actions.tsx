@@ -17,6 +17,19 @@ import type { WebgenLifecycleAction } from "#/dck/webgen-lifecycle";
 import { cn } from "#/utils/utils";
 
 const SUBDOMAIN_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+const RESERVED_SUBDOMAINS = new Set([
+  "agent",
+  "www",
+  "api",
+  "mail",
+  "smtp",
+  "ftp",
+  "admin",
+  "root",
+  "ns1",
+  "ns2",
+  "localhost",
+]);
 
 export function WebgenLifecycleActions({
   appName,
@@ -48,7 +61,9 @@ export function WebgenLifecycleActions({
   const subdomainInputRef = React.useRef<HTMLInputElement>(null);
   const busy = disabled || isSubmitting;
   const normalizedSubdomain = subdomain.trim().toLowerCase();
-  const isSubdomainValid = SUBDOMAIN_PATTERN.test(normalizedSubdomain);
+  const isSubdomainValid =
+    SUBDOMAIN_PATTERN.test(normalizedSubdomain) &&
+    !RESERVED_SUBDOMAINS.has(normalizedSubdomain);
 
   React.useEffect(() => {
     if (showPublishDialog) subdomainInputRef.current?.focus();
@@ -79,7 +94,7 @@ export function WebgenLifecycleActions({
 
   const iconClassName = "size-4 shrink-0";
   const actionButtonClass =
-    "inline-flex size-8 items-center justify-center rounded border border-border text-text-secondary hover:bg-surface hover:text-contrast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-50";
+    "inline-flex size-11 items-center justify-center rounded border border-border text-text-secondary hover:bg-surface hover:text-contrast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-50";
 
   return (
     <div className="flex shrink-0 items-center justify-end gap-1">
@@ -192,11 +207,13 @@ export function WebgenLifecycleActions({
                   autoCapitalize="none"
                   autoComplete="off"
                   spellCheck={false}
+                  maxLength={63}
+                  required
                   value={subdomain}
                   onChange={(event) => setSubdomain(event.target.value)}
                   disabled={busy}
                   aria-invalid={subdomain.length > 0 && !isSubdomainValid}
-                  aria-describedby="dck-webgen-subdomain-hint"
+                  aria-describedby={`dck-webgen-subdomain-hint${subdomain.length > 0 && !isSubdomainValid ? " dck-webgen-subdomain-error" : ""}`}
                   data-testid="dck-webgen-subdomain-input"
                   className="min-w-0 flex-1 bg-transparent px-3 py-2 outline-none"
                 />

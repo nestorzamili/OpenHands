@@ -2,14 +2,39 @@ import React from "react";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentProfileSummary } from "#/api/agent-profiles-service/agent-profiles-service.api";
+import { getDckModuleAgentProfileScopeKey } from "#/dck/module-config";
+import {
+  __resetActiveStoreForTests,
+  setActiveSelection,
+  setRegisteredBackends,
+} from "#/api/backend-registry/active-store";
 
 import { DckModuleManager } from "#/components/features/dck/dck-module-manager";
 
 const downloadTextFileMock = vi.fn();
 const uploadTextFileMock = vi.fn();
-const setAgentProfileForModuleMock = vi.fn();
+const mockSettingsApi = vi.hoisted(() => ({
+  value: {
+    dck_module_agent_profile_assignments: {} as Record<
+      string,
+      Record<string, string | null>
+    >,
+  },
+  save: vi.fn(),
+}));
+
+vi.mock("#/api/settings-service/settings-service.api", () => ({
+  default: {
+    getSettings: vi.fn(async () => mockSettingsApi.value),
+    saveSettings: vi.fn(async (next: Record<string, unknown>) => {
+      mockSettingsApi.save(next);
+      mockSettingsApi.value = { ...mockSettingsApi.value, ...next };
+      return true;
+    }),
+  },
+}));
 const agentProfiles = [
   {
     id: "active-profile",
@@ -83,7 +108,9 @@ vi.mock("#/hooks/query/use-project-skills", () => ({
   }),
 }));
 
-function customConfig() {
+function customConfig(
+  agentProfileAssignments: Record<string, string | null> = {},
+) {
   return JSON.stringify({
     modules: [
       {
@@ -107,13 +134,11 @@ function customConfig() {
         optionalSkills: [],
       },
     ],
+    agentProfileAssignments,
   });
 }
 
-function renderManager(
-  onClose = vi.fn(),
-  profileAssignments: Record<string, string | null> = {},
-) {
+function renderManager(onClose = vi.fn()) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -122,10 +147,7 @@ function renderManager(
       <DckModuleManager
         onClose={onClose}
         profiles={agentProfiles}
-        activeAgentProfileId="active-profile"
-        profileAssignments={profileAssignments}
         isCheckingAgentProfiles={false}
-        setAgentProfileForModule={setAgentProfileForModuleMock}
       />
     </QueryClientProvider>,
   );
@@ -134,11 +156,27 @@ function renderManager(
 
 beforeEach(() => {
   vi.stubEnv("VITE_DCK_WORKSPACE_ROOT", "");
+  mockSettingsApi.value = { dck_module_agent_profile_assignments: {} };
+  mockSettingsApi.save.mockReset();
   downloadTextFileMock.mockReset();
   uploadTextFileMock.mockReset();
   uploadTextFileMock.mockResolvedValue({ success: true });
   prefillAndOpenMock.mockReset();
-  setAgentProfileForModuleMock.mockReset();
+  __resetActiveStoreForTests();
+  setRegisteredBackends([
+    {
+      id: "local-1",
+      name: "Local",
+      host: "http://localhost:3000",
+      apiKey: "test-key",
+      kind: "local",
+    },
+  ]);
+  setActiveSelection({ backendId: "local-1", orgId: null });
+});
+
+afterEach(() => {
+  __resetActiveStoreForTests();
 });
 
 describe("DckModuleManager", () => {
@@ -180,6 +218,10 @@ describe("DckModuleManager", () => {
     expect(
       screen.getByTestId("dck-module-agent-profile-selector-webgen"),
     ).toBeInTheDocument();
+    await user.selectOptions(
+      screen.getByTestId("dck-module-agent-profile-selector-webgen"),
+      "active-profile",
+    );
     const webgenSkill = screen.getByTestId(
       "dck-module-form-skill-web-generator",
     );
@@ -209,29 +251,47 @@ describe("DckModuleManager", () => {
       ],
     });
     expect(JSON.parse(text).builtinOverrides[0]).not.toHaveProperty("slug");
+    const scopeKey = getDckModuleAgentProfileScopeKey(null, "/projects");
+    expect(
+      mockSettingsApi.value.dck_module_agent_profile_assignments[scopeKey],
+    ).toEqual({ webgen: "active-profile" });
     expect(await screen.findByText("Site Studio")).toBeInTheDocument();
   });
 
   it("edits an existing custom module while keeping its folder stable", async () => {
-    downloadTextFileMock.mockResolvedValue(customConfig());
+    downloadTextFileMock.mockResolvedValue(
+      customConfig({ "custom-email": "research-profile" }),
+    );
     uploadTextFileMock.mockImplementation(async (text: string) => {
       downloadTextFileMock.mockResolvedValue(text);
       return { success: true };
     });
     const user = userEvent.setup();
-    renderManager(vi.fn(), { "custom-email": "research-profile" });
+    renderManager();
+
+    const scopeKey = getDckModuleAgentProfileScopeKey(null, "/projects");
+    await waitFor(() =>
+      expect(
+        mockSettingsApi.value.dck_module_agent_profile_assignments[scopeKey],
+      ).toEqual({ "custom-email": "research-profile" }),
+    );
+    await waitFor(() => expect(uploadTextFileMock).toHaveBeenCalled());
+    uploadTextFileMock.mockClear();
 
     await user.click(await screen.findByTestId("dck-module-edit-custom-email"));
     const profileSelector = screen.getByTestId(
       "dck-module-agent-profile-selector-custom-email",
     ) as HTMLSelectElement;
+    expect(profileSelector.parentElement?.parentElement).toHaveAttribute(
+      "data-testid",
+      "dck-module-form",
+    );
     expect(profileSelector).toHaveValue("research-profile");
     expect(
       screen.getByTestId("dck-module-form-skill-web-generator"),
     ).toBeChecked();
     expect(screen.queryByTestId("dck-module-form-persona")).toBeNull();
-    await user.selectOptions(profileSelector, profileSelector.options[0].value);
-    expect(setAgentProfileForModuleMock).not.toHaveBeenCalled();
+    await user.selectOptions(profileSelector, "active-profile");
 
     const slug = screen.getByTestId("dck-module-form-slug");
     expect(slug).toHaveAttribute("readonly");
@@ -254,10 +314,10 @@ describe("DckModuleManager", () => {
     expect(JSON.parse(text).modules[0]).not.toHaveProperty("personaId");
     expect(JSON.parse(text)).not.toHaveProperty("personas");
     expect(JSON.parse(text).builtinOverrides).toEqual([]);
-    expect(setAgentProfileForModuleMock).toHaveBeenCalledWith(
-      "custom-email",
-      null,
-    );
+    expect(JSON.parse(text)).not.toHaveProperty("agentProfileAssignments");
+    expect(
+      mockSettingsApi.value.dck_module_agent_profile_assignments[scopeKey],
+    ).toEqual({ "custom-email": "active-profile" });
   });
 
   it("blocks saving a module with validation errors and does not write", async () => {
@@ -328,7 +388,6 @@ describe("DckModuleManager", () => {
       slug: "reports",
       skillNames: ["web-generator", "research-brief"],
     });
-    expect(setAgentProfileForModuleMock).not.toHaveBeenCalled();
   });
 
   it("commits a new module's profile preference only after saving with its stable ID", async () => {
@@ -347,7 +406,6 @@ describe("DckModuleManager", () => {
     );
     expect(moduleId).not.toBe("");
     await user.selectOptions(profileSelector, "research-profile");
-    expect(setAgentProfileForModuleMock).not.toHaveBeenCalled();
 
     await user.type(screen.getByTestId("dck-module-form-name"), "Reports");
     await user.type(screen.getByTestId("dck-module-form-slug"), "reports");
@@ -358,16 +416,15 @@ describe("DckModuleManager", () => {
     await user.click(screen.getByTestId("dck-module-form-save"));
 
     await waitFor(() => expect(uploadTextFileMock).toHaveBeenCalledTimes(1));
-    await waitFor(() =>
-      expect(setAgentProfileForModuleMock).toHaveBeenCalledWith(
-        moduleId,
-        "research-profile",
-      ),
-    );
     const [text] = uploadTextFileMock.mock.calls[0];
     const savedModule = JSON.parse(text).modules[0];
     expect(savedModule).toMatchObject({ id: moduleId, slug: "reports" });
     expect(savedModule).not.toHaveProperty("agentProfileId");
+    expect(JSON.parse(text)).not.toHaveProperty("agentProfileAssignments");
+    const scopeKey = getDckModuleAgentProfileScopeKey(null, "/projects");
+    expect(
+      mockSettingsApi.value.dck_module_agent_profile_assignments[scopeKey],
+    ).toEqual({ [moduleId]: "research-profile" });
   });
 
   it("does not commit a selected profile when a new module form is cancelled", async () => {
@@ -382,8 +439,8 @@ describe("DckModuleManager", () => {
     );
     await user.click(screen.getByTestId("dck-module-form-cancel"));
 
-    expect(setAgentProfileForModuleMock).not.toHaveBeenCalled();
     expect(uploadTextFileMock).not.toHaveBeenCalled();
+    expect(mockSettingsApi.save).not.toHaveBeenCalled();
   });
 
   it("deletes only the definition when the folder option is unchecked", async () => {

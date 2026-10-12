@@ -137,6 +137,10 @@ server {
 
 }
 
+# Published files define complete server blocks, so include them at http scope,
+# outside the agent and preview server blocks.
+include /etc/nginx/dck-apps/published-*.conf;
+
 server {
     listen 80;
     listen [::]:80;
@@ -156,6 +160,12 @@ sudo nginx -t && sudo systemctl reload nginx
 `docker compose ps` / `logs`. Webgen publish/preview blocks are written by the
 agent under `/etc/nginx/dck-apps/` — see
 `workspace/.agents/skills/web-generator/SKILL.md`.
+The preview include belongs inside the agent server because it contains
+`location` blocks; the published include must remain at `http` scope because it
+contains standalone TLS/redirect `server` blocks. Existing VMs need this include
+added to their host nginx site manually; `dck-deploy.sh` does not rewrite host
+nginx site files. Publishing also requires the wildcard DNS record and
+certificate from §2.
 
 ## 5. First-run admin
 
@@ -215,7 +225,11 @@ Reset the portal: delete `config/portal-auth.json` and restart.
 
 ## Backup & restore
 
-All durable state is under `/opt/dck-agentic/`:
+All durable state is under `/opt/dck-agentic/`. Agent Profile choices for DCK
+modules are server-side user settings (Local Agent Server `misc_settings`),
+while module definitions remain in the workspace `.dck/modules.json`; the
+`config` and `workspace` backup below covers both. Legacy profile assignments
+in older module config files are migrated to settings on first use.
 
 ```bash
 cd /opt/dck-agentic
@@ -230,10 +244,10 @@ re-chown Canvas-owned directories to 10001, then start. Move VMs by copying
 
 ## Security notes
 
-- `canvas` runs without `privileged` mode but has the Docker socket mounted so
-  the agent can manage Webgen containers; this grants effective host-root to
-  anyone who can drive the agent. Keep portal login mandatory and ingress on
-  loopback behind the TLS proxy.
+- `canvas` runs without `privileged` mode and without the Docker socket. WebGen
+  lifecycle operations go through the authenticated host control service on
+  the private bridge described above; keep that service private and portal
+  login mandatory behind the TLS proxy.
 - The agent writes nginx blocks only under `/etc/nginx/dck-apps/` + reloads;
   grant it only that narrow sudo.
 

@@ -4,9 +4,21 @@ import userEvent from "@testing-library/user-event";
 import { ExecutionStatus } from "#/types/agent-server/core";
 import type { AppConversation } from "#/api/conversation-service/agent-server-conversation-service.types";
 import AgentServerConversationService from "#/api/conversation-service/agent-server-conversation-service.api";
+import SettingsService from "#/api/settings-service/settings-service.api";
+import {
+  __resetActiveStoreForTests,
+  setActiveSelection,
+  setRegisteredBackends,
+} from "#/api/backend-registry/active-store";
+import { resetTestHandlersMockSettings } from "#/mocks/settings-handlers";
+import { getDckModuleAgentProfileScopeKey } from "#/dck/module-config";
 import { renderWithProviders } from "test-utils";
 import { DckModulesSection } from "#/components/features/dck/dck-modules-section";
-import { getDckModuleAgentProfilesStorageKey } from "#/hooks/use-dck-module-agent-profiles";
+
+const mockDckModulesConfig = vi.hoisted(() => ({
+  text: "",
+  lastUploaded: null as string | null,
+}));
 
 const mockSetMessageToSend = vi.fn();
 vi.mock("#/stores/conversation-store", () => ({
@@ -97,24 +109,16 @@ vi.mock("@openhands/typescript-client/clients", async (importOriginal) => ({
 
     downloadTextFile = vi.fn(async (path: string) => {
       if (path === "/projects/.dck/modules.json") {
-        return JSON.stringify({
-          modules: [
-            {
-              id: "custom-email",
-              name: "Email Campaigns",
-              slug: "email",
-              iconName: "mail",
-              description: "Drip sequences",
-              promptTemplate: "Draft an email campaign for the brand.",
-              order: 0,
-            },
-          ],
-        });
+        return mockDckModulesConfig.text;
       }
       throw new Error("not found");
     });
 
-    uploadTextFile = vi.fn(async () => ({ success: true }));
+    uploadTextFile = vi.fn(async (text: string) => {
+      mockDckModulesConfig.text = text;
+      mockDckModulesConfig.lastUploaded = text;
+      return { success: true };
+    });
   },
 }));
 
@@ -157,11 +161,42 @@ const researchConversation = makeConversation({
   workspace: { working_dir: "/projects/research" },
 });
 
+async function getScopedProfileAssignments() {
+  const settings = await SettingsService.getSettings();
+  const scopeKey = getDckModuleAgentProfileScopeKey(null, "/projects");
+  return settings.dck_module_agent_profile_assignments?.[scopeKey] ?? {};
+}
+
 beforeEach(() => {
   vi.stubEnv("VITE_DCK_WORKSPACE_ROOT", "");
-  window.localStorage.removeItem(
-    getDckModuleAgentProfilesStorageKey("test-backend", null),
-  );
+  __resetActiveStoreForTests();
+  setRegisteredBackends([
+    {
+      id: "test-backend",
+      name: "Local",
+      host: "http://localhost:3000",
+      apiKey: "test-key",
+      kind: "local",
+    },
+  ]);
+  setActiveSelection({ backendId: "test-backend", orgId: null });
+  resetTestHandlersMockSettings();
+  SettingsService.invalidateCache();
+  mockDckModulesConfig.text = JSON.stringify({
+    modules: [
+      {
+        id: "custom-email",
+        name: "Email Campaigns",
+        slug: "email",
+        iconName: "mail",
+        description: "Drip sequences",
+        promptTemplate: "Draft an email campaign for the brand.",
+        order: 0,
+      },
+    ],
+    agentProfileAssignments: {},
+  });
+  mockDckModulesConfig.lastUploaded = null;
   mockCreateConversation.mockClear();
   mockSetMessageToSend.mockClear();
   mockOwnerSeedService.stage.mockReset().mockResolvedValue({
@@ -177,6 +212,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  __resetActiveStoreForTests();
 });
 
 describe("DckModulesSection", () => {
@@ -262,12 +298,37 @@ describe("DckModulesSection", () => {
     expect(conversationViewAll).toHaveAttribute("href", "/modules/research");
   });
 
+  it("blocks launch and prompts for a profile when a module has no saved assignment", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<DckModulesSection />);
+
+    const researchCard = await screen.findByTestId("dck-module-card-research");
+    const launchButton = within(researchCard).getByRole("button");
+    expect(launchButton).toBeDisabled();
+    expect(
+      screen.getByTestId("dck-module-agent-profile-summary-warning-research"),
+    ).toBeInTheDocument();
+
+    await user.click(launchButton);
+    expect(mockCreateConversation).not.toHaveBeenCalled();
+  });
+
   it("seeds the module prompt as the opening query for a new conversation", async () => {
+    const config = JSON.parse(mockDckModulesConfig.text);
+    config.agentProfileAssignments = { content: "active-profile" };
+    mockDckModulesConfig.text = JSON.stringify(config);
     const navigate = vi.fn();
     const user = userEvent.setup();
     renderWithProviders(<DckModulesSection />, { navigation: { navigate } });
 
     const contentCard = await screen.findByTestId("dck-module-card-content");
+    await waitFor(() =>
+      expect(
+        within(contentCard).getByTestId(
+          "dck-module-agent-profile-summary-content",
+        ),
+      ).toHaveTextContent("Default"),
+    );
     const newButton = within(contentCard).getByRole("button");
     await user.click(newButton);
 
@@ -285,10 +346,6 @@ describe("DckModulesSection", () => {
 
   it("chooses a module profile in the editor and uses it when launching from home", async () => {
     const user = userEvent.setup();
-    const storageKey = getDckModuleAgentProfilesStorageKey(
-      "test-backend",
-      null,
-    );
     renderWithProviders(<DckModulesSection />);
 
     const researchCard = await screen.findByTestId("dck-module-card-research");
@@ -311,10 +368,13 @@ describe("DckModulesSection", () => {
     await user.click(within(manager).getByTestId("dck-module-form-save"));
 
     await waitFor(() =>
-      expect(
-        JSON.parse(window.localStorage.getItem(storageKey) ?? "{}"),
-      ).toEqual({ research: "research-profile" }),
+      expect(getScopedProfileAssignments()).resolves.toEqual({
+        research: "research-profile",
+      }),
     );
+    expect(
+      JSON.parse(mockDckModulesConfig.lastUploaded ?? "{}"),
+    ).not.toHaveProperty("agentProfileAssignments");
     await user.keyboard("{Escape}");
     await user.click(within(researchCard).getByRole("button"));
 
@@ -330,27 +390,24 @@ describe("DckModulesSection", () => {
     );
   });
 
-  it("uses the card's shared profile preference in the module edit form", async () => {
+  it("reads and updates the card's saved profile in the module edit form", async () => {
     const user = userEvent.setup();
-    const storageKey = getDckModuleAgentProfilesStorageKey(
-      "test-backend",
-      null,
-    );
-    window.localStorage.setItem(
-      storageKey,
-      JSON.stringify({ research: "research-profile" }),
-    );
+    const config = JSON.parse(mockDckModulesConfig.text);
+    config.agentProfileAssignments = { research: "research-profile" };
+    mockDckModulesConfig.text = JSON.stringify(config);
     renderWithProviders(<DckModulesSection />);
 
     const researchCard = await screen.findByTestId("dck-module-card-research");
     expect(
       within(researchCard).queryByRole("combobox"),
     ).not.toBeInTheDocument();
-    expect(
-      within(researchCard).getByTestId(
-        "dck-module-agent-profile-summary-research",
-      ),
-    ).toHaveTextContent("Research Agent");
+    await waitFor(() =>
+      expect(
+        within(researchCard).getByTestId(
+          "dck-module-agent-profile-summary-research",
+        ),
+      ).toHaveTextContent("Research Agent"),
+    );
 
     await user.click(await screen.findByTestId("dck-manage-modules"));
     const manager = await screen.findByTestId("dck-module-manager");
@@ -360,34 +417,31 @@ describe("DckModulesSection", () => {
       "dck-module-agent-profile-selector-research",
     ) as HTMLSelectElement;
     expect(profileSelector).toHaveValue("research-profile");
-    const followActiveValue = profileSelector.options[0].value;
-    await user.selectOptions(profileSelector, followActiveValue);
-    expect(JSON.parse(window.localStorage.getItem(storageKey) ?? "{}")).toEqual(
-      { research: "research-profile" },
-    );
+    await user.selectOptions(profileSelector, "active-profile");
+    await expect(getScopedProfileAssignments()).resolves.toEqual({
+      research: "research-profile",
+    });
 
     await user.click(within(manager).getByTestId("dck-module-form-save"));
 
     await waitFor(() =>
-      expect(
-        JSON.parse(window.localStorage.getItem(storageKey) ?? "{}"),
-      ).toEqual({}),
+      expect(getScopedProfileAssignments()).resolves.toEqual({
+        research: "active-profile",
+      }),
     );
+    expect(
+      JSON.parse(mockDckModulesConfig.lastUploaded ?? "{}"),
+    ).not.toHaveProperty("agentProfileAssignments");
     expect(mockAgentProfiles.data.active_agent_profile_id).toBe(
       "active-profile",
     );
   });
 
-  it("shows stale assignments on home and clears them only through module edit", async () => {
+  it("blocks a stale assignment until it is reassigned to a valid profile", async () => {
     const user = userEvent.setup();
-    const storageKey = getDckModuleAgentProfilesStorageKey(
-      "test-backend",
-      null,
-    );
-    window.localStorage.setItem(
-      storageKey,
-      JSON.stringify({ research: "deleted-profile" }),
-    );
+    const config = JSON.parse(mockDckModulesConfig.text);
+    config.agentProfileAssignments = { research: "deleted-profile" };
+    mockDckModulesConfig.text = JSON.stringify(config);
     renderWithProviders(<DckModulesSection />);
 
     const researchCard = await screen.findByTestId("dck-module-card-research");
@@ -395,9 +449,22 @@ describe("DckModulesSection", () => {
 
     await waitFor(() =>
       expect(
-        JSON.parse(window.localStorage.getItem(storageKey) ?? "{}"),
-      ).toEqual({ research: null }),
+        within(researchCard).getByTestId(
+          "dck-module-agent-profile-summary-research",
+        ),
+      ).not.toHaveTextContent("DCK$MODULE_AGENT_PROFILE_NOT_ASSIGNED"),
     );
+    await waitFor(() =>
+      expect(getScopedProfileAssignments()).resolves.toEqual({
+        research: "deleted-profile",
+      }),
+    );
+    await waitFor(() =>
+      expect(mockDckModulesConfig.lastUploaded).not.toBeNull(),
+    );
+    expect(
+      JSON.parse(mockDckModulesConfig.lastUploaded ?? "{}"),
+    ).not.toHaveProperty("agentProfileAssignments");
     expect(
       screen.getByTestId("dck-module-agent-profile-summary-warning-research"),
     ).toBeInTheDocument();
@@ -414,13 +481,13 @@ describe("DckModulesSection", () => {
     const selector = within(manager).getByTestId(
       "dck-module-agent-profile-selector-research",
     ) as HTMLSelectElement;
-    await user.selectOptions(selector, selector.options[0].value);
+    await user.selectOptions(selector, "active-profile");
     await user.click(within(manager).getByTestId("dck-module-form-save"));
 
     await waitFor(() =>
-      expect(
-        JSON.parse(window.localStorage.getItem(storageKey) ?? "{}"),
-      ).toEqual({}),
+      expect(getScopedProfileAssignments()).resolves.toEqual({
+        research: "active-profile",
+      }),
     );
     await user.keyboard("{Escape}");
     await waitFor(() => expect(createButton).toBeEnabled());
@@ -431,20 +498,30 @@ describe("DckModulesSection", () => {
     );
     const payload = mockCreateConversation.mock.calls[0][0];
     expect(payload.workingDir).toBe("/projects/research");
-    expect(payload).not.toHaveProperty("agentProfileId");
+    expect(payload.agentProfileId).toBe("active-profile");
     expect(mockAgentProfiles.data.active_agent_profile_id).toBe(
       "active-profile",
     );
-    expect(JSON.parse(window.localStorage.getItem(storageKey) ?? "{}")).toEqual(
-      {},
+    expect(JSON.parse(mockDckModulesConfig.text)).not.toHaveProperty(
+      "agentProfileAssignments",
     );
   });
 
   it("opens the webgen spec dialog instead of creating immediately", async () => {
+    const config = JSON.parse(mockDckModulesConfig.text);
+    config.agentProfileAssignments = { webgen: "active-profile" };
+    mockDckModulesConfig.text = JSON.stringify(config);
     const user = userEvent.setup();
     renderWithProviders(<DckModulesSection />);
 
     const webgenCard = await screen.findByTestId("dck-module-card-webgen");
+    await waitFor(() =>
+      expect(
+        within(webgenCard).getByTestId(
+          "dck-module-agent-profile-summary-webgen",
+        ),
+      ).toHaveTextContent("Default"),
+    );
     await user.click(within(webgenCard).getByRole("button"));
 
     // Dialog opens; nothing is created until the spec is submitted.
@@ -469,10 +546,20 @@ describe("DckModulesSection", () => {
   });
 
   it("stages Better Auth owner credentials before sending the home-dialog opening task", async () => {
+    const config = JSON.parse(mockDckModulesConfig.text);
+    config.agentProfileAssignments = { webgen: "active-profile" };
+    mockDckModulesConfig.text = JSON.stringify(config);
     const user = userEvent.setup();
     renderWithProviders(<DckModulesSection />);
 
     const webgenCard = await screen.findByTestId("dck-module-card-webgen");
+    await waitFor(() =>
+      expect(
+        within(webgenCard).getByTestId(
+          "dck-module-agent-profile-summary-webgen",
+        ),
+      ).toHaveTextContent("Default"),
+    );
     await user.click(within(webgenCard).getByRole("button"));
     await user.type(screen.getByTestId("webgen-new-project-name"), "members");
     await user.click(screen.getByTestId("webgen-new-project-auth"));

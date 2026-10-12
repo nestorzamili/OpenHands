@@ -9,7 +9,6 @@ import {
   getDckModuleAgentProfileIdForLaunch,
   isDckModuleAgentProfileSelectionBlocked,
   resolveDckModuleAgentProfileSelection,
-  useDckModuleAgentProfiles,
 } from "#/hooks/use-dck-module-agent-profiles";
 import { NavigationLink } from "#/components/shared/navigation-link";
 import { I18nKey } from "#/i18n/declaration";
@@ -150,7 +149,11 @@ export function DckModulesSection() {
   const { t } = useTranslation("openhands");
   const conversations = useAllConversations();
   const { createScoped, isCreating } = useOpenConversation();
-  const { modules: customModules, builtinOverrides } = useDckModulesConfig();
+  const {
+    modules: customModules,
+    builtinOverrides,
+    agentProfileAssignments,
+  } = useDckModulesConfig();
   const { skills } = useProjectSkills();
   const triggersBySkill = React.useMemo(() => {
     const map = new Map<string, string[]>();
@@ -162,16 +165,6 @@ export function DckModulesSection() {
   const isCheckingAgentProfiles = Boolean(
     agentProfilesQuery.isLoading || agentProfilesQuery.isFetching,
   );
-  const agentProfilesVerified =
-    Boolean(agentProfilesQuery.data) &&
-    !isCheckingAgentProfiles &&
-    !agentProfilesQuery.isError;
-  const { assignments, setAgentProfileForModule } = useDckModuleAgentProfiles(
-    agentProfiles,
-    agentProfilesVerified,
-  );
-  const activeAgentProfileId =
-    agentProfilesQuery.data?.active_agent_profile_id ?? null;
   const modules = React.useMemo(
     () => mergeDckModules(customModules, builtinOverrides),
     [customModules, builtinOverrides],
@@ -194,7 +187,7 @@ export function DckModulesSection() {
   const webgenProfileSelection = webgenModule
     ? resolveDckModuleAgentProfileSelection(
         webgenModule.id,
-        assignments,
+        agentProfileAssignments,
         agentProfiles,
         isCheckingAgentProfiles,
       )
@@ -206,6 +199,7 @@ export function DckModulesSection() {
     ? isDckModuleAgentProfileSelectionBlocked(webgenProfileSelection)
     : false;
   const webgenProfileSelectionBlockedMessage =
+    webgenProfileSelection?.status === "unassigned" ||
     webgenProfileSelection?.status === "unavailable"
       ? t(I18nKey.DCK$MODULE_AGENT_PROFILE_STALE)
       : webgenProfileSelection?.status === "checking"
@@ -308,7 +302,7 @@ export function DckModulesSection() {
         {modules.map((module) => {
           const profileSelection = resolveDckModuleAgentProfileSelection(
             module.id,
-            assignments,
+            agentProfileAssignments,
             agentProfiles,
             isCheckingAgentProfiles,
           );
@@ -320,7 +314,6 @@ export function DckModulesSection() {
             <DckModuleAgentProfileSummary
               moduleId={module.id}
               profiles={agentProfiles}
-              activeAgentProfileId={activeAgentProfileId}
               selection={profileSelection}
             />
           );
@@ -375,10 +368,7 @@ export function DckModulesSection() {
         <DckModuleManager
           onClose={() => setShowModuleManager(false)}
           profiles={agentProfiles}
-          activeAgentProfileId={activeAgentProfileId}
-          profileAssignments={assignments}
           isCheckingAgentProfiles={isCheckingAgentProfiles}
-          setAgentProfileForModule={setAgentProfileForModule}
         />
       )}
     </section>

@@ -61,6 +61,75 @@ networks:
             '[1,"x","c",1,2,"n","é",null," p  "]',
         )
 
+    def test_route_switch_writes_single_published_or_preview_config(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            project = root / "shop"
+            project.mkdir()
+            self.make_project(project)
+            service = self.make_service()
+            service.nginx = root / "nginx"
+            published = service.nginx / "published-shop.conf"
+            preview = service.nginx / "preview-shop.conf"
+
+            with patch.object(service, "nginx_reload") as reload_nginx:
+                service._set_route("shop", project, {"port": 3000}, "my-shop")
+            self.assertIn("server_name my-shop.dckautoposting.com;", published.read_text())
+            self.assertFalse(preview.exists())
+            self.assertEqual(json.loads((project / ".dck.json").read_text())["subdomain"], "my-shop.dckautoposting.com")
+            reload_nginx.assert_called_once_with(expected_config=published)
+
+            with patch.object(service, "nginx_reload") as reload_nginx:
+                service._set_route("shop", project, {"port": 3000}, None)
+            self.assertFalse(published.exists())
+            self.assertIn("location /preview/shop/", preview.read_text())
+            self.assertEqual(json.loads((project / ".dck.json").read_text())["previewPath"], "/preview/shop")
+            reload_nginx.assert_called_once_with(expected_config=preview)
+
+    def test_nginx_reload_requires_expected_route_file_to_be_loaded(self):
+        service = self.make_service()
+        expected = Path("/etc/nginx/dck-apps/published-shop.conf")
+
+        class Result:
+            returncode = 0
+            stderr = ""
+
+            def __init__(self, stdout=""):
+                self.stdout = stdout
+
+        calls = []
+        include_loaded = True
+
+        def run(command, **kwargs):
+            calls.append(command)
+            if command == ["nginx", "-T"]:
+                return Result(
+                    f"# configuration file {expected}:\n" if include_loaded else ""
+                )
+            return Result()
+
+        with patch("webgen_control.subprocess.run", side_effect=run):
+            service.nginx_reload(expected_config=expected)
+        self.assertEqual(calls, [["nginx", "-t"], ["nginx", "-T"], ["systemctl", "reload", "nginx"]])
+
+        calls.clear()
+        include_loaded = False
+        with patch("webgen_control.subprocess.run", side_effect=run):
+            with self.assertRaisesRegex(RuntimeError, "not included"):
+                service.nginx_reload(expected_config=expected)
+        self.assertEqual(calls, [["nginx", "-t"], ["nginx", "-T"]])
+
+    def test_failed_project_list_auth_is_not_followed_by_a_404(self):
+        handler = Handler.__new__(Handler)
+        handler.path = "/api/webgen/projects"
+        handler.auth = lambda: False
+        responses = []
+        handler.send = lambda code, body: responses.append(code)
+
+        handler.do_GET()
+
+        self.assertEqual(responses, [])
+
     def test_seed_encrypted_expiring_once(self):
         with tempfile.TemporaryDirectory() as d:
             seed = SeedStore(ttl=2, master_path=Path(d) / "key")

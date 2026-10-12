@@ -28,7 +28,8 @@ import {
  * Fields the agent-server stores under `misc_settings.app_preferences` (see
  * SDK `openhands.sdk.settings.AppPreferences`). Mirrored here as a flat
  * partial of Settings so the rest of the frontend can keep treating them as
- * top-level keys (`settings.language`, `settings.disabled_skills`, …).
+ * top-level keys (`settings.language`, `settings.disabled_skills`, DCK module
+ * Agent Profile assignments, …).
  */
 export const APP_PREFERENCE_FIELDS = [
   "language",
@@ -41,6 +42,7 @@ export const APP_PREFERENCE_FIELDS = [
   "enabled_skills",
   "run_router_at_conversation_start",
   "workspace_file_discovery",
+  "dck_module_agent_profile_assignments",
 ] as const;
 
 export type AppPreferenceField = (typeof APP_PREFERENCE_FIELDS)[number];
@@ -511,13 +513,10 @@ const transformApiResponse = (
   };
 
   // App-level user preferences come back nested under
-  // `misc_settings.app_preferences` from the local agent-server (added in
-  // 1.27, restructured into the `misc_settings` container in the follow-up
-  // refactor). Hoist them onto the flat Settings shape the rest of the
-  // frontend already speaks. Older servers omit the `misc_settings` field
-  // entirely; the migration helper invoked from `getSettings` promotes any
-  // leftover localStorage values to the server on first run, so the omitted
-  // case just falls back to defaults.
+  // `misc_settings.app_preferences` from the local agent-server. Hoist them
+  // onto the flat Settings shape the rest of the frontend already speaks.
+  // Older servers omit `misc_settings`; omitted values use defaults and are
+  // never recovered from browser-local storage.
   const prefs = response.misc_settings?.app_preferences;
   if (prefs) {
     for (const key of APP_PREFERENCE_FIELDS) {
@@ -816,7 +815,8 @@ class SettingsService {
     settings: Partial<Settings> & Record<string, unknown>,
   ): Promise<boolean> {
     // Split app-level user-preference fields (language, git identity, sound
-    // notifications, analytics consent, disabled_skills) off and route them
+    // notifications, analytics consent, disabled_skills, workspace discovery,
+    // and DCK module Agent Profile assignments) off and route them
     // through `misc_settings_diff.app_preferences` (local) or as flat
     // top-level keys (cloud). The local agent-server stores them under
     // `PersistedSettings.misc_settings.app_preferences`; the cloud accepts

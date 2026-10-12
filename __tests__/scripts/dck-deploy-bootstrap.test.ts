@@ -37,12 +37,27 @@ async function createFixture() {
     writeFile(path.join(stage, "docker-compose.yml"), "services: {}\n"),
     writeFile(path.join(stage, ".env.production.sample"), ""),
     writeFile(path.join(stage, "workspace", "AGENTS.md"), "# Workspace\n"),
-    writeFile(path.join(stage, "workspace", ".agents", "README.md"), "skills\n"),
+    writeFile(
+      path.join(stage, "workspace", ".agents", "README.md"),
+      "skills\n",
+    ),
     writeFile(path.join(stage, "scripts", "dck-deploy.sh"), "#!/bin/sh\n"),
-    writeFile(path.join(stage, "scripts", "migrate-automation-db.sh"), "#!/bin/sh\n"),
-    writeFile(path.join(stage, "services", "webgen-control", "webgen_control.py"), "# service\n"),
-    writeFile(path.join(stage, "services", "webgen-control", "requirements.txt"), "cryptography==50.0.2\nPyYAML==6.0.3\n"),
-    writeFile(path.join(stage, "services", "webgen-control", "webgen-control.service"), "[Service]\n"),
+    writeFile(
+      path.join(stage, "scripts", "migrate-automation-db.sh"),
+      "#!/bin/sh\n",
+    ),
+    writeFile(
+      path.join(stage, "services", "webgen-control", "webgen_control.py"),
+      "# service\n",
+    ),
+    writeFile(
+      path.join(stage, "services", "webgen-control", "requirements.txt"),
+      "cryptography==50.0.2\nPyYAML==6.0.3\n",
+    ),
+    writeFile(
+      path.join(stage, "services", "webgen-control", "webgen-control.service"),
+      "[Service]\n",
+    ),
   ]);
   await writeFile(
     path.join(bin, "docker"),
@@ -59,7 +74,7 @@ exit 2
   await writeFile(path.join(bin, "curl"), "#!/bin/sh\nprintf 200\n");
   await writeFile(
     path.join(bin, "chown"),
-    "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >> \"$CHOWN_LOG\"\nexit 0\n",
+    '#!/usr/bin/env bash\nprintf \'%s\\n\' "$*" >> "$CHOWN_LOG"\nexit 0\n',
   );
   await writeFile(path.join(bin, "systemctl"), "#!/bin/sh\nexit 0\n");
   await writeFile(path.join(bin, "install"), "#!/bin/sh\nexit 0\n");
@@ -143,8 +158,24 @@ describe("DCK production deploy bootstrap", () => {
     const envStat = await stat(path.join(target, ".env"));
     expect(envStat.mode & 0o777).toBe(0o600);
     expect(`${stdout}${stderr}`).not.toContain(env.POSTGRES_PASSWORD);
-    expect(await readFile(path.join(target, "services/webgen-control/webgen_control.py"), "utf8")).toContain("service");
-    expect(await readFile(path.join(target, "webgen-control.env"), "utf8")).toContain("WEBGEN_BIND_HOST=172.17.0.1");
+    expect(
+      await readFile(
+        path.join(target, "services/webgen-control/webgen_control.py"),
+        "utf8",
+      ),
+    ).toContain("service");
+    expect(
+      await readFile(path.join(target, "webgen-control.env"), "utf8"),
+    ).toContain("WEBGEN_BIND_HOST=172.17.0.1");
+    const deploySource = await readFile(deployScript, "utf8");
+    const nginxDirectoryProvisioning = deploySource.indexOf(
+      "install -d -m 0755 /etc/nginx/dck-apps",
+    );
+    const serviceRestart = deploySource.indexOf(
+      "systemctl restart webgen-control.service",
+    );
+    expect(nginxDirectoryProvisioning).toBeGreaterThanOrEqual(0);
+    expect(nginxDirectoryProvisioning).toBeLessThan(serviceRestart);
 
     await execFileAsync(
       "bash",

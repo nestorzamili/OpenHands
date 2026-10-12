@@ -1,14 +1,21 @@
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileClient } from "@openhands/typescript-client/clients";
+import { getSnapshot } from "#/api/backend-registry/active-store";
 import { getAgentServerClientOptions } from "#/api/agent-server-client-options";
 import { useActiveBackend } from "#/contexts/active-backend-context";
 import {
   DCK_MODULES_CONFIG_FILENAME,
+  getDckModuleAgentProfileScopeKey,
+  parseDckModuleAgentProfileAssignments,
   parseDckBuiltinModuleOverrides,
   parseDckModulesConfig,
+  sanitizeDckModuleAgentProfileAssignments,
+  sanitizeDckModuleAgentProfileAssignmentsByScope,
   serializeDckModulesConfig,
   type DckBuiltinModuleOverride,
   type DckCustomModule,
+  type DckModuleAgentProfileAssignments,
 } from "#/dck/module-config";
 import {
   DCK_BUILTIN_MODULE_IDS,
@@ -16,10 +23,16 @@ import {
   getDckWorkspaceRoot,
   type DckModule,
 } from "#/dck/modules";
+import { useSaveSettings } from "#/hooks/mutation/use-save-settings";
+import { SETTINGS_QUERY_KEYS } from "#/hooks/query/query-keys";
+import { useSettings } from "#/hooks/query/use-settings";
+import type { Settings } from "#/types/settings";
 
 export interface DckModulesConfig {
   modules: DckCustomModule[];
   builtinOverrides: DckBuiltinModuleOverride[];
+  /** Read only to migrate assignments written by older versions of the app. */
+  legacyAgentProfileAssignments: DckModuleAgentProfileAssignments;
 }
 
 type BuiltinEditableFields = Pick<
@@ -48,6 +61,7 @@ function configPath(): string {
 const EMPTY_CONFIG: DckModulesConfig = {
   modules: [],
   builtinOverrides: [],
+  legacyAgentProfileAssignments: {},
 };
 
 export async function readDckModulesConfig(
@@ -63,6 +77,8 @@ export async function readDckModulesConfig(
         text,
         DCK_BUILTIN_MODULE_IDS,
       ),
+      legacyAgentProfileAssignments:
+        parseDckModuleAgentProfileAssignments(text),
     };
   } catch {
     return EMPTY_CONFIG;
@@ -73,8 +89,15 @@ export async function writeDckModulesConfig(
   config: DckModulesConfig,
   fileClient: FileClient = getFileClient(),
 ): Promise<void> {
+  const legacyAssignments = sanitizeDckModuleAgentProfileAssignments(
+    config.legacyAgentProfileAssignments,
+  );
   await fileClient.uploadTextFile(
-    serializeDckModulesConfig(config.modules, config.builtinOverrides),
+    serializeDckModulesConfig(
+      config.modules,
+      config.builtinOverrides,
+      Object.keys(legacyAssignments).length > 0 ? legacyAssignments : undefined,
+    ),
     configDir(),
     configFileName(),
   );
@@ -88,12 +111,27 @@ function reindex(modules: DckCustomModule[]): DckCustomModule[] {
   return modules.map((module, index) => ({ ...module, order: index }));
 }
 
+function hasOwn(record: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(record, key);
+}
+
 export function useDckModulesConfig() {
   const active = useActiveBackend();
+  const backendId = active.backend.id;
+  const orgId = active.orgId;
   const isCloud = active.backend.kind === "cloud";
+  const workspaceRoot = getDckWorkspaceRoot();
+  const scopeKey = getDckModuleAgentProfileScopeKey(orgId, workspaceRoot);
   const queryClient = useQueryClient();
-  const queryKey = dckModulesConfigQueryKey(active.backend.id, active.orgId);
-
+  const queryKey = dckModulesConfigQueryKey(backendId, orgId);
+  const settingsQueryKey = [
+    ...SETTINGS_QUERY_KEYS.personal(),
+    backendId,
+    orgId,
+  ];
+  const settingsQuery = useSettings();
+  const settings = settingsQuery.data;
+  const saveSettings = useSaveSettings();
   const query = useQuery<DckModulesConfig>({
     queryKey,
     queryFn: () => readDckModulesConfig(),
@@ -104,10 +142,100 @@ export function useDckModulesConfig() {
   });
 
   const config = query.data ?? EMPTY_CONFIG;
+  const allAssignments = sanitizeDckModuleAgentProfileAssignmentsByScope(
+    settings?.dck_module_agent_profile_assignments,
+  );
+  const hasStoredScope = hasOwn(allAssignments, scopeKey);
+  const agentProfileAssignments = allAssignments[scopeKey] ?? {};
+  const legacyAssignments = sanitizeDckModuleAgentProfileAssignments(
+    config.legacyAgentProfileAssignments,
+  );
+  const migrationToken = `${backendId}:${scopeKey}`;
+  const migrationAttemptedRef = useRef<string | null>(null);
+  const [migrationPending, setMigrationPending] = useState(false);
+  const [migrationError, setMigrationError] = useState<unknown>(null);
+
+  useEffect(() => {
+    if (
+      isCloud ||
+      !query.isSuccess ||
+      !settingsQuery.isSuccess ||
+      settingsQuery.isLoading ||
+      Object.keys(legacyAssignments).length === 0
+    ) {
+      return;
+    }
+
+    if (hasStoredScope) {
+      // The server-backed value is authoritative (including an intentionally
+      // empty map); do not resurrect the old workspace-file assignment.
+      const cleanupToken = `cleanup:${migrationToken}`;
+      if (migrationAttemptedRef.current === cleanupToken) return;
+      migrationAttemptedRef.current = cleanupToken;
+      queryClient.setQueryData<DckModulesConfig>(queryKey, (current) =>
+        current ? { ...current, legacyAgentProfileAssignments: {} } : current,
+      );
+      void writeDckModulesConfig({
+        ...config,
+        legacyAgentProfileAssignments: {},
+      }).catch(() => undefined);
+      return;
+    }
+
+    if (migrationAttemptedRef.current === migrationToken) return;
+    migrationAttemptedRef.current = migrationToken;
+    setMigrationPending(true);
+    setMigrationError(null);
+
+    const nextAssignments = {
+      ...allAssignments,
+      [scopeKey]: legacyAssignments,
+    };
+    void saveSettings
+      .mutateAsync({
+        dck_module_agent_profile_assignments: nextAssignments,
+      })
+      .then(async () => {
+        migrationAttemptedRef.current = `cleanup:${migrationToken}`;
+        queryClient.setQueryData<DckModulesConfig>(queryKey, (current) =>
+          current ? { ...current, legacyAgentProfileAssignments: {} } : current,
+        );
+        // Best-effort cleanup; settings are already the canonical persisted
+        // source if this legacy file write cannot complete.
+        await writeDckModulesConfig({
+          ...config,
+          legacyAgentProfileAssignments: {},
+        }).catch(() => undefined);
+      })
+      .catch((error: unknown) => {
+        setMigrationError(error);
+      })
+      .finally(() => setMigrationPending(false));
+  }, [
+    allAssignments,
+    config,
+    hasStoredScope,
+    isCloud,
+    legacyAssignments,
+    migrationToken,
+    query.isSuccess,
+    queryClient,
+    queryKey,
+    saveSettings.mutateAsync,
+    scopeKey,
+    settingsQuery.isLoading,
+    settingsQuery.isSuccess,
+  ]);
 
   const persist = useMutation<DckModulesConfig, Error, DckModulesConfig>({
     mutationFn: async (next) => {
-      const normalized = { ...next, modules: reindex(next.modules) };
+      const normalized = {
+        ...next,
+        modules: reindex(next.modules),
+        legacyAgentProfileAssignments: sanitizeDckModuleAgentProfileAssignments(
+          next.legacyAgentProfileAssignments,
+        ),
+      };
       await writeDckModulesConfig(normalized);
       return normalized;
     },
@@ -120,17 +248,85 @@ export function useDckModulesConfig() {
   const save = (next: DckModulesConfig): Promise<DckModulesConfig> =>
     persist.mutateAsync(next);
 
-  const upsert = (module: DckCustomModule): Promise<DckModulesConfig> => {
-    const exists = config.modules.some((entry) => entry.id === module.id);
-    const modules = exists
-      ? config.modules.map((entry) => (entry.id === module.id ? module : entry))
-      : [...config.modules, module];
-    return save({ ...config, modules });
+  const update = (
+    updater: (current: DckModulesConfig) => DckModulesConfig,
+  ): Promise<DckModulesConfig> =>
+    save(
+      updater(queryClient.getQueryData<DckModulesConfig>(queryKey) ?? config),
+    );
+
+  const setAgentProfileForModule = async (
+    moduleId: string,
+    profileId: string | null,
+  ): Promise<void> => {
+    if (!settingsQuery.isSuccess || settingsQuery.isLoading) {
+      throw new Error("Active settings scope has not loaded");
+    }
+    const currentActive = getSnapshot().active;
+    if (
+      currentActive.backend.id !== backendId ||
+      currentActive.orgId !== orgId
+    ) {
+      throw new Error("Active settings scope changed");
+    }
+
+    const latestSettings =
+      queryClient.getQueryData<Settings>(settingsQueryKey) ?? settings;
+    const latestScopes = sanitizeDckModuleAgentProfileAssignmentsByScope(
+      latestSettings?.dck_module_agent_profile_assignments,
+    );
+    const hasLatestScope = hasOwn(latestScopes, scopeKey);
+    const nextScope = {
+      ...(hasLatestScope ? latestScopes[scopeKey] : legacyAssignments),
+    };
+    const normalizedProfileId = profileId?.trim();
+    if (normalizedProfileId) {
+      nextScope[moduleId] = normalizedProfileId;
+    } else {
+      delete nextScope[moduleId];
+    }
+
+    await saveSettings.mutateAsync({
+      dck_module_agent_profile_assignments: {
+        ...latestScopes,
+        [scopeKey]: nextScope,
+      },
+    });
+
+    queryClient.setQueryData<DckModulesConfig>(queryKey, (current) =>
+      current ? { ...current, legacyAgentProfileAssignments: {} } : current,
+    );
+    if (Object.keys(legacyAssignments).length > 0) {
+      void writeDckModulesConfig({
+        ...config,
+        legacyAgentProfileAssignments: {},
+      }).catch(() => undefined);
+    }
   };
 
-  const upsertBuiltinOverride = (
+  const upsert = async (
+    module: DckCustomModule,
+    profileId?: string | null,
+  ): Promise<DckModulesConfig> => {
+    const next = await update((current) => {
+      const exists = current.modules.some((entry) => entry.id === module.id);
+      const modules = exists
+        ? current.modules.map((entry) =>
+            entry.id === module.id ? module : entry,
+          )
+        : [...current.modules, module];
+      return { ...current, modules };
+    });
+    if (profileId !== undefined) {
+      await setAgentProfileForModule(module.id, profileId);
+    }
+    return next;
+  };
+
+  const upsertBuiltinOverride = async (
     id: string,
     fields: BuiltinEditableFields,
+    profileId?: string | null,
   ): Promise<DckModulesConfig> => {
     const defaults = getBuiltinDckModules().find((module) => module.id === id);
     if (!defaults) return Promise.reject(new Error("Unknown built-in module"));
@@ -147,41 +343,67 @@ export function useDckModulesConfig() {
       );
     if (!sameSkillNames) override.skillNames = [...fields.skillNames];
 
-    const builtinOverrides = config.builtinOverrides.filter(
-      (entry) => entry.id !== id,
-    );
-    if (Object.keys(override).length > 1) builtinOverrides.push(override);
-    return save({ ...config, builtinOverrides });
-  };
-
-  const remove = (id: string): Promise<DckModulesConfig> =>
-    save({
-      ...config,
-      modules: config.modules.filter((entry) => entry.id !== id),
+    const next = await update((current) => {
+      const builtinOverrides = current.builtinOverrides.filter(
+        (entry) => entry.id !== id,
+      );
+      if (Object.keys(override).length > 1) builtinOverrides.push(override);
+      return { ...current, builtinOverrides };
     });
-
-  const move = (id: string, direction: -1 | 1): Promise<DckModulesConfig> => {
-    const index = config.modules.findIndex((entry) => entry.id === id);
-    if (index === -1) return Promise.resolve(config);
-    const target = index + direction;
-    if (target < 0 || target >= config.modules.length)
-      return Promise.resolve(config);
-    const modules = [...config.modules];
-    [modules[index], modules[target]] = [modules[target], modules[index]];
-    return save({ ...config, modules });
+    if (profileId !== undefined) {
+      await setAgentProfileForModule(id, profileId);
+    }
+    return next;
   };
+
+  const remove = async (id: string): Promise<DckModulesConfig> => {
+    const next = await update((current) => {
+      const legacyAgentProfileAssignments = {
+        ...current.legacyAgentProfileAssignments,
+      };
+      delete legacyAgentProfileAssignments[id];
+      return {
+        ...current,
+        modules: current.modules.filter((entry) => entry.id !== id),
+        legacyAgentProfileAssignments,
+      };
+    });
+    await setAgentProfileForModule(id, null);
+    return next;
+  };
+
+  const move = (id: string, direction: -1 | 1): Promise<DckModulesConfig> =>
+    update((current) => {
+      const index = current.modules.findIndex((entry) => entry.id === id);
+      if (index === -1) return current;
+      const target = index + direction;
+      if (target < 0 || target >= current.modules.length) return current;
+      const modules = [...current.modules];
+      [modules[index], modules[target]] = [modules[target], modules[index]];
+      return { ...current, modules };
+    });
 
   return {
     modules: config.modules,
     builtinOverrides: config.builtinOverrides,
-    isLoading: query.isLoading,
-    isError: query.isError,
-    isFetching: query.isFetching,
-    isSaving: persist.isPending,
-    saveError: persist.error,
-    refetch: query.refetch,
+    agentProfileAssignments,
+    isLoading: query.isLoading || settingsQuery.isLoading,
+    isError: query.isError || settingsQuery.isError || migrationError !== null,
+    isFetching: query.isFetching || settingsQuery.isFetching,
+    isSaving:
+      persist.isPending ||
+      saveSettings.isPending ||
+      migrationPending ||
+      query.isLoading ||
+      settingsQuery.isLoading ||
+      !settingsQuery.isSuccess,
+    saveError: persist.error ?? saveSettings.error ?? migrationError,
+    refetch: async () => {
+      await Promise.all([query.refetch(), settingsQuery.refetch()]);
+    },
     upsert,
     upsertBuiltinOverride,
+    setAgentProfileForModule,
     remove,
     move,
   };

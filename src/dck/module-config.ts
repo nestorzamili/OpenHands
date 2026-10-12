@@ -23,6 +23,12 @@ export interface DckBuiltinModuleOverride {
   skillNames?: string[];
 }
 
+export type DckModuleAgentProfileAssignments = Record<string, string | null>;
+export type DckModuleAgentProfileAssignmentsByScope = Record<
+  string,
+  DckModuleAgentProfileAssignments
+>;
+
 export const DCK_MODULE_SLUG_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
 const SLUG_MAX_LENGTH = 64;
 const NAME_MAX_LENGTH = 64;
@@ -96,6 +102,85 @@ function coerceOrder(value: unknown): number | null {
 export interface ParseDckModulesOptions {
   /** Module ids reserved by built-ins; custom entries using them are dropped. */
   reservedIds?: readonly string[];
+}
+
+export function sanitizeDckModuleAgentProfileAssignments(
+  value: unknown,
+): DckModuleAgentProfileAssignments {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return {};
+  }
+
+  const entries: [string, string | null][] = [];
+  Object.entries(value).forEach(([moduleId, profileId]) => {
+    const normalizedModuleId = coerceString(moduleId);
+    if (!normalizedModuleId) return;
+    if (profileId === null) {
+      entries.push([normalizedModuleId, null]);
+      return;
+    }
+    const normalizedProfileId = coerceString(profileId);
+    if (normalizedProfileId) {
+      entries.push([normalizedModuleId, normalizedProfileId]);
+    }
+  });
+  return Object.fromEntries(entries);
+}
+
+export function sanitizeDckModuleAgentProfileAssignmentsByScope(
+  value: unknown,
+): DckModuleAgentProfileAssignmentsByScope {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return {};
+  }
+
+  const scopes: DckModuleAgentProfileAssignmentsByScope = {};
+  Object.entries(value).forEach(([scopeKey, assignments]) => {
+    const normalizedScopeKey = coerceString(scopeKey);
+    if (!normalizedScopeKey) return;
+    scopes[normalizedScopeKey] =
+      sanitizeDckModuleAgentProfileAssignments(assignments);
+  });
+  return scopes;
+}
+
+/**
+ * Stable per-organization/per-workspace key inside the authenticated user's
+ * settings. User identity is supplied by the settings service itself.
+ */
+export function getDckModuleAgentProfileScopeKey(
+  organizationId: string | null,
+  workspaceRoot: string,
+): string {
+  const normalizedRoot =
+    workspaceRoot.trim().replace(/\\/g, "/").replace(/\/+$/, "") || "/";
+  return JSON.stringify([organizationId, normalizedRoot]);
+}
+
+/**
+ * Read the former `.dck/modules.json` assignment field for one-time migration
+ * into server-backed user preferences. The current serializer does not write it.
+ */
+export function parseDckModuleAgentProfileAssignments(
+  raw: string | null,
+): DckModuleAgentProfileAssignments {
+  if (!raw) return {};
+
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      Array.isArray(parsed)
+    ) {
+      return {};
+    }
+    return sanitizeDckModuleAgentProfileAssignments(
+      (parsed as { agentProfileAssignments?: unknown }).agentProfileAssignments,
+    );
+  } catch {
+    return {};
+  }
 }
 
 /**
@@ -239,6 +324,7 @@ export function parseDckBuiltinModuleOverrides(
 export function serializeDckModulesConfig(
   modules: DckCustomModule[],
   builtinOverrides: readonly DckBuiltinModuleOverride[] = [],
+  legacyAgentProfileAssignments?: DckModuleAgentProfileAssignments,
 ): string {
   const normalized = modules.map((module, index) => ({
     id: module.id,
@@ -264,11 +350,21 @@ export function serializeDckModulesConfig(
       skillNames: coerceStringList(override.skillNames),
     }),
   }));
-  return `${JSON.stringify(
-    { modules: normalized, builtinOverrides: normalizedOverrides },
-    null,
-    2,
-  )}\n`;
+  const serialized: {
+    modules: typeof normalized;
+    builtinOverrides: typeof normalizedOverrides;
+    agentProfileAssignments?: DckModuleAgentProfileAssignments;
+  } = {
+    modules: normalized,
+    builtinOverrides: normalizedOverrides,
+  };
+  const legacyAssignments = sanitizeDckModuleAgentProfileAssignments(
+    legacyAgentProfileAssignments,
+  );
+  if (Object.keys(legacyAssignments).length > 0) {
+    serialized.agentProfileAssignments = legacyAssignments;
+  }
+  return `${JSON.stringify(serialized, null, 2)}\n`;
 }
 
 export interface CustomModuleDraft {

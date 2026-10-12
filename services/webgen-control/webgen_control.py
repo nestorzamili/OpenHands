@@ -381,7 +381,13 @@ class Service:
         except Exception: ok=False
         if ok:self.seed.consume(slug,conversation)
         return ok
-    def nginx_reload(self): subprocess.run(["nginx","-t"],capture_output=True,timeout=10,check=True); subprocess.run(["systemctl","reload","nginx"],capture_output=True,timeout=10,check=True)
+    def nginx_reload(self,expected_config=None):
+        subprocess.run(["nginx","-t"],capture_output=True,timeout=10,check=True)
+        if expected_config is not None:
+            rendered=subprocess.run(["nginx","-T"],capture_output=True,text=True,timeout=10,check=True)
+            output=(rendered.stdout or "")+"\n"+(rendered.stderr or "")
+            if str(expected_config) not in output: raise RuntimeError("nginx route configuration is not included")
+        subprocess.run(["systemctl","reload","nginx"],capture_output=True,timeout=10,check=True)
     def _nginx_file(self,slug,kind):
         if self.nginx.is_symlink() or (self.nginx.exists() and not self.nginx.is_dir()): raise RuntimeError("invalid nginx directory")
         self.nginx.mkdir(parents=True,exist_ok=True); f=self.nginx/(f"published-{slug}.conf" if kind=="published" else f"preview-{slug}.conf")
@@ -444,7 +450,9 @@ class Service:
         else:
             self._atomic_bytes(preview,self.config(slug,meta,True).encode(),0o644); published.unlink(missing_ok=True)
             changes={"subdomain":None,"previewPath":f"/preview/{slug}"}
-        self.nginx_reload(); self.update_meta(p,**changes)
+        route_config=published if subdomain else preview
+        self.nginx_reload(expected_config=route_config)
+        self.update_meta(p,**changes)
     def _published_label(self,meta):
         domain=meta.get("subdomain")
         suffix=".dckautoposting.com"
@@ -567,7 +575,9 @@ class Handler(BaseHTTPRequestHandler):
         return d
     def do_GET(self):
         if self.path=="/healthz": return self.send(200,{"status":"ok"})
-        if self.path=="/api/webgen/projects" and self.auth(): return self.send(200,{"projects":self.svc.projects()})
+        if self.path=="/api/webgen/projects":
+            if not self.auth(): return
+            return self.send(200,{"projects":self.svc.projects()})
         self.send(404,{"error":"not_found"})
     def do_POST(self):
         if not self.auth():return

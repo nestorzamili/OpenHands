@@ -48,6 +48,10 @@ type CloudSettingsResponse = {
   provider_tokens_set?: Partial<Record<Provider, string | null>>;
   mcp_config?: Record<string, SettingsValue>;
   disabled_skills?: string[];
+  dck_module_agent_profile_assignments?: Record<
+    string,
+    Record<string, string | null>
+  >;
   agent_settings?: Record<string, SettingsValue> | null;
   conversation_settings?: Record<string, SettingsValue> | null;
   agent_settings_schema?: unknown;
@@ -154,7 +158,8 @@ export async function saveCloudSettings(diff: {
   conversation_settings_diff?: Record<string, SettingsValue>;
   /**
    * App-level user preferences (language, sound notifications, disabled
-   * skills, …). The cloud `POST /api/v1/settings` consumes these as flat
+   * skills, DCK module profile assignments, …). The cloud
+   * `POST /api/v1/settings` consumes these as flat
    * top-level fields, so this helper iterates the object and assigns each
    * key onto the request body.
    *

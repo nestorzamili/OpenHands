@@ -128,7 +128,7 @@ Deliberately NOT rebranded (technical identifiers / agent identity, changing the
 Keep the existing stack and add the DCK layer on top:
 
 - Keep: `HomeChatLauncher`, `RecommendedAutomationsLauncher` (`variant="rail"`), `PinnedAutomationsDashboard`, `RunningAutomationsList` (`src/components/features/home/home-chat-launcher.tsx:300-304`, `src/routes/home.tsx`).
-- Add: `src/dck/modules.ts` static registry (5 modules: id, workspace path, skill name, description, prompt template) + module card grid above the launcher.
+- Add: `src/dck/modules.ts` static registry (4 modules: id, workspace path, skill name, description, prompt template) + module card grid above the launcher.
 - Add: per-module project list — `webgen` via `useWorkspaceFiles` (convention from §3, no new backend). There is no `dashboards` module list; apps are reached through the built-in Customize → Apps page (`/apps`) and open at `/extensions/<name>/...`.
 - Add: recent block composed from existing sources — `usePaginatedConversations` (recent chats) + latest automation runs (recent jobs) + workspace mtimes (recently touched projects). No new heavy queries.
 
@@ -140,6 +140,33 @@ Custom MCP servers to register at runtime via `/mcp` → Add custom server (loca
 - Search: Tavily `npx -y tavily-mcp` with `TAVILY_API_KEY` (required by `research-brief`), optionally Brave Search as fallback. Both are installable-local catalog entries.
 
 Secrets convention: per-app `DATABASE_URL`/`REDIS_URL` and integration keys live in `/settings/secrets` (auto-attached as `LookupSecret` on conversation start) with gitignored per-project `.env` as the file-side copy. Templates (`.env.example`, skill docs) carry placeholders only, never real credentials.
+
+### 6.1. Module Agent Profile assignments
+
+- Module definitions and built-in overrides remain in the workspace file
+  `.dck/modules.json`; per-module Agent Profile choices are user settings and
+  are stored in `dck_module_agent_profile_assignments`, not in that file or
+  browser storage.
+- The preference is scoped by a stable JSON key `[organizationId,
+  normalizedWorkspaceRoot]`, then module ID. User identity is supplied by the
+  settings service: Local settings belong to that Agent Server, while Cloud
+  settings belong to the selected account/organization. Cloud requests include
+  the selected `X-Org-Id` context.
+- Local persists the map under
+  `misc_settings.app_preferences.dck_module_agent_profile_assignments` through
+  `PATCH /api/settings`; Cloud round-trips the same flat preference through
+  `/api/v1/settings`. The frontend settings adapter is the only owner of this
+  transport shape.
+- Older `.dck/modules.json` files may still contain `agentProfileAssignments`.
+  The client migrates those IDs once into the current server-backed scope and
+  removes the legacy field; migration preserves IDs even when a profile no
+  longer exists.
+- There is **no active-profile fallback**. Unassigned, loading, or unavailable
+  assignments block new module conversations and launch actions. A stale ID
+  stays blocked until a user explicitly chooses a valid profile; changing the
+  globally active profile never changes a module's assignment.
+- See [`specs/dck-module-agent-profile-assignments.md`](../specs/dck-module-agent-profile-assignments.md)
+  for the persistence and launch acceptance criteria.
 
 ## 7. New flows
 

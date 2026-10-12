@@ -3,6 +3,8 @@ import {
   buildDckModulePrompt,
   buildModuleFolderDeleteCommand,
   composePromptWithSkillTrigger,
+  getDckModuleAgentProfileScopeKey,
+  parseDckModuleAgentProfileAssignments,
   parseDckBuiltinModuleOverrides,
   parseDckModulesConfig,
   serializeDckModulesConfig,
@@ -106,6 +108,24 @@ describe("parseDckModulesConfig", () => {
       [],
     );
   });
+
+  it("reads valid and stale assignments for one-time migration from the module config", () => {
+    const raw = JSON.stringify({
+      modules: [],
+      agentProfileAssignments: {
+        research: "deleted-profile",
+        analytics: "  profile-two  ",
+        content: null,
+        invalid: "   ",
+      },
+    });
+
+    expect(parseDckModuleAgentProfileAssignments(raw)).toEqual({
+      research: "deleted-profile",
+      analytics: "profile-two",
+      content: null,
+    });
+  });
 });
 
 describe("serializeDckModulesConfig", () => {
@@ -135,6 +155,29 @@ describe("serializeDckModulesConfig", () => {
     expect(
       parseDckBuiltinModuleOverrides(text, ["research", "webgen"]),
     ).toEqual([override]);
+  });
+
+  it("does not write profile assignments into the module config anymore", () => {
+    const text = serializeDckModulesConfig([module({})]);
+
+    expect(JSON.parse(text)).not.toHaveProperty("agentProfileAssignments");
+    expect(parseDckModuleAgentProfileAssignments(text)).toEqual({});
+  });
+
+  it("keeps un-migrated legacy assignments until server-side persistence succeeds", () => {
+    const legacy = { research: "deleted-profile", content: null };
+    const text = serializeDckModulesConfig([module({})], [], legacy);
+
+    expect(parseDckModuleAgentProfileAssignments(text)).toEqual(legacy);
+  });
+
+  it("keys assignments by organization and normalized stable workspace root", () => {
+    expect(
+      getDckModuleAgentProfileScopeKey("org-1", "\\projects\\team///"),
+    ).toBe('["org-1","/projects/team"]');
+    expect(getDckModuleAgentProfileScopeKey(null, "/projects")).toBe(
+      '[null,"/projects"]',
+    );
   });
 
   it("drops duplicate, unknown, and invalid built-in override entries", () => {

@@ -112,6 +112,11 @@ export type AgentKind = "openhands" | "acp";
 
 export type Settings = {
   workspace_file_discovery?: Record<string, WorkspaceFileDiscovery | null>;
+  /** DCK Agent Profile assignments keyed by organization/workspace scope, then module id. */
+  dck_module_agent_profile_assignments?: Record<
+    string,
+    Record<string, string | null>
+  >;
   llm_model: string;
   llm_base_url: string;
   agent: string;

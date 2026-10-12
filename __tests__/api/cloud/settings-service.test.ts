@@ -122,6 +122,21 @@ describe("cloud settings", () => {
     expect(result.conversation_settings?.max_iterations).toBe(30);
   });
 
+  it("round-trips DCK profile assignments with the active organization context", async () => {
+    const assignments = {
+      '["org-1","/projects"]': { research: "deleted-profile" },
+    };
+    setActiveSelection({ backendId: cloudBackend.id, orgId: "org-1" });
+    stubGet("/api/v1/settings", {
+      dck_module_agent_profile_assignments: assignments,
+    });
+
+    const settings = await fetchCloudSettings();
+
+    expect(settings.dck_module_agent_profile_assignments).toEqual(assignments);
+    expect(capturedRequests[0]?.headers.get("x-org-id")).toBe("org-1");
+  });
+
   it("derives every supported nested field while preserving cloud defaults", async () => {
     const flat = {
       llm_model: "openai/gpt-4o",
@@ -334,6 +349,9 @@ describe("cloud settings", () => {
         enable_sound_notifications: false,
         git_user_name: "",
         disabled_skills: [],
+        dck_module_agent_profile_assignments: {
+          '["org-1","/projects"]': { analytics: "profile-2" },
+        },
       },
     });
 
@@ -346,6 +364,9 @@ describe("cloud settings", () => {
       enable_sound_notifications: false,
       git_user_name: "",
       disabled_skills: [],
+      dck_module_agent_profile_assignments: {
+        '["org-1","/projects"]': { analytics: "profile-2" },
+      },
     });
     expect(capturedBodies[0]).not.toHaveProperty("language");
   });

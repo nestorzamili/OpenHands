@@ -981,6 +981,7 @@ export const SETTINGS_HANDLERS = [
       git_user_email: null,
       title_llm_profile: null,
       disabled_skills: [],
+      dck_module_agent_profile_assignments: {},
     };
 
     if (!settings) {

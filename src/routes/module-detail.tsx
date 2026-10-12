@@ -51,7 +51,6 @@ import {
   getDckModuleAgentProfileIdForLaunch,
   isDckModuleAgentProfileSelectionBlocked,
   resolveDckModuleAgentProfileSelection,
-  useDckModuleAgentProfiles,
 } from "#/hooks/use-dck-module-agent-profiles";
 import { displayErrorToast } from "#/utils/custom-toast-handlers";
 import type { ProjectEntry } from "#/components/features/dck/project-row";
@@ -340,24 +339,15 @@ export function ModuleDetailView({
   const isCheckingAgentProfiles = Boolean(
     agentProfilesQuery.isLoading || agentProfilesQuery.isFetching,
   );
-  const agentProfilesVerified =
-    Boolean(agentProfilesQuery.data) &&
-    !isCheckingAgentProfiles &&
-    !agentProfilesQuery.isError;
-  const { assignments } = useDckModuleAgentProfiles(
-    agentProfiles,
-    agentProfilesVerified,
-  );
-  const activeAgentProfileId =
-    agentProfilesQuery.data?.active_agent_profile_id ?? null;
+  const { agentProfileAssignments } = useDckModulesConfig();
   const moduleProfileSelection = dckModule
     ? resolveDckModuleAgentProfileSelection(
         dckModule.id,
-        assignments,
+        agentProfileAssignments,
         agentProfiles,
         isCheckingAgentProfiles,
       )
-    : { status: "follow-active" as const };
+    : { status: "unassigned" as const };
   const moduleAgentProfileId = getDckModuleAgentProfileIdForLaunch(
     moduleProfileSelection,
   );
@@ -365,6 +355,7 @@ export function ModuleDetailView({
     moduleProfileSelection,
   );
   const moduleProfileSelectionBlockedMessage =
+    moduleProfileSelection.status === "unassigned" ||
     moduleProfileSelection.status === "unavailable"
       ? t(I18nKey.DCK$MODULE_AGENT_PROFILE_STALE)
       : moduleProfileSelection.status === "checking"
@@ -704,7 +695,6 @@ export function ModuleDetailView({
             <DckModuleAgentProfileSummary
               moduleId={dckModule.id}
               profiles={agentProfiles}
-              activeAgentProfileId={activeAgentProfileId}
               selection={moduleProfileSelection}
             />
           </div>

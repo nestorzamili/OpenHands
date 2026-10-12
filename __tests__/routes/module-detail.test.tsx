@@ -4,10 +4,19 @@ import userEvent from "@testing-library/user-event";
 import { ExecutionStatus } from "#/types/agent-server/core";
 import type { AppConversation } from "#/api/conversation-service/agent-server-conversation-service.types";
 import AgentServerConversationService from "#/api/conversation-service/agent-server-conversation-service.api";
+import SettingsService from "#/api/settings-service/settings-service.api";
+import {
+  __resetActiveStoreForTests,
+  setActiveSelection,
+  setRegisteredBackends,
+} from "#/api/backend-registry/active-store";
+import { resetTestHandlersMockSettings } from "#/mocks/settings-handlers";
+import { getDckModuleAgentProfileScopeKey } from "#/dck/module-config";
 import { renderWithProviders } from "test-utils";
 import { ModuleDetailView } from "#/routes/module-detail";
 import { getDckModuleById } from "#/dck/modules";
-import { getDckModuleAgentProfilesStorageKey } from "#/hooks/use-dck-module-agent-profiles";
+
+const mockDckModulesConfig = vi.hoisted(() => ({ text: "" }));
 
 const mockOwnerSeedService = vi.hoisted(() => ({
   stage: vi.fn(),
@@ -107,6 +116,19 @@ vi.mock("@openhands/typescript-client/clients", async (importOriginal) => ({
     typeof import("@openhands/typescript-client/clients")
   >()),
   FileClient: class {
+    downloadTextFile = vi.fn(async (path: string) => {
+      if (path === "/projects/.dck/modules.json") {
+        return mockDckModulesConfig.text;
+      }
+      throw new Error("not found");
+    });
+
+    uploadTextFile = vi.fn(
+      async (content: string, _directory: string, _fileName: string) => {
+        mockDckModulesConfig.text = content;
+      },
+    );
+
     searchSubdirectories = vi.fn(async (path: string) => ({
       items:
         path === "/projects/webgen"
@@ -167,9 +189,23 @@ const researchConversation = makeConversation({
 
 beforeEach(() => {
   vi.stubEnv("VITE_DCK_WORKSPACE_ROOT", "");
-  window.localStorage.removeItem(
-    getDckModuleAgentProfilesStorageKey("test-backend", null),
-  );
+  __resetActiveStoreForTests();
+  setRegisteredBackends([
+    {
+      id: "test-backend",
+      name: "Local",
+      host: "http://localhost:3000",
+      apiKey: "test-key",
+      kind: "local",
+    },
+  ]);
+  setActiveSelection({ backendId: "test-backend", orgId: null });
+  resetTestHandlersMockSettings();
+  SettingsService.invalidateCache();
+  mockDckModulesConfig.text = JSON.stringify({
+    modules: [],
+    agentProfileAssignments: {},
+  });
   mockCreateConversation.mockClear();
   mockOwnerSeedService.stage.mockReset().mockResolvedValue({
     verification_key: "public-verification-key",
@@ -193,7 +229,58 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  __resetActiveStoreForTests();
 });
+
+async function getScopedProfileAssignments() {
+  const settings = await SettingsService.getSettings();
+  const scopeKey = getDckModuleAgentProfileScopeKey(null, "/projects");
+  return settings.dck_module_agent_profile_assignments?.[scopeKey] ?? {};
+}
+
+function setModuleProfileAssignments(
+  agentProfileAssignments: Record<string, string | null>,
+) {
+  mockDckModulesConfig.text = JSON.stringify({
+    modules: [],
+    agentProfileAssignments,
+  });
+}
+
+async function waitForAssignedModuleProfile(
+  moduleId: string,
+  profileId: string,
+) {
+  const profileName = mockAgentProfiles.data.profiles.find(
+    (profile) => profile.id === profileId,
+  )?.name;
+  await waitFor(async () => {
+    expect(await getScopedProfileAssignments()).toMatchObject({
+      [moduleId]: profileId,
+    });
+    expect(
+      screen.getByTestId(`dck-module-agent-profile-summary-${moduleId}`),
+    ).toHaveTextContent(profileName ?? profileId);
+    expect(
+      screen.queryByTestId(
+        `dck-module-agent-profile-summary-warning-${moduleId}`,
+      ),
+    ).not.toBeInTheDocument();
+  });
+  await waitFor(() =>
+    expect(JSON.parse(mockDckModulesConfig.text)).not.toHaveProperty(
+      "agentProfileAssignments",
+    ),
+  );
+}
+
+async function waitForLegacyAssignmentMigration() {
+  await waitFor(() =>
+    expect(JSON.parse(mockDckModulesConfig.text)).not.toHaveProperty(
+      "agentProfileAssignments",
+    ),
+  );
+}
 
 describe("ModuleDetailView header", () => {
   it("renders the module header for a resolved module", () => {
@@ -213,17 +300,20 @@ describe("ModuleDetailView header", () => {
 
   it("shows the saved profile read-only and applies it to a new conversation", async () => {
     const user = userEvent.setup();
-    window.localStorage.setItem(
-      getDckModuleAgentProfilesStorageKey("test-backend", null),
-      JSON.stringify({ research: "research-profile" }),
-    );
+    setModuleProfileAssignments({ research: "research-profile" });
     renderWithProviders(
       <ModuleDetailView dckModule={getDckModuleById("research")} />,
     );
 
     expect(
       await screen.findByTestId("dck-module-agent-profile-summary-research"),
-    ).toHaveTextContent("Research Agent");
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("dck-module-agent-profile-summary-research"),
+      ).toHaveTextContent("Research Agent"),
+    );
+    await waitForLegacyAssignmentMigration();
     expect(
       screen.queryByTestId("dck-module-agent-profile-selector-research"),
     ).not.toBeInTheDocument();
@@ -243,14 +333,7 @@ describe("ModuleDetailView header", () => {
 
   it("blocks new module conversations when a saved profile is unavailable", async () => {
     const user = userEvent.setup();
-    const storageKey = getDckModuleAgentProfilesStorageKey(
-      "test-backend",
-      null,
-    );
-    window.localStorage.setItem(
-      storageKey,
-      JSON.stringify({ research: "deleted-profile" }),
-    );
+    setModuleProfileAssignments({ research: "deleted-profile" });
     renderWithProviders(
       <ModuleDetailView dckModule={getDckModuleById("research")} />,
     );
@@ -258,14 +341,20 @@ describe("ModuleDetailView header", () => {
     const warning = await screen.findByTestId(
       "dck-module-agent-profile-summary-warning-research",
     );
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("dck-module-agent-profile-summary-research"),
+      ).not.toHaveTextContent("DCK$MODULE_AGENT_PROFILE_NOT_ASSIGNED"),
+    );
     const newConversationButton = within(
       screen.getByTestId("dck-module-detail-research"),
     ).getByTestId("dck-module-new-conversation");
     await waitFor(() =>
-      expect(
-        JSON.parse(window.localStorage.getItem(storageKey) ?? "{}"),
-      ).toEqual({ research: null }),
+      expect(getScopedProfileAssignments()).resolves.toEqual({
+        research: "deleted-profile",
+      }),
     );
+    await waitForLegacyAssignmentMigration();
     expect(warning).toBeInTheDocument();
     expect(
       screen.queryByTestId("dck-module-agent-profile-selector-research"),
@@ -308,15 +397,13 @@ describe("ModuleDetailView projects list", () => {
 
   it("opens the project conversation prompt-free on row click", async () => {
     const navigate = vi.fn();
-    window.localStorage.setItem(
-      getDckModuleAgentProfilesStorageKey("test-backend", null),
-      JSON.stringify({ webgen: "deleted-profile" }),
-    );
+    setModuleProfileAssignments({ webgen: "deleted-profile" });
     renderWithProviders(
       <ModuleDetailView dckModule={getDckModuleById("webgen")} />,
       { navigation: { navigate } },
     );
 
+    await waitForLegacyAssignmentMigration();
     fireEvent.click(await screen.findByTestId("dck-project-row-open"));
 
     await waitFor(() => {
@@ -326,10 +413,7 @@ describe("ModuleDetailView projects list", () => {
   });
 
   it("runs typed lifecycle actions even when the saved agent profile is unavailable", async () => {
-    window.localStorage.setItem(
-      getDckModuleAgentProfilesStorageKey("test-backend", null),
-      JSON.stringify({ webgen: "deleted-profile" }),
-    );
+    setModuleProfileAssignments({ webgen: "deleted-profile" });
     vi.mocked(
       AgentServerConversationService.searchConversations,
     ).mockResolvedValue({ items: [], next_page_id: null });
@@ -342,6 +426,12 @@ describe("ModuleDetailView projects list", () => {
         "dck-module-agent-profile-summary-warning-webgen",
       ),
     ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(getScopedProfileAssignments()).resolves.toEqual({
+        webgen: "deleted-profile",
+      }),
+    );
+    await waitForLegacyAssignmentMigration();
     expect(screen.getByTestId("dck-module-new-project")).toBeDisabled();
 
     fireEvent.click(await screen.findByTestId("dck-project-row-open"));
@@ -358,6 +448,7 @@ describe("ModuleDetailView projects list", () => {
   });
 
   it("opens the New Project dialog and seeds a spec-filled prompt on submit", async () => {
+    setModuleProfileAssignments({ webgen: "active-profile" });
     vi.mocked(
       AgentServerConversationService.searchConversations,
     ).mockResolvedValue({
@@ -370,6 +461,7 @@ describe("ModuleDetailView projects list", () => {
     );
 
     // Clicking New project opens the dialog — it must NOT create immediately.
+    await waitForAssignedModuleProfile("webgen", "active-profile");
     await user.click(await screen.findByTestId("dck-module-new-project"));
     expect(
       await screen.findByTestId("webgen-new-project-dialog"),
@@ -393,11 +485,13 @@ describe("ModuleDetailView projects list", () => {
   });
 
   it("creates nothing when the New Project dialog is cancelled", async () => {
+    setModuleProfileAssignments({ webgen: "active-profile" });
     const user = userEvent.setup();
     renderWithProviders(
       <ModuleDetailView dckModule={getDckModuleById("webgen")} />,
     );
 
+    await waitForAssignedModuleProfile("webgen", "active-profile");
     await user.click(await screen.findByTestId("dck-module-new-project"));
     await user.click(await screen.findByTestId("webgen-new-project-cancel"));
 
@@ -412,11 +506,13 @@ describe("ModuleDetailView projects list", () => {
   it("blocks a duplicate project name in the New Project dialog", async () => {
     // `shop` already exists under webgen (FileClient mock), so submit stays
     // disabled and no conversation is created.
+    setModuleProfileAssignments({ webgen: "active-profile" });
     const user = userEvent.setup();
     renderWithProviders(
       <ModuleDetailView dckModule={getDckModuleById("webgen")} />,
     );
 
+    await waitForAssignedModuleProfile("webgen", "active-profile");
     await user.click(await screen.findByTestId("dck-module-new-project"));
     await user.type(screen.getByTestId("webgen-new-project-name"), "shop");
     await user.tab();
@@ -429,6 +525,7 @@ describe("ModuleDetailView projects list", () => {
   });
 
   it("keeps the Better Auth project dialog open after staging fails and retries the same conversation", async () => {
+    setModuleProfileAssignments({ webgen: "active-profile" });
     mockOwnerSeedService.stage
       .mockRejectedValueOnce(new Error("secure provisioning unavailable"))
       .mockResolvedValueOnce({ verification_key: "public-verification-key" });
@@ -437,6 +534,7 @@ describe("ModuleDetailView projects list", () => {
       <ModuleDetailView dckModule={getDckModuleById("webgen")} />,
     );
 
+    await waitForAssignedModuleProfile("webgen", "active-profile");
     await user.click(await screen.findByTestId("dck-module-new-project"));
     await user.type(screen.getByTestId("webgen-new-project-name"), "members");
     await user.click(screen.getByTestId("webgen-new-project-auth"));
@@ -504,10 +602,12 @@ describe("ModuleDetailView webgen lifecycle actions", () => {
 
   it("uses an existing conversation only to authorize Better Auth seed delivery", async () => {
     mockRuntimeProjects.projects[0].auth_provider = "better-auth";
+    setModuleProfileAssignments({ webgen: "active-profile" });
     renderWithProviders(
       <ModuleDetailView dckModule={getDckModuleById("webgen")} />,
     );
 
+    await waitForAssignedModuleProfile("webgen", "active-profile");
     fireEvent.click(await screen.findByTestId("dck-lifecycle-deploy"));
     await waitFor(() => {
       expect(mockWebgenService.run).toHaveBeenCalledWith("shop", {
@@ -528,14 +628,12 @@ describe("ModuleDetailView webgen lifecycle actions", () => {
     vi.mocked(
       AgentServerConversationService.searchConversations,
     ).mockResolvedValue({ items: [researchConversation], next_page_id: null });
-    window.localStorage.setItem(
-      getDckModuleAgentProfilesStorageKey("test-backend", null),
-      JSON.stringify({ webgen: "research-profile" }),
-    );
+    setModuleProfileAssignments({ webgen: "research-profile" });
     renderWithProviders(
       <ModuleDetailView dckModule={getDckModuleById("webgen")} />,
     );
 
+    await waitForAssignedModuleProfile("webgen", "research-profile");
     fireEvent.click(await screen.findByTestId("dck-lifecycle-deploy"));
     await waitFor(() => {
       expect(mockWebgenService.run).toHaveBeenCalledWith("shop", {
@@ -552,6 +650,7 @@ describe("ModuleDetailView webgen lifecycle actions", () => {
 
   it("requests fresh owner seed credentials when the staged capability has expired", async () => {
     mockRuntimeProjects.projects[0].auth_provider = "better-auth";
+    setModuleProfileAssignments({ webgen: "active-profile" });
     const expired = Object.assign(new Error("expired"), { status: 410 });
     mockOwnerSeedService.authorize.mockRejectedValueOnce(expired);
     const user = userEvent.setup();
@@ -559,6 +658,8 @@ describe("ModuleDetailView webgen lifecycle actions", () => {
       <ModuleDetailView dckModule={getDckModuleById("webgen")} />,
     );
 
+    await waitForAssignedModuleProfile("webgen", "active-profile");
+    await waitForAssignedModuleProfile("webgen", "active-profile");
     fireEvent.click(await screen.findByTestId("dck-lifecycle-deploy"));
     expect(
       await screen.findByTestId("webgen-owner-seed-dialog"),

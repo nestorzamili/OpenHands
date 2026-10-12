@@ -374,6 +374,49 @@ describe("SettingsService", () => {
     expect(reloaded.workspace_file_discovery?.["/project"]).toEqual(options);
   });
 
+  it("round-trips DCK profile assignments through local app preferences", async () => {
+    const assignments = {
+      '["org-1","/projects"]': {
+        research: "deleted-profile",
+        analytics: "profile-2",
+      },
+    };
+    let patchBody: unknown;
+    server.use(
+      http.patch("*/api/settings", async ({ request }) => {
+        patchBody = await request.json();
+        return HttpResponse.json({});
+      }),
+      http.get("*/api/settings", () =>
+        HttpResponse.json({
+          agent_settings: {},
+          conversation_settings: {},
+          llm_api_key_is_set: false,
+          misc_settings: {
+            app_preferences: {
+              dck_module_agent_profile_assignments: assignments,
+            },
+          },
+        }),
+      ),
+    );
+
+    await SettingsService.saveSettings({
+      dck_module_agent_profile_assignments: assignments,
+    });
+    expect(patchBody).toEqual({
+      misc_settings_diff: {
+        app_preferences: {
+          dck_module_agent_profile_assignments: assignments,
+        },
+      },
+    });
+
+    SettingsService.invalidateCache();
+    const reloaded = await SettingsService.getSettings();
+    expect(reloaded.dck_module_agent_profile_assignments).toEqual(assignments);
+  });
+
   it("stores the title profile as a local app preference", async () => {
     const patchBodies: Array<Record<string, unknown>> = [];
     server.use(
@@ -432,6 +475,9 @@ describe("SettingsService", () => {
       user_consents_to_analytics: true,
       title_llm_profile: "Titles",
       disabled_skills: ["SSH Microagent"],
+      dck_module_agent_profile_assignments: {
+        '["org-1","/projects"]': { research: "profile-1" },
+      },
     };
     await SettingsService.saveSettings(appPrefs);
     SettingsService.invalidateCache();
@@ -446,6 +492,8 @@ describe("SettingsService", () => {
       user_consents_to_analytics: settings.user_consents_to_analytics,
       title_llm_profile: settings.title_llm_profile,
       disabled_skills: settings.disabled_skills,
+      dck_module_agent_profile_assignments:
+        settings.dck_module_agent_profile_assignments,
     }).toEqual(appPrefs);
   });
 
@@ -487,6 +535,9 @@ describe("SettingsService", () => {
       language: "fr",
       git_user_name: "Alice",
       title_llm_profile: null,
+      dck_module_agent_profile_assignments: {
+        '["org-1","/projects"]': { research: "profile-1" },
+      },
     });
 
     // Assert: cloud save received the fields under `app_preferences` so
@@ -496,6 +547,9 @@ describe("SettingsService", () => {
         language: "fr",
         git_user_name: "Alice",
         title_llm_profile: null,
+        dck_module_agent_profile_assignments: {
+          '["org-1","/projects"]': { research: "profile-1" },
+        },
       },
     });
   });

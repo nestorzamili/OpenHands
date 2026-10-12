@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import {
+  chmod,
   mkdtemp,
   mkdir,
   readFile,
@@ -29,21 +30,19 @@ async function createFixture() {
   await Promise.all([
     mkdir(path.join(stage, "scripts"), { recursive: true }),
     mkdir(path.join(stage, "workspace", ".agents"), { recursive: true }),
+    mkdir(path.join(stage, "services", "webgen-control"), { recursive: true }),
     mkdir(bin, { recursive: true }),
   ]);
   await Promise.all([
     writeFile(path.join(stage, "docker-compose.yml"), "services: {}\n"),
     writeFile(path.join(stage, ".env.production.sample"), ""),
     writeFile(path.join(stage, "workspace", "AGENTS.md"), "# Workspace\n"),
-    writeFile(
-      path.join(stage, "workspace", ".agents", "README.md"),
-      "skills\n",
-    ),
+    writeFile(path.join(stage, "workspace", ".agents", "README.md"), "skills\n"),
     writeFile(path.join(stage, "scripts", "dck-deploy.sh"), "#!/bin/sh\n"),
-    writeFile(
-      path.join(stage, "scripts", "migrate-automation-db.sh"),
-      "#!/bin/sh\n",
-    ),
+    writeFile(path.join(stage, "scripts", "migrate-automation-db.sh"), "#!/bin/sh\n"),
+    writeFile(path.join(stage, "services", "webgen-control", "webgen_control.py"), "# service\n"),
+    writeFile(path.join(stage, "services", "webgen-control", "requirements.txt"), "cryptography==50.0.2\nPyYAML==6.0.3\n"),
+    writeFile(path.join(stage, "services", "webgen-control", "webgen-control.service"), "[Service]\n"),
   ]);
   await writeFile(
     path.join(bin, "docker"),
@@ -52,18 +51,35 @@ set -e
 if [[ "$1 $2" == "compose version" ]]; then exit 0; fi
 if [[ "$1 $2" == "compose pull" ]]; then exit 0; fi
 if [[ "$1 $2" == "compose up" ]]; then exit 0; fi
+if [[ "$1 $2" == "network inspect" ]]; then printf '172.17.0.1\\n'; exit 0; fi
 if [[ "$1" == "images" ]]; then exit 0; fi
 exit 2
 `,
   );
   await writeFile(path.join(bin, "curl"), "#!/bin/sh\nprintf 200\n");
-  await writeFile(path.join(bin, "chown"), "#!/bin/sh\nexit 0\n");
-  await writeFile(path.join(bin, "stat"), "#!/bin/sh\nprintf '104\\n'");
+  await writeFile(
+    path.join(bin, "chown"),
+    "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >> \"$CHOWN_LOG\"\nexit 0\n",
+  );
+  await writeFile(path.join(bin, "systemctl"), "#!/bin/sh\nexit 0\n");
+  await writeFile(path.join(bin, "install"), "#!/bin/sh\nexit 0\n");
+  await writeFile(
+    path.join(bin, "python3"),
+    `#!/usr/bin/env bash
+set -e
+if [[ "$1 $2" == "-m venv" ]]; then
+  mkdir -p "$3/bin"
+  printf '#!/bin/sh\\nexit 0\\n' > "$3/bin/python"
+  printf '#!/bin/sh\\nexit 0\\n' > "$3/bin/pip"
+  chmod +x "$3/bin/python" "$3/bin/pip"
+  exit 0
+fi
+exit 2
+`,
+  );
   await Promise.all(
-    ["docker", "curl", "chown", "stat"].map((name) =>
-      import("node:fs/promises").then(({ chmod }) =>
-        chmod(path.join(bin, name), 0o755),
-      ),
+    ["docker", "curl", "chown", "systemctl", "install", "python3"].map((name) =>
+      chmod(path.join(bin, name), 0o755),
     ),
   );
   return { root, stage, target, bin };
@@ -90,8 +106,9 @@ afterEach(async () => {
 });
 
 describe("DCK production deploy bootstrap", () => {
-  it("generates Postgres credentials and updates the image on redeploy", async () => {
-    const { stage, target, bin } = await createFixture();
+  it("installs the private WebGen service without chowning the project workspace recursively", async () => {
+    const { stage, target, bin, root } = await createFixture();
+    const chownLog = path.join(root, "chown.log");
     await writeFile(
       path.join(stage, ".env.production.sample"),
       [
@@ -101,6 +118,7 @@ describe("DCK production deploy bootstrap", () => {
         "POSTGRES_PASSWORD=",
         "POSTGRES_DB=",
         "AUTOMATION_DB_URL=",
+        "WEBGEN_CONTROL_HOST_IP=",
       ].join("\n") + "\n",
     );
     const deployScript = path.join(repositoryRoot, "scripts/dck-deploy.sh");
@@ -113,17 +131,20 @@ describe("DCK production deploy bootstrap", () => {
           ...process.env,
           PATH: `${bin}:${process.env.PATH}`,
           TARGET_DIR: target,
+          CHOWN_LOG: chownLog,
         },
       },
     );
 
     const env = await readEnv(path.join(target, ".env"));
     expect(env.CANVAS_IMAGE).toBe("ghcr.io/example/dck-agentic");
-    expect(env.DOCKER_GID).toBe("104");
+    expect(env.WEBGEN_CONTROL_HOST_IP).toBe("172.17.0.1");
     expect(env.POSTGRES_PASSWORD).toMatch(/^[A-Za-z0-9]{32}$/);
     const envStat = await stat(path.join(target, ".env"));
     expect(envStat.mode & 0o777).toBe(0o600);
     expect(`${stdout}${stderr}`).not.toContain(env.POSTGRES_PASSWORD);
+    expect(await readFile(path.join(target, "services/webgen-control/webgen_control.py"), "utf8")).toContain("service");
+    expect(await readFile(path.join(target, "webgen-control.env"), "utf8")).toContain("WEBGEN_BIND_HOST=172.17.0.1");
 
     await execFileAsync(
       "bash",
@@ -133,6 +154,7 @@ describe("DCK production deploy bootstrap", () => {
           ...process.env,
           PATH: `${bin}:${process.env.PATH}`,
           TARGET_DIR: target,
+          CHOWN_LOG: chownLog,
         },
       },
     );
@@ -140,6 +162,9 @@ describe("DCK production deploy bootstrap", () => {
     const redeployedEnv = await readEnv(path.join(target, ".env"));
     expect(redeployedEnv.CANVAS_IMAGE).toBe("ghcr.io/example/custom-dck");
     expect(redeployedEnv.CANVAS_IMAGE_TAG).toBe("sha-next");
-    expect(redeployedEnv.DOCKER_GID).toBe("104");
+    expect(redeployedEnv.WEBGEN_CONTROL_HOST_IP).toBe("172.17.0.1");
+    const chownCommands = await readFile(chownLog, "utf8");
+    expect(chownCommands).toContain(`${target}/workspace/.agents`);
+    expect(chownCommands).not.toMatch(/-R [^\n]*\/workspace(?:\s|$)/);
   });
 });

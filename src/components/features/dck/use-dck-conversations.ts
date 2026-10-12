@@ -27,6 +27,8 @@ export function useAllConversationsQuery(options: { enabled?: boolean } = {}) {
   return {
     conversations,
     isLoading: query.isLoading,
+    isAuthLoading: query.isPending && !query.isFetched && !query.isError,
+    hasData: query.data !== undefined,
     isError: query.isError,
     isFetching: query.isFetching,
     refetch: query.refetch,
@@ -67,6 +69,23 @@ export function useOpenConversation() {
       navigate(`/conversations/${conversationId}`);
     },
     [navigate, setMessageToSend],
+  );
+
+  const ensureConversation = React.useCallback(
+    async (
+      workingDir: string,
+      conversations: AppConversation[],
+      agentProfileId?: string,
+    ): Promise<string> => {
+      const existing = latestConversationForPath(conversations, workingDir);
+      if (existing) return existing.id;
+      const created = await createConversation({
+        workingDir,
+        ...(agentProfileId ? { agentProfileId } : {}),
+      });
+      return created.conversation_id;
+    },
+    [createConversation],
   );
 
   const openPath = React.useCallback(
@@ -177,6 +196,7 @@ export function useOpenConversation() {
 
   return {
     openPath,
+    ensureConversation,
     createScoped,
     prefillAndOpen,
     continueConversation,

@@ -1,4 +1,10 @@
-export type WebgenLifecycleAction = "deploy" | "rebuild" | "stop" | "delete";
+export type WebgenLifecycleAction =
+  | "deploy"
+  | "rebuild"
+  | "stop"
+  | "delete"
+  | "publish"
+  | "unpublish";
 
 export interface WebgenLifecycleContext {
   appName: string;

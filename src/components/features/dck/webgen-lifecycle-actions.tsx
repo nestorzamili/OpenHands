@@ -1,199 +1,272 @@
 import React from "react";
-import ReactDOM from "react-dom";
-import { useTranslation } from "react-i18next";
-import { Play, RotateCcw, Square, Trash2, MoreHorizontal } from "lucide-react";
-import { I18nKey } from "#/i18n/declaration";
-import { ConfirmationModal } from "#/components/shared/modals/confirmation-modal";
-import { ContextMenu } from "#/ui/context-menu";
-import { ContextMenuListItem } from "#/components/features/context-menu/context-menu-list-item";
-import { cn } from "#/utils/utils";
 import {
-  buildWebgenLifecycleCommand,
-  type WebgenLifecycleAction,
-} from "#/dck/webgen-lifecycle";
+  Globe,
+  Loader2,
+  Play,
+  RotateCcw,
+  Square,
+  Trash2,
+  XCircle,
+} from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { BrandButton } from "#/components/features/settings/brand-button";
+import { ConfirmationModal } from "#/components/shared/modals/confirmation-modal";
+import { ModalBackdrop } from "#/components/shared/modals/modal-backdrop";
+import { I18nKey } from "#/i18n/declaration";
+import type { WebgenLifecycleAction } from "#/dck/webgen-lifecycle";
+import { cn } from "#/utils/utils";
+
+const SUBDOMAIN_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 
 export function WebgenLifecycleActions({
   appName,
-  port,
   projectPath,
+  authProvider,
+  publishedSubdomain,
   onDispatch,
   disabled = false,
 }: {
   appName: string;
-  port: number | null;
   projectPath: string;
+  authProvider: string | null;
+  publishedSubdomain: string | null;
   onDispatch: (
     projectPath: string,
-    command: string,
     action: WebgenLifecycleAction,
     appName: string,
-  ) => void;
+    authProvider: string | null,
+    subdomain?: string,
+  ) => Promise<boolean>;
   disabled?: boolean;
 }) {
   const { t } = useTranslation("openhands");
-  const [open, setOpen] = React.useState(false);
+  const [showPublishDialog, setShowPublishDialog] = React.useState(false);
   const [confirmingDelete, setConfirmingDelete] = React.useState(false);
-  const [portalStyle, setPortalStyle] = React.useState<React.CSSProperties>();
-  const triggerRef = React.useRef<HTMLButtonElement>(null);
-  const menuRef = React.useRef<HTMLUListElement>(null);
-
-  const dispatch = (action: WebgenLifecycleAction) => {
-    onDispatch(
-      projectPath,
-      buildWebgenLifecycleCommand(action, { appName, port }),
-      action,
-      appName,
-    );
-  };
-
-  React.useLayoutEffect(() => {
-    if (!open || !triggerRef.current) return undefined;
-    const updatePosition = () => {
-      const rect = triggerRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      const gap = 4;
-      const measured = menuRef.current?.getBoundingClientRect().height ?? 0;
-      const menuHeight = measured || 4 * 36;
-      const overflowsBelow =
-        rect.bottom + gap + menuHeight > window.innerHeight;
-      setPortalStyle({
-        position: "fixed",
-        zIndex: 9999,
-        ...(overflowsBelow
-          ? { bottom: window.innerHeight - rect.top + gap }
-          : { top: rect.bottom + gap }),
-        right: window.innerWidth - rect.right,
-      });
-    };
-    updatePosition();
-    const frame = window.requestAnimationFrame(updatePosition);
-    window.addEventListener("resize", updatePosition);
-    window.addEventListener("scroll", updatePosition, true);
-    return () => {
-      window.cancelAnimationFrame(frame);
-      window.removeEventListener("resize", updatePosition);
-      window.removeEventListener("scroll", updatePosition, true);
-    };
-  }, [open]);
+  const [confirmingUnpublish, setConfirmingUnpublish] = React.useState(false);
+  const [subdomain, setSubdomain] = React.useState(appName);
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const subdomainInputRef = React.useRef<HTMLInputElement>(null);
+  const busy = disabled || isSubmitting;
+  const normalizedSubdomain = subdomain.trim().toLowerCase();
+  const isSubdomainValid = SUBDOMAIN_PATTERN.test(normalizedSubdomain);
 
   React.useEffect(() => {
-    if (!open) return undefined;
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (
-        triggerRef.current?.contains(target) ||
-        menuRef.current?.contains(target)
-      ) {
-        return;
-      }
-      setOpen(false);
-    };
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    document.addEventListener("keydown", handleEscape);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-      document.removeEventListener("keydown", handleEscape);
-    };
-  }, [open]);
+    if (showPublishDialog) subdomainInputRef.current?.focus();
+  }, [showPublishDialog]);
+
+  const dispatch = async (
+    action: WebgenLifecycleAction,
+    value?: string,
+  ): Promise<boolean> => {
+    if (busy) return false;
+    setIsSubmitting(true);
+    try {
+      return await onDispatch(
+        projectPath,
+        action,
+        appName,
+        authProvider,
+        value,
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const runAction = (action: WebgenLifecycleAction) => {
-    setOpen(false);
-    dispatch(action);
+    void dispatch(action);
   };
 
   const iconClassName = "size-4 shrink-0";
-  const itemClassName = "flex w-full items-center gap-2";
-
-  const menu =
-    open && portalStyle ? (
-      <ContextMenu
-        ref={menuRef}
-        theme="popover"
-        className="min-w-40"
-        testId="dck-webgen-lifecycle-menu-list"
-      >
-        <li>
-          <ContextMenuListItem
-            testId="dck-lifecycle-deploy"
-            onClick={() => runAction("deploy")}
-            className={itemClassName}
-          >
-            <Play className={iconClassName} aria-hidden />
-            <span>{t(I18nKey.DCK$DEPLOY)}</span>
-          </ContextMenuListItem>
-        </li>
-        <li>
-          <ContextMenuListItem
-            testId="dck-lifecycle-rebuild"
-            onClick={() => runAction("rebuild")}
-            className={itemClassName}
-          >
-            <RotateCcw className={iconClassName} aria-hidden />
-            <span>{t(I18nKey.DCK$REBUILD)}</span>
-          </ContextMenuListItem>
-        </li>
-        <li>
-          <ContextMenuListItem
-            testId="dck-lifecycle-stop"
-            onClick={() => runAction("stop")}
-            className={itemClassName}
-          >
-            <Square className={iconClassName} aria-hidden />
-            <span>{t(I18nKey.DCK$STOP)}</span>
-          </ContextMenuListItem>
-        </li>
-        <li>
-          <ContextMenuListItem
-            testId="dck-lifecycle-delete"
-            onClick={() => {
-              setOpen(false);
-              setConfirmingDelete(true);
-            }}
-            className={cn(itemClassName, "text-status-error")}
-          >
-            <Trash2 className={iconClassName} aria-hidden />
-            <span>{t(I18nKey.DCK$DELETE)}</span>
-          </ContextMenuListItem>
-        </li>
-      </ContextMenu>
-    ) : null;
+  const actionButtonClass =
+    "inline-flex size-8 items-center justify-center rounded border border-border text-text-secondary hover:bg-surface hover:text-contrast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-50";
 
   return (
-    <div className="flex shrink-0 items-center">
+    <div className="flex shrink-0 items-center justify-end gap-1">
       <button
-        ref={triggerRef}
         type="button"
-        disabled={disabled}
-        onClick={(event) => {
-          event.stopPropagation();
-          setOpen((current) => !current);
-        }}
-        data-testid="dck-webgen-lifecycle-menu"
-        aria-label={t(I18nKey.DCK$LIFECYCLE_ACTIONS)}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        className="shrink-0 rounded border border-border p-1 text-text-secondary hover:text-contrast disabled:opacity-50"
+        disabled={busy}
+        onClick={() => runAction("deploy")}
+        data-testid="dck-lifecycle-deploy"
+        aria-label={t(I18nKey.DCK$DEPLOY)}
+        title={t(I18nKey.DCK$DEPLOY)}
+        className={actionButtonClass}
       >
-        <MoreHorizontal className="size-4" aria-hidden />
+        {busy ? (
+          <Loader2 className={cn(iconClassName, "animate-spin")} aria-hidden />
+        ) : (
+          <Play className={iconClassName} aria-hidden />
+        )}
+      </button>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => runAction("rebuild")}
+        data-testid="dck-lifecycle-rebuild"
+        aria-label={t(I18nKey.DCK$REBUILD)}
+        title={t(I18nKey.DCK$REBUILD)}
+        className={actionButtonClass}
+      >
+        <RotateCcw className={iconClassName} aria-hidden />
+      </button>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => runAction("stop")}
+        data-testid="dck-lifecycle-stop"
+        aria-label={t(I18nKey.DCK$STOP)}
+        title={t(I18nKey.DCK$STOP)}
+        className={actionButtonClass}
+      >
+        <Square className={iconClassName} aria-hidden />
+      </button>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => setShowPublishDialog(true)}
+        data-testid="dck-lifecycle-publish"
+        aria-label={t(I18nKey.DCK$PUBLISH)}
+        title={t(I18nKey.DCK$PUBLISH)}
+        className={actionButtonClass}
+      >
+        <Globe className={iconClassName} aria-hidden />
+      </button>
+      {publishedSubdomain && (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => setConfirmingUnpublish(true)}
+          data-testid="dck-lifecycle-unpublish"
+          aria-label={t(I18nKey.DCK$UNPUBLISH)}
+          title={t(I18nKey.DCK$UNPUBLISH)}
+          className={actionButtonClass}
+        >
+          <XCircle className={iconClassName} aria-hidden />
+        </button>
+      )}
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => setConfirmingDelete(true)}
+        data-testid="dck-lifecycle-delete"
+        aria-label={t(I18nKey.DCK$DELETE)}
+        title={t(I18nKey.DCK$DELETE)}
+        className={cn(
+          actionButtonClass,
+          "text-status-error hover:text-status-error",
+        )}
+      >
+        <Trash2 className={iconClassName} aria-hidden />
       </button>
 
-      {open && portalStyle && typeof document !== "undefined"
-        ? ReactDOM.createPortal(
-            <div style={portalStyle}>{menu}</div>,
-            document.body,
-          )
-        : null}
+      {showPublishDialog && (
+        <ModalBackdrop
+          onClose={busy ? undefined : () => setShowPublishDialog(false)}
+          closeOnEscape={!busy}
+          closeOnBackdropClick={!busy}
+          aria-label={t(I18nKey.DCK$PUBLISH_DIALOG_TITLE, { name: appName })}
+        >
+          <form
+            data-testid="dck-webgen-publish-dialog"
+            onSubmit={async (event) => {
+              event.preventDefault();
+              if (!isSubdomainValid || busy) return;
+              const succeeded = await dispatch("publish", normalizedSubdomain);
+              if (succeeded) setShowPublishDialog(false);
+            }}
+            className="flex w-full max-w-md flex-col gap-4 rounded-xl border border-border bg-base-secondary p-5"
+          >
+            <div className="flex flex-col gap-1">
+              <h2 className="text-lg font-semibold text-contrast">
+                {t(I18nKey.DCK$PUBLISH_DIALOG_TITLE, { name: appName })}
+              </h2>
+              <p className="text-sm text-text-tertiary">
+                {t(I18nKey.DCK$PUBLISH_DIALOG_DESCRIPTION)}
+              </p>
+            </div>
+            <label className="flex flex-col gap-1 text-sm font-medium text-contrast">
+              {t(I18nKey.DCK$PUBLISH_SUBDOMAIN_LABEL)}
+              <span className="flex items-center overflow-hidden rounded-md border border-border bg-base-secondary">
+                <input
+                  ref={subdomainInputRef}
+                  autoCapitalize="none"
+                  autoComplete="off"
+                  spellCheck={false}
+                  value={subdomain}
+                  onChange={(event) => setSubdomain(event.target.value)}
+                  disabled={busy}
+                  aria-invalid={subdomain.length > 0 && !isSubdomainValid}
+                  aria-describedby="dck-webgen-subdomain-hint"
+                  data-testid="dck-webgen-subdomain-input"
+                  className="min-w-0 flex-1 bg-transparent px-3 py-2 outline-none"
+                />
+                <span className="whitespace-nowrap border-l border-border px-2 py-2 text-xs text-text-tertiary">
+                  {t(I18nKey.DCK$PUBLISH_DOMAIN_SUFFIX)}
+                </span>
+              </span>
+              <span
+                id="dck-webgen-subdomain-hint"
+                className="text-xs font-normal text-text-tertiary"
+              >
+                {t(I18nKey.DCK$PUBLISH_SUBDOMAIN_HINT)}
+              </span>
+              {subdomain.length > 0 && !isSubdomainValid && (
+                <span
+                  role="alert"
+                  data-testid="dck-webgen-subdomain-error"
+                  className="text-xs font-normal text-status-error"
+                >
+                  {t(I18nKey.DCK$PUBLISH_SUBDOMAIN_INVALID)}
+                </span>
+              )}
+            </label>
+            <div className="flex justify-end gap-2">
+              <BrandButton
+                testId="dck-webgen-publish-cancel"
+                type="button"
+                variant="secondary"
+                isDisabled={busy}
+                onClick={() => setShowPublishDialog(false)}
+              >
+                {t(I18nKey.BUTTON$CANCEL)}
+              </BrandButton>
+              <BrandButton
+                testId="dck-webgen-publish-submit"
+                type="submit"
+                variant="primary"
+                isDisabled={!isSubdomainValid || busy}
+                aria-busy={busy}
+              >
+                {t(I18nKey.DCK$PUBLISH)}
+              </BrandButton>
+            </div>
+          </form>
+        </ModalBackdrop>
+      )}
+
+      {confirmingUnpublish && publishedSubdomain && (
+        <ConfirmationModal
+          text={t(I18nKey.DCK$UNPUBLISH_CONFIRM, {
+            domain: publishedSubdomain,
+          })}
+          confirmText={t(I18nKey.DCK$UNPUBLISH)}
+          isConfirming={busy}
+          onConfirm={async () => {
+            const succeeded = await dispatch("unpublish");
+            if (succeeded) setConfirmingUnpublish(false);
+          }}
+          onCancel={() => setConfirmingUnpublish(false)}
+        />
+      )}
 
       {confirmingDelete && (
         <ConfirmationModal
           text={t(I18nKey.DCK$DELETE_CONFIRM, { name: appName })}
           confirmText={t(I18nKey.DCK$DELETE)}
-          onConfirm={() => {
-            setConfirmingDelete(false);
-            dispatch("delete");
+          isConfirming={busy}
+          onConfirm={async () => {
+            const succeeded = await dispatch("delete");
+            if (succeeded) setConfirmingDelete(false);
           }}
           onCancel={() => setConfirmingDelete(false)}
         />

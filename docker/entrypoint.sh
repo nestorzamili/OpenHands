@@ -516,6 +516,8 @@ node /opt/agent-canvas/static-server.mjs \
   "${STATIC_SERVER_KEY_FLAG[@]}" \
   --runtime-services-info "$RUNTIME_SERVICES_INFO" \
   --route "/api/automation=http://127.0.0.1:${AUTOMATION_PORT}" \
+  --route "/api/webgen-provisioning=http://webgen-control.internal:8769" \
+  --route "/api/webgen=http://webgen-control.internal:8769" \
   --route "/api=http://127.0.0.1:${AGENT_SERVER_PORT}" \
   --route "/server_info=http://127.0.0.1:${AGENT_SERVER_PORT}" \
   --route "/sockets=http://127.0.0.1:${AGENT_SERVER_PORT}" \
@@ -568,6 +570,8 @@ if [ -n "${PUBLIC_MODE_PORT:-}" ]; then
     --auth-required \
     --runtime-services-info "$RUNTIME_SERVICES_INFO" \
     --route "/api/automation=http://127.0.0.1:${AUTOMATION_PORT}" \
+    --route "/api/webgen-provisioning=http://webgen-control.internal:8769" \
+    --route "/api/webgen=http://webgen-control.internal:8769" \
     --route "/api=http://127.0.0.1:${AGENT_SERVER_PORT}" \
     --route "/server_info=http://127.0.0.1:${AGENT_SERVER_PORT}" \
     --route "/sockets=http://127.0.0.1:${AGENT_SERVER_PORT}" \

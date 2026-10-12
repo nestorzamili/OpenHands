@@ -3,6 +3,7 @@ import { request as httpsRequest } from "node:https";
 import { createProxyServer } from "httpxy";
 
 const DEFAULT_PROXY_TIMEOUT_MS = 120_000;
+const WEBGEN_ACTION_TIMEOUT_MS = 16 * 60 * 1_000;
 const SERVER_INFO_PATH = "/server_info";
 const BENIGN_SOCKET_ERRORS = new Set([
   "ECONNRESET",
@@ -71,6 +72,47 @@ export function isLoopbackBackendUrl(backendUrl) {
       hostname === "localhost" ||
       hostname === "::1" ||
       /^127(?:\.\d{1,3}){3}$/.test(hostname)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isWebgenControlBackendUrl(backendUrl) {
+  try {
+    const url = new URL(backendUrl);
+    return (
+      url.protocol === "http:" &&
+      url.hostname === "webgen-control.internal" &&
+      url.port === "8769" &&
+      !url.username &&
+      !url.password &&
+      url.pathname === "/" &&
+      !url.search &&
+      !url.hash
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isWebgenControlRequest(url) {
+  try {
+    const pathname = new URL(url ?? "/", "http://localhost").pathname;
+    return (
+      matchesPathPrefix(pathname, "/api/webgen") ||
+      matchesPathPrefix(pathname, "/api/webgen-provisioning")
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isWebgenLifecycleActionRequest(req, target) {
+  if (req.method !== "POST" || !isWebgenControlBackendUrl(target)) return false;
+  try {
+    return /^\/api\/webgen\/projects\/[a-z0-9]+(?:-[a-z0-9]+)*\/actions$/.test(
+      new URL(req.url ?? "/", "http://localhost").pathname,
     );
   } catch {
     return false;
@@ -323,7 +365,14 @@ export function createProxyHandlers({
   function prepareServerSideProxyOptions(req, target) {
     if (!serverSideSessionAuth) return {};
     delete req.headers["x-session-api-key"];
-    if (!sessionApiKey || !isLoopbackBackendUrl(target)) return {};
+    const trustedWebgenTarget =
+      isWebgenControlBackendUrl(target) && isWebgenControlRequest(req.url);
+    if (
+      !sessionApiKey ||
+      (!isLoopbackBackendUrl(target) && !trustedWebgenTarget)
+    ) {
+      return {};
+    }
     if (isVSCodeRoute(req.url)) {
       try {
         const url = new URL(req.url || "/", "http://localhost");
@@ -381,8 +430,18 @@ export function createProxyHandlers({
 
     try {
       const serverSideOptions = prepareServerSideProxyOptions(req, target);
+      const isLongWebgenAction = isWebgenLifecycleActionRequest(req, target);
       proxy
-        .web(req, res, { target, ...serverSideOptions })
+        .web(req, res, {
+          target,
+          ...serverSideOptions,
+          ...(isLongWebgenAction
+            ? {
+                timeout: WEBGEN_ACTION_TIMEOUT_MS,
+                proxyTimeout: WEBGEN_ACTION_TIMEOUT_MS,
+              }
+            : {}),
+        })
         .catch(handleProxyError);
     } catch (err) {
       handleProxyError(err);

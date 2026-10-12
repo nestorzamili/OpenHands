@@ -200,7 +200,7 @@ jobs:
       - name: Stage deploy files
         run: |
           STAGE=stage
-          mkdir -p "$STAGE/workspace" "$STAGE/scripts"
+          mkdir -p "$STAGE/workspace" "$STAGE/scripts" "$STAGE/services/webgen-control"
           cp docker-compose.yml "$STAGE/"
           cp .env.production.sample "$STAGE/"
           cp -r workspace/.agents "$STAGE/workspace/"
@@ -208,6 +208,7 @@ jobs:
           cp scripts/migrate-automation-db.sh "$STAGE/scripts/"
           cp scripts/dck-deploy.sh "$STAGE/scripts/"
           cp scripts/dck-deploy-remote.sh "$STAGE/scripts/"
+          cp services/webgen-control/webgen_control.py services/webgen-control/requirements.txt services/webgen-control/webgen-control.service "$STAGE/services/webgen-control/"
           tar -czf deploy.tar.gz -C "$STAGE" .
 
       - name: Parse SSH target

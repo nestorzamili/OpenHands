@@ -21,11 +21,8 @@ services:
     image: ${CANVAS_IMAGE:-ghcr.io/dck-ai/dck-agentic}:${CANVAS_IMAGE_TAG:-latest}
     container_name: dck-agentic-canvas
     restart: unless-stopped
-    # Host Docker API access is required for Webgen lifecycle operations. The
-    # supplemental GID is discovered by dck-deploy.sh. Docker socket access is
-    # root-equivalent; do not add privileged mode as well.
-    group_add:
-      - "${DOCKER_GID:?Run scripts/dck-deploy.sh to configure Docker socket access}"
+    # WebGen lifecycle is handled by a host-side typed control service; Canvas
+    # never receives the root-equivalent Docker socket.
     ports:
       # Published to host loopback only. Host port 8000 is taken by another
       # service on this VM, so DCK ingress uses 8010. nginx terminates TLS
@@ -34,7 +31,6 @@ services:
     volumes:
       - ./config:/home/openhands/.openhands
       - ./workspace:/projects
-      - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - AGENT_CANVAS_DISABLE_TELEMETRY=1
       # Canvas at the root path (image is built with VITE_BASE_PATH=/, this
@@ -48,9 +44,11 @@ services:
       - AUTOMATION_BASE_URL=${AUTOMATION_BASE_URL:-https://agent.dckautoposting.com}
       - AUTOMATION_DB_URL=${AUTOMATION_DB_URL:?Set AUTOMATION_DB_URL, e.g. postgresql+asyncpg://dck:pass@postgres:5432/dck_agentic}
     extra_hosts:
-      # Lets webgen apps / the agent reach host services (e.g. the existing
-      # redis-shared on 127.0.0.1:6379) via host.docker.internal.
+      # Lets WebGen apps / the agent reach host services (e.g. redis-shared)
+      # via host.docker.internal, and the typed WebGen manager via its private
+      # bridge-gateway IP, updated by dck-deploy.sh.
       - "host.docker.internal:host-gateway"
+      - "webgen-control.internal:${WEBGEN_CONTROL_HOST_IP:-172.17.0.1}"
     depends_on:
       postgres:
         condition: service_healthy

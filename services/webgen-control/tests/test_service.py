@@ -1,0 +1,337 @@
+import json
+import os
+import tempfile
+import threading
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+import sys
+
+sys.path.insert(0, str(Path(__file__).parents[1]))
+from webgen_control import *  # noqa: F403,E402
+
+
+class _Response:
+    def __init__(self, body):
+        self.body = body
+        self.status = 200
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return None
+
+    def read(self, size=-1):
+        return self.body if size < 0 else self.body[:size]
+
+
+class TestWebgen(unittest.TestCase):
+    def make_service(self):
+        service = Service.__new__(Service)
+        service.canvas = "http://127.0.0.1:8010/api/workspaces"
+        return service
+
+    def make_project(self, p):
+        (p / ".dck.json").write_text(json.dumps({"port": 3000}))
+        (p / "docker-compose.yml").write_text(
+            """services:
+  app:
+    image: node:22-alpine
+    container_name: x-app
+    ports:
+      - target: 3000
+        published: "3000"
+        host_ip: 127.0.0.1
+    networks: [dck]
+networks:
+  dck:
+    external: true
+    name: dck
+"""
+        )
+
+    def test_validation_and_canonical(self):
+        self.assertTrue(valid_slug("catatan-uang"))
+        self.assertFalse(valid_slug("../x"))
+        self.assertFalse(valid_subdomain("agent"))
+        self.assertFalse(valid_subdomain("-bad"))
+        self.assertEqual(
+            canonical_signed_payload(1, "x", "c", 1, 2, "n", "é", None, " p  ").decode(),
+            '[1,"x","c",1,2,"n","é",null," p  "]',
+        )
+
+    def test_seed_encrypted_expiring_once(self):
+        with tempfile.TemporaryDirectory() as d:
+            seed = SeedStore(ttl=2, master_path=Path(d) / "key")
+            self.assertNotIn("secret", repr(seed.records))
+            staged = seed.stage("x", "conv", "a@b.test", None, "123456789012345")
+            self.assertEqual(
+                staged["verification_key"],
+                SeedStore(ttl=2, master_path=Path(d) / "key").public_key("x"),
+            )
+            self.assertNotEqual(seed.public_key("x"), seed.public_key("y"))
+            self.assertEqual(seed.authorize("x", "conv")["status"], "authorized")
+            got = seed.consume("x", "conv")
+            self.assertEqual(list(got[1:]), ["a@b.test", None, "123456789012345"])
+            with self.assertRaises(KeyError):
+                seed.consume("x", "conv")
+
+    def test_atomic_metadata_is_agent_readable(self):
+        with tempfile.TemporaryDirectory() as d:
+            project = Path(d) / "project"
+            project.mkdir()
+            target = project / ".dck.json"
+            atomic_json(target, {"lastStatus": "running"})
+            self.assertEqual(json.loads(target.read_text())["lastStatus"], "running")
+            self.assertEqual(target.stat().st_mode & 0o777, 0o644)
+            self.assertEqual(target.stat().st_uid, project.stat().st_uid)
+            self.assertFalse(list(project.glob("*.tmp-*")))
+
+    def test_commands_are_allowlisted(self):
+        command = command_for("safe-app", "deploy", Path("/x/docker-compose.yml"))
+        self.assertEqual(
+            command,
+            ["docker", "compose", "-p", "safe-app", "-f", "/x/docker-compose.yml", "up", "-d", "--build"],
+        )
+        with self.assertRaises(ValueError):
+            command_for("../x", "deploy", Path("/x"))
+
+    def test_safe_project_rejects_symlinks(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / "ok").mkdir()
+            (root / "ok" / ".dck.json").write_text("{}")
+            self.assertIsNotNone(safe_project(root, "ok"))
+            (root / "link").symlink_to(root / "ok", target_is_directory=True)
+            self.assertIsNone(safe_project(root, "link"))
+
+    def test_compose_rejects_rendered_unsafe_policy(self):
+        with tempfile.TemporaryDirectory() as d:
+            project = Path(d)
+            self.make_project(project)
+            service = self.make_service()
+            bad = {
+                "networks": {"dck": {"external": True, "name": "dck"}},
+                "services": {
+                    "app": {
+                        "container_name": "x-app",
+                        "networks": ["dck"],
+                        "ports": [{"target": 3000, "published": "3000", "host_ip": "127.0.0.1"}],
+                        "volumes": ["host:/host"],
+                    }
+                },
+            }
+
+            class Result:
+                returncode = 0
+                stdout = json.dumps(bad)
+
+            with patch("webgen_control.subprocess.run", return_value=Result()):
+                with self.assertRaises(ValueError):
+                    service.compose_config("x", project)
+
+    def test_compose_rejects_external_env_file_before_docker(self):
+        with tempfile.TemporaryDirectory() as d:
+            project = Path(d)
+            self.make_project(project)
+            content = (project / "docker-compose.yml").read_text().replace(
+                "    networks: [dck]", "    networks: [dck]\n    env_file: ../host.env"
+            )
+            (project / "docker-compose.yml").write_text(content)
+            service = self.make_service()
+            with patch("webgen_control.subprocess.run") as run:
+                with self.assertRaises(ValueError):
+                    service.compose_config("x", project)
+                run.assert_not_called()
+
+    def test_compose_validates_and_executes_the_same_root_owned_snapshot(self):
+        with tempfile.TemporaryDirectory() as d:
+            project = Path(d)
+            self.make_project(project)
+            original = project / "docker-compose.yml"
+            source_bytes = original.read_bytes()
+            service = self.make_service()
+            service.build_lock = threading.RLock()
+            captured = {}
+
+            def validate(slug, path, compose_file=None, source_bytes=None):
+                self.assertEqual(slug, "x")
+                self.assertEqual(path, project)
+                self.assertEqual(source_bytes, original.read_bytes())
+                self.assertNotEqual(compose_file, original)
+                self.assertTrue(compose_file.is_file())
+                self.assertEqual(compose_file.stat().st_mode & 0o777, 0o400)
+                captured["snapshot"] = compose_file
+
+            class Result:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+
+            def run(command, **kwargs):
+                snapshot = Path(command[command.index("-f") + 1])
+                self.assertEqual(snapshot, captured["snapshot"])
+                self.assertEqual(snapshot.read_bytes(), source_bytes)
+                self.assertEqual(command[command.index("--project-directory") + 1], str(project))
+                self.assertEqual(command[-3:], ["up", "-d", "--build"])
+                return Result()
+
+            with patch.object(service, "compose_config", side_effect=validate), patch(
+                "webgen_control.subprocess.run", side_effect=run
+            ):
+                service.compose("x", project, "deploy")
+
+    def test_materializes_only_project_secrets_and_quotes_values(self):
+        with tempfile.TemporaryDirectory() as d:
+            project = Path(d)
+            (project / ".dck.json").write_text(json.dumps({"port": 3000, "authProvider": "better-auth"}))
+            (project / ".env.example").write_text(
+                "NEXT_PUBLIC_SITE_NAME=Shop\nDATABASE_URL=placeholder\nBETTER_AUTH_SECRET=placeholder\nAPP_BASE_PATH=/\n"
+            )
+            (project / "docker-compose.yml").write_text(
+                """services:
+  app:
+    image: node:22-alpine
+    container_name: shop-app
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+    env_file: .env
+    ports:
+      - target: 3000
+        published: "3000"
+        host_ip: 127.0.0.1
+    networks: [dck]
+networks:
+  dck:
+    external: true
+    name: dck
+"""
+            )
+            list_body = json.dumps(
+                {
+                    "secrets": [
+                        {"name": "DATABASE_URL_SHOP"},
+                        {"name": "BETTER_AUTH_SECRET_SHOP"},
+                        {"name": "OTHER_SECRET_ANOTHER_APP"},
+                    ]
+                }
+            ).encode()
+            bodies = {
+                "/api/settings/secrets": list_body,
+                "/api/settings/secrets/DATABASE_URL_SHOP": b"postgres://user:p$ss${TOKEN}\"'#fragment",
+                "/api/settings/secrets/BETTER_AUTH_SECRET_SHOP": b"s3cr3t-value",
+            }
+            requests = []
+
+            def fake_urlopen(request, timeout=0):
+                requests.append(request)
+                path = request.full_url.removeprefix("http://127.0.0.1:8010")
+                return _Response(bodies[path])
+
+            service = self.make_service()
+            with patch("webgen_control.urlopen", side_effect=fake_urlopen):
+                service.materialize_env("shop", project, "session-key", "/preview/shop")
+
+            env_text = (project / ".env").read_text()
+            self.assertIn("NEXT_PUBLIC_SITE_NAME=Shop", env_text)
+            self.assertNotIn("DATABASE_URL=placeholder", env_text)
+            self.assertIn('DATABASE_URL="postgres://user:p$$ss$${TOKEN}\\\"\'#fragment"', env_text)
+            self.assertIn('BETTER_AUTH_SECRET="s3cr3t-value"', env_text)
+            self.assertIn('APP_BASE_PATH="/preview/shop"', env_text)
+            self.assertNotIn("OTHER_SECRET", env_text)
+            self.assertEqual((project / ".env").stat().st_mode & 0o777, 0o600)
+            self.assertTrue(all(r.get_header("X-session-api-key") == "session-key" for r in requests))
+
+    def test_missing_required_secret_fails_without_writing_env(self):
+        with tempfile.TemporaryDirectory() as d:
+            project = Path(d)
+            (project / ".dck.json").write_text(json.dumps({"port": 3000, "authProvider": "better-auth"}))
+            (project / "docker-compose.yml").write_text(
+                """services:
+  app:
+    image: node:22-alpine
+    container_name: shop-app
+    environment:
+      DATABASE_URL: "${DATABASE_URL}"
+      BETTER_AUTH_SECRET: "${BETTER_AUTH_SECRET}"
+    ports:
+      - target: 3000
+        published: "3000"
+        host_ip: 127.0.0.1
+    networks: [dck]
+networks:
+  dck:
+    external: true
+    name: dck
+"""
+            )
+
+            class EmptyResponse(_Response):
+                def __init__(self):
+                    super().__init__(b'{"secrets":[]}')
+
+            service = self.make_service()
+            with patch("webgen_control.urlopen", return_value=EmptyResponse()):
+                with self.assertRaises(SecretMaterializationError) as caught:
+                    service.materialize_env("shop", project, "session-key", "/preview/shop")
+            self.assertEqual(caught.exception.status, 422)
+            self.assertEqual(caught.exception.code, "secrets_required")
+            self.assertFalse((project / ".env").exists())
+
+    def test_seed_delivery_retries_and_consumes_on_success(self):
+        with tempfile.TemporaryDirectory() as d:
+            seed = SeedStore(master_path=Path(d) / "key")
+            seed.stage("x", "c", "a@b.test", None, "123456789012345")
+            seed.authorize("x", "c")
+            service = Service.__new__(Service)
+            service.seed = seed
+            service.app_target = lambda _: "http://127.0.0.1:1/seed"
+            with patch("webgen_control.urlopen", side_effect=OSError("temporary")):
+                self.assertFalse(service.deliver_seed("x", Path(d), "c"))
+            self.assertTrue(seed.authorized("x", "c"))
+
+            class ConflictResponse(_Response):
+                status = 409
+
+            with patch("webgen_control.urlopen", return_value=ConflictResponse(b"{}")):
+                self.assertTrue(service.deliver_seed("x", Path(d), "c"))
+            self.assertFalse(seed.authorized("x", "c"))
+
+    def test_batched_status_is_filtered_sanitized_and_unknown_on_failure(self):
+        service = self.make_service()
+
+        class Failure:
+            returncode = 1
+            stdout = ""
+
+        with patch("webgen_control.subprocess.run", return_value=Failure()) as run:
+            self.assertIsNone(service.all_container_status())
+            self.assertEqual(run.call_args.args[0][0:4], ["docker", "ps", "-a", "--filter"])
+
+        with tempfile.TemporaryDirectory() as d:
+            service.root = Path(d)
+            (service.root / "x").mkdir()
+            (service.root / "x" / ".dck.json").write_text(json.dumps({"port": 3000}))
+            status = {
+                "x": [
+                    {
+                        "id": "1",
+                        "name": "x-app",
+                        "state": "running",
+                        "health": "healthy",
+                        "exit_code": 0,
+                        "image": "secret",
+                    }
+                ]
+            }
+            with patch.object(service, "all_container_status", return_value=status):
+                project = service.projects()[0]
+            self.assertEqual(project["path"], "/projects/webgen/x")
+            self.assertEqual(set(project["containers"][0]), {"id", "name", "state", "health", "exit_code"})
+            self.assertEqual(project["status"], "running")
+
+
+if __name__ == "__main__":
+    unittest.main()

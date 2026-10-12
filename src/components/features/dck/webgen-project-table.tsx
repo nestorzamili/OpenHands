@@ -8,10 +8,12 @@ import {
   latestConversationForPath,
   projectLastTouched,
   relatedConversationCount,
+  type DckProjectStatus,
 } from "#/dck/modules";
 import type { AppConversation } from "#/api/conversation-service/agent-server-conversation-service.types";
 import type { DckProjectMeta } from "#/dck/project-metadata";
 import type { WebgenLifecycleAction } from "#/dck/webgen-lifecycle";
+import type { WebgenProjectStatus } from "#/dck/webgen-service";
 import { DckProjectStatusBadge } from "./dck-project-status-badge";
 import type { ProjectEntry } from "./project-row";
 import { WebgenLifecycleActions } from "./webgen-lifecycle-actions";
@@ -35,32 +37,70 @@ const LINK_ARIA_KEY: Record<DckProjectLinkKind, I18nKey> = {
   local: I18nKey.DCK$OPEN_PROJECT_LINK,
 };
 
+function metaFromRuntime(runtime: WebgenProjectStatus): DckProjectMeta {
+  const status =
+    runtime.status === "running" ||
+    runtime.status === "stopped" ||
+    runtime.status === "error"
+      ? runtime.status
+      : null;
+  return {
+    name: runtime.name,
+    port: runtime.port,
+    stack: runtime.stack,
+    authProvider: runtime.auth_provider,
+    url: runtime.port === null ? null : `http://localhost:${runtime.port}`,
+    previewPath: runtime.preview_path,
+    subdomain: runtime.subdomain,
+    lastStatus: status,
+    lastCheckedAt: runtime.last_checked_at,
+  };
+}
+
+function projectStatus(
+  runtime: WebgenProjectStatus | undefined,
+  meta: DckProjectMeta | null,
+  latest: AppConversation | null,
+): DckProjectStatus {
+  if (runtime?.status === "unknown") return "unknown";
+  if (runtime?.status === "starting") return "working";
+  if (runtime) {
+    if (runtime.status === "running") return "running";
+    if (runtime.status === "stopped") return "stopped";
+    if (runtime.status === "error") return "error";
+  }
+  return deriveProjectStatus(meta, latest);
+}
+
 function WebgenProjectTableRow({
   entry,
   conversations,
   onOpen,
   isBusy,
+  runtime,
   dispatchLifecycle,
 }: {
   entry: ProjectEntry;
   conversations: AppConversation[];
   onOpen: (path: string) => void;
   isBusy: boolean;
+  runtime?: WebgenProjectStatus;
   dispatchLifecycle: (
     path: string,
-    command: string,
     action: WebgenLifecycleAction,
     appName: string,
     authProvider: string | null,
-  ) => void;
+    subdomain?: string,
+  ) => Promise<boolean>;
 }) {
   const { t, i18n } = useTranslation("openhands");
-  const meta: DckProjectMeta | null =
-    useDckProjectMeta(entry.path).data ?? null;
+  const downloadedMeta = useDckProjectMeta(entry.path).data ?? null;
+  const meta = runtime ? metaFromRuntime(runtime) : downloadedMeta;
   const latest = latestConversationForPath(conversations, entry.path);
-  const status = deriveProjectStatus(meta, latest);
+  const status = projectStatus(runtime, meta, latest);
   const count = relatedConversationCount(conversations, entry.path);
   const lastTouched = projectLastTouched(conversations, entry.path);
+  const checkedAt = runtime?.last_checked_at ?? meta?.lastCheckedAt;
 
   return (
     <tr
@@ -70,15 +110,39 @@ function WebgenProjectTableRow({
       <td className={CELL}>
         <div className="flex flex-col gap-0.5">
           <DckProjectStatusBadge status={status} />
-          {meta?.lastCheckedAt && (
+          {checkedAt && (
             <span
               data-testid="dck-project-verified-at"
-              className="text-[11px] text-text-tertiary"
+              className="text-xs text-text-tertiary"
             >
               {t(I18nKey.DCK$STATUS_VERIFIED_AT, {
-                time: formatRelativeTime(meta.lastCheckedAt, i18n.language, t),
+                time: formatRelativeTime(checkedAt, i18n.language, t),
               })}
             </span>
+          )}
+          {runtime && runtime.containers.length > 0 && (
+            <ul
+              aria-label={t(I18nKey.DCK$LIVE_CONTAINER_STATUS)}
+              data-testid="dck-project-containers"
+              className="mt-1 flex flex-col gap-0.5 text-xs text-text-tertiary"
+            >
+              {runtime.containers.map((container) => (
+                <li
+                  key={container.id}
+                  data-testid="dck-project-container-status"
+                  title={container.health ?? container.state}
+                >
+                  <span className="font-medium text-text-secondary">
+                    {container.name}
+                  </span>
+                  {": "}
+                  {container.health ?? container.state}
+                  {container.exit_code !== null
+                    ? ` (exit ${container.exit_code})`
+                    : ""}
+                </li>
+              ))}
+            </ul>
           )}
         </div>
       </td>
@@ -88,7 +152,7 @@ function WebgenProjectTableRow({
           disabled={isBusy}
           onClick={() => onOpen(entry.path)}
           data-testid="dck-project-row-open"
-          className="max-w-[16rem] truncate text-left text-sm font-medium text-contrast hover:text-indigo-300 disabled:opacity-50"
+          className="max-w-64 truncate text-left text-sm font-medium text-contrast hover:text-accent disabled:opacity-50"
           title={entry.name}
         >
           {entry.name}
@@ -113,7 +177,7 @@ function WebgenProjectTableRow({
                     name: entry.name,
                     url: link.url,
                   })}
-                  className="inline-flex items-center gap-1 text-xs font-medium text-indigo-400 hover:text-indigo-300"
+                  className="inline-flex items-center gap-1 text-xs font-medium text-accent hover:text-contrast"
                 >
                   {link.kind === "local"
                     ? t(LINK_LABEL_KEY.local, { port: meta?.port })
@@ -148,17 +212,10 @@ function WebgenProjectTableRow({
       <td className={`${CELL} text-right`}>
         <WebgenLifecycleActions
           appName={entry.name}
-          port={meta?.port ?? null}
           projectPath={entry.path}
-          onDispatch={(path, command, action, appName) =>
-            dispatchLifecycle(
-              path,
-              command,
-              action,
-              appName,
-              meta?.authProvider ?? null,
-            )
-          }
+          authProvider={meta?.authProvider ?? null}
+          publishedSubdomain={meta?.subdomain ?? null}
+          onDispatch={dispatchLifecycle}
           disabled={isBusy}
         />
       </td>
@@ -166,40 +223,34 @@ function WebgenProjectTableRow({
   );
 }
 
-/**
- * Webgen project list rendered as a table: status badge (with the last
- * agent-verified time), name, live URL, conversation count, last activity,
- * and the Docker lifecycle menu. Each row reads its own `.dck.json` metadata
- * via `useDckProjectMeta`.
- */
-/**
- * Webgen project list rendered as a table: status badge (with the last
- * agent-verified time), name, live URL, conversation count, last activity,
- * and the Docker lifecycle menu. Each row reads its own `.dck.json` metadata
- * via `useDckProjectMeta`.
- */
+/** WebGen projects with runtime status sourced from the agent-server. */
 export function WebgenProjectTable({
   entries,
   conversations,
   onOpen,
   isBusy,
+  runtimeProjects = [],
   dispatchLifecycle,
 }: {
   entries: ProjectEntry[];
   conversations: AppConversation[];
   onOpen: (path: string) => void;
   isBusy: boolean;
+  runtimeProjects?: WebgenProjectStatus[];
   dispatchLifecycle: (
     path: string,
-    command: string,
     action: WebgenLifecycleAction,
     appName: string,
     authProvider: string | null,
-  ) => void;
+    subdomain?: string,
+  ) => Promise<boolean>;
 }) {
   const { t } = useTranslation("openhands");
   const headClass =
     "px-3 py-2 text-left text-xs font-medium uppercase tracking-wide text-text-tertiary";
+  const projectsBySlug = new Map(
+    runtimeProjects.map((project) => [project.slug, project]),
+  );
 
   return (
     <div className="overflow-x-auto rounded-lg border border-border">
@@ -229,6 +280,7 @@ export function WebgenProjectTable({
               conversations={conversations}
               onOpen={onOpen}
               isBusy={isBusy}
+              runtime={projectsBySlug.get(entry.name)}
               dispatchLifecycle={dispatchLifecycle}
             />
           ))}

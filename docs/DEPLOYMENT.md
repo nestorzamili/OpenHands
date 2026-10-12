@@ -28,8 +28,9 @@ sudo apt-get install -y nginx
 
 The account used by `VM_SSH_TARGET` must be able to stage files under `/tmp`;
 the deployment process, directly or through sudo, must be able to write
-`/opt/dck-agentic`, run Docker Compose, and `chown` the persistent `config/` and
-`workspace/` bind mounts to UID/GID `10001:10001`. Use root for
+`/opt/dck-agentic`, run Docker Compose, install a Python 3 virtual environment,
+manage the `webgen-control` systemd unit, and write `/etc/nginx/dck-apps` when
+projects are published. Use root for
 `VM_SSH_TARGET`, or configure non-interactive `sudo -n` for the staged deploy
 script. The VM needs no repository checkout or GitHub CLI.
 
@@ -90,9 +91,13 @@ renewal setup remains valid.
 
 - First run (no `.env`): creates `/opt/dck-agentic/{config,workspace,pgdata}`,
   generates `.env` (random Postgres password, image repo + `sha-<short>` tag),
-  chowns bind mounts to the canvas UID (10001), `pull` + `up -d`.
-- Update: refreshes compose/scripts/skills, sets the new tag, `pull` + `up -d`.
+  records the private Docker bridge gateway, installs and health-checks the
+  typed WebGen host service, then `pull` + `up -d`.
+- Update: refreshes compose/scripts/skills and the host service, sets the new
+  tag, `pull` + `up -d`.
   Never touches `.env`, `config/`, `pgdata/`, or agent-authored `workspace/*`.
+  It does not recursively `chown` the project workspace, avoiding large build
+  contexts and preserving app ownership.
 
 After `up -d` it health-checks `/alive` (200/302), rolls back to the previous
 tag on failure, and prunes only old `dck-agentic` images. The automation schema
@@ -163,10 +168,14 @@ cd /opt/dck-agentic
 docker compose up -d
 ```
 
-Canvas accesses the host Docker socket only for Webgen lifecycle operations.
-This grants root-equivalent Docker API access, although Canvas runs without
-`privileged` mode; keep it behind portal authentication with access limited to
-trusted users.
+WebGen lifecycle uses a root-run host service bound only to Docker's private
+bridge gateway on port `8769`. Canvas reaches it through the authenticated
+same-origin proxy; the proxy adds the existing session API key, which the host
+service validates against the fixed local Agent Server endpoint. The service
+accepts only typed lifecycle operations, validates Compose policy, serializes
+image builds, and retrieves only `<SECRET_NAME>_<PROJECT_SLUG>` values from
+Secret Manager into a mode-`0600` project `.env`. The Canvas container never
+receives or mounts `/var/run/docker.sock`; do not expose port `8769` publicly.
 
 ## 6. LLM / agent credentials (from the web)
 

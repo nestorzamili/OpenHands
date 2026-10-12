@@ -14,6 +14,8 @@ import {
   useOpenConversation,
 } from "#/components/features/dck/use-dck-conversations";
 import { useSearchSubdirs } from "#/hooks/query/use-search-subdirs";
+import { useWebgenProjects } from "#/hooks/query/use-webgen-projects";
+import { useQueryClient } from "@tanstack/react-query";
 import { useProjectSkills } from "#/hooks/query/use-project-skills";
 import { formatRelativeTime } from "#/utils/format-relative-time";
 import { buildDckModulePrompt } from "#/dck/module-config";
@@ -21,10 +23,12 @@ import {
   buildWebgenScaffoldPrompt,
   type WebgenNewProjectSpec,
 } from "#/dck/webgen-new-project";
+import { type WebgenLifecycleAction } from "#/dck/webgen-lifecycle";
 import {
-  addWebgenOwnerSeedVerificationKey,
-  type WebgenLifecycleAction,
-} from "#/dck/webgen-lifecycle";
+  isWebgenOwnerSeedReentryRequired,
+  runWebgenLifecycleAction,
+  type WebgenProjectStatus,
+} from "#/dck/webgen-service";
 import {
   authorizeWebgenOwnerSeedDeploy,
   isOwnerSeedReentryRequired,
@@ -34,6 +38,7 @@ import {
   DCK_COPY,
   conversationWorkingDir,
   conversationsForBase,
+  flattenConversationPages,
   findDckModuleById,
   mergeDckModules,
   type DckModule,
@@ -49,12 +54,12 @@ import {
   useDckModuleAgentProfiles,
 } from "#/hooks/use-dck-module-agent-profiles";
 import { displayErrorToast } from "#/utils/custom-toast-handlers";
+import type { ProjectEntry } from "#/components/features/dck/project-row";
 
 interface PendingOwnerSeedDeploy {
   appName: string;
   projectPath: string;
   conversationId: string;
-  command: string;
   action: "deploy" | "rebuild";
 }
 
@@ -119,6 +124,8 @@ function ModuleProjectsList({
   openPath,
   isCreating,
   dispatchLifecycle,
+  conversationsAuthLoading,
+  conversationsLoaded,
   conversationsLoading,
   conversationsError,
   emptyCta,
@@ -129,37 +136,66 @@ function ModuleProjectsList({
   isCreating: boolean;
   dispatchLifecycle: (
     path: string,
-    command: string,
     action: WebgenLifecycleAction,
     appName: string,
     authProvider: string | null,
-  ) => void;
+    subdomain?: string,
+  ) => Promise<boolean>;
+  conversationsAuthLoading: boolean;
+  conversationsLoaded: boolean;
   conversationsLoading: boolean;
   conversationsError: boolean;
   emptyCta?: React.ReactNode;
 }) {
-  const subdirs = useSearchSubdirs(dckModule.workspacePath);
-  const entries = React.useMemo(
-    () =>
-      [...(subdirs.data?.items ?? [])].sort((left, right) =>
-        left.name.localeCompare(right.name),
-      ),
-    [subdirs.data],
-  );
-
   const isWebgen = dckModule.id === "webgen";
+  const subdirs = useSearchSubdirs(dckModule.workspacePath);
+  const runtimeProjectsQuery = useWebgenProjects(isWebgen);
+  const runtimeProjects = runtimeProjectsQuery.data?.projects ?? [];
+  const entries = React.useMemo(() => {
+    const entriesByName = new Map<string, ProjectEntry>(
+      (subdirs.data?.items ?? []).map((entry) => [entry.name, entry]),
+    );
+    if (isWebgen) {
+      runtimeProjects.forEach((project: WebgenProjectStatus) => {
+        if (!entriesByName.has(project.slug)) {
+          entriesByName.set(project.slug, {
+            name: project.slug,
+            path: project.path,
+          });
+        }
+      });
+    }
+    const resolvedEntries = [...entriesByName.values()].sort((left, right) =>
+      left.name.localeCompare(right.name),
+    );
+    return resolvedEntries;
+  }, [isWebgen, runtimeProjects, subdirs.data]);
+  const hasProjectSource = Boolean(
+    subdirs.data || (isWebgen && runtimeProjectsQuery.data),
+  );
+  const bothProjectSourcesFailed =
+    subdirs.isError && (!isWebgen || runtimeProjectsQuery.isError);
 
-  if (subdirs.isLoading || conversationsLoading) {
-    return <ListState state="loading" emptyText={DCK_COPY.noProjects} />;
-  }
-  if (subdirs.isError || conversationsError) {
+  if (bothProjectSourcesFailed || conversationsError) {
     return (
       <ListState
         state="error"
-        onRetry={() => void subdirs.refetch()}
+        onRetry={() => {
+          void subdirs.refetch();
+          if (isWebgen) void runtimeProjectsQuery.refetch();
+        }}
         emptyText={DCK_COPY.noProjects}
       />
     );
+  }
+  if (
+    (!hasProjectSource &&
+      (subdirs.isLoading || runtimeProjectsQuery.isLoading)) ||
+    conversationsAuthLoading ||
+    conversationsLoading ||
+    !conversationsLoaded
+  ) {
+    return <ListState state="loading" emptyText={DCK_COPY.noProjects} />;
   }
   if (entries.length === 0) {
     return (
@@ -178,6 +214,7 @@ function ModuleProjectsList({
         conversations={conversations}
         onOpen={openPath}
         isBusy={isCreating}
+        runtimeProjects={runtimeProjects}
         dispatchLifecycle={dispatchLifecycle}
       />
     );
@@ -283,17 +320,15 @@ export function ModuleDetailView({
   const { t } = useTranslation("openhands");
   const {
     conversations,
+    isAuthLoading: conversationsAuthLoading,
+    hasData: conversationsLoaded,
     isLoading: conversationsLoading,
     isError: conversationsError,
     refetch: refetchConversations,
   } = useAllConversationsQuery();
-  const {
-    openPath,
-    createScoped,
-    prefillAndOpen,
-    continueConversation,
-    isCreating,
-  } = useOpenConversation();
+  const { openPath, ensureConversation, createScoped, isCreating } =
+    useOpenConversation();
+  const queryClient = useQueryClient();
   const { skills } = useProjectSkills();
   const triggersBySkill = React.useMemo(() => {
     const map = new Map<string, string[]>();
@@ -349,6 +384,11 @@ export function ModuleDetailView({
   const [showNewProjectDialog, setShowNewProjectDialog] = React.useState(false);
   const [pendingOwnerSeedDeploy, setPendingOwnerSeedDeploy] =
     React.useState<PendingOwnerSeedDeploy | null>(null);
+  const [pendingLifecycleSlug, setPendingLifecycleSlug] = React.useState<
+    string | null
+  >(null);
+  const lifecycleBusy = isCreating || Boolean(pendingLifecycleSlug);
+  const lifecycleUiBlocked = lifecycleBusy || Boolean(pendingOwnerSeedDeploy);
   const [isSubmittingOwnerSeed, setIsSubmittingOwnerSeed] =
     React.useState(false);
   const pendingSeedConversation = React.useRef<{
@@ -389,42 +429,123 @@ export function ModuleDetailView({
   }
 
   const Icon = dckModule.icon;
-  const open = (path: string) =>
-    void openPath(path, conversations, undefined, moduleLaunchOptions);
-  const dispatchLifecycle = (
+  const getCurrentConversations = async (): Promise<AppConversation[]> => {
+    if (
+      conversationsLoaded &&
+      !conversationsLoading &&
+      !conversationsAuthLoading &&
+      !conversationsError
+    ) {
+      return conversations;
+    }
+    const refreshed = await refetchConversations();
+    if (refreshed.isError) {
+      throw refreshed.error ?? new Error("Unable to load conversations");
+    }
+    return flattenConversationPages(refreshed.data?.pages);
+  };
+  const open = (path: string) => {
+    void (async () => {
+      try {
+        await openPath(
+          path,
+          await getCurrentConversations(),
+          undefined,
+          moduleLaunchOptions,
+        );
+      } catch (error) {
+        displayErrorToast(error instanceof Error ? error.message : null);
+      }
+    })();
+  };
+  const performWebgenAction = async (
+    appName: string,
+    action: WebgenLifecycleAction,
+    options: { subdomain?: string; conversationId?: string } = {},
+  ) => {
+    await runWebgenLifecycleAction(appName, {
+      action,
+      ...(options.subdomain ? { subdomain: options.subdomain } : {}),
+      ...(options.conversationId
+        ? { conversation_id: options.conversationId }
+        : {}),
+    });
+    await queryClient.invalidateQueries({
+      queryKey: ["dck", "webgen-projects"],
+    });
+    if (action === "delete") {
+      await queryClient.invalidateQueries({
+        queryKey: ["file", "search_subdirs"],
+      });
+    }
+  };
+
+  const dispatchLifecycle = async (
     path: string,
-    command: string,
     action: WebgenLifecycleAction,
     appName: string,
     authProvider: string | null,
-  ) => {
-    if (
-      (action === "deploy" || action === "rebuild") &&
-      authProvider === "better-auth"
-    ) {
-      void prefillAndOpen(path, conversations, command, {
-        ...moduleLaunchOptions,
-        beforeDispatch: async (conversationId) => {
-          try {
-            await authorizeWebgenOwnerSeedDeploy(appName, conversationId, path);
-            return "ready";
-          } catch (error) {
-            if (isOwnerSeedReentryRequired(error)) return "seed-required";
-            throw error;
+    subdomain?: string,
+  ): Promise<boolean> => {
+    if (pendingLifecycleSlug || pendingOwnerSeedDeploy) return false;
+    setPendingLifecycleSlug(appName);
+    let conversationId: string | undefined;
+    try {
+      if (
+        (action === "deploy" || action === "rebuild") &&
+        authProvider === "better-auth"
+      ) {
+        if (moduleProfileSelectionBlocked) {
+          displayErrorToast(
+            moduleProfileSelectionBlockedMessage ??
+              t(I18nKey.DCK$MODULE_AGENT_PROFILE_STALE),
+          );
+          return false;
+        }
+        conversationId = await ensureConversation(
+          path,
+          await getCurrentConversations(),
+          moduleAgentProfileId,
+        );
+        try {
+          await authorizeWebgenOwnerSeedDeploy(appName, conversationId, path);
+        } catch (error) {
+          if (isOwnerSeedReentryRequired(error)) {
+            setPendingOwnerSeedDeploy({
+              appName,
+              projectPath: path,
+              conversationId,
+              action,
+            });
+            return false;
           }
-        },
-        onSeedRequired: (conversationId) =>
-          setPendingOwnerSeedDeploy({
-            appName,
-            projectPath: path,
-            conversationId,
-            command,
-            action,
-          }),
+          throw error;
+        }
+      }
+      await performWebgenAction(appName, action, {
+        ...(subdomain ? { subdomain } : {}),
+        ...(conversationId ? { conversationId } : {}),
       });
-      return;
+      return true;
+    } catch (error) {
+      if (
+        (action === "deploy" || action === "rebuild") &&
+        isWebgenOwnerSeedReentryRequired(error) &&
+        conversationId
+      ) {
+        setPendingOwnerSeedDeploy({
+          appName,
+          projectPath: path,
+          conversationId,
+          action,
+        });
+        return false;
+      }
+      displayErrorToast(error instanceof Error ? error.message : null);
+      return false;
+    } finally {
+      setPendingLifecycleSlug(null);
     }
-    void prefillAndOpen(path, conversations, command, moduleLaunchOptions);
   };
 
   const handleNewWebgenProject = async (
@@ -485,8 +606,9 @@ export function ModuleDetailView({
   const handleOwnerSeedReentry = async (seed: WebgenOwnerSeedInput) => {
     if (!pendingOwnerSeedDeploy) return;
     setIsSubmittingOwnerSeed(true);
+    setPendingLifecycleSlug(pendingOwnerSeedDeploy.appName);
     try {
-      const staged = await stageWebgenOwnerSeed(
+      await stageWebgenOwnerSeed(
         pendingOwnerSeedDeploy.appName,
         pendingOwnerSeedDeploy.conversationId,
         pendingOwnerSeedDeploy.projectPath,
@@ -497,17 +619,16 @@ export function ModuleDetailView({
         pendingOwnerSeedDeploy.conversationId,
         pendingOwnerSeedDeploy.projectPath,
       );
-      continueConversation(
-        pendingOwnerSeedDeploy.conversationId,
-        addWebgenOwnerSeedVerificationKey(
-          pendingOwnerSeedDeploy.command,
-          staged.verification_key,
-        ),
+      await performWebgenAction(
+        pendingOwnerSeedDeploy.appName,
+        pendingOwnerSeedDeploy.action,
+        { conversationId: pendingOwnerSeedDeploy.conversationId },
       );
       setPendingOwnerSeedDeploy(null);
     } catch (error) {
       displayErrorToast(error instanceof Error ? error.message : null);
     } finally {
+      setPendingLifecycleSlug(null);
       setIsSubmittingOwnerSeed(false);
     }
   };
@@ -579,7 +700,7 @@ export function ModuleDetailView({
             </div>
             {headerAction}
           </div>
-          <div className="max-w-md rounded-lg border border-border bg-base p-3">
+          <div className="max-w-md rounded-lg border border-border bg-base-secondary p-3">
             <DckModuleAgentProfileSummary
               moduleId={dckModule.id}
               profiles={agentProfiles}
@@ -593,8 +714,10 @@ export function ModuleDetailView({
                 dckModule={dckModule}
                 conversations={conversations}
                 openPath={open}
-                isCreating={isCreating}
+                isCreating={lifecycleUiBlocked}
                 dispatchLifecycle={dispatchLifecycle}
+                conversationsAuthLoading={conversationsAuthLoading}
+                conversationsLoaded={conversationsLoaded}
                 conversationsLoading={conversationsLoading}
                 conversationsError={conversationsError}
                 emptyCta={headerAction}
@@ -605,7 +728,7 @@ export function ModuleDetailView({
                 dckModule={dckModule}
                 conversations={conversations}
                 openPath={open}
-                isLoading={conversationsLoading}
+                isLoading={conversationsAuthLoading || conversationsLoading}
                 isError={conversationsError}
                 onRetry={() => void refetchConversations()}
                 emptyCta={headerAction}
@@ -627,7 +750,7 @@ export function ModuleDetailView({
       {pendingOwnerSeedDeploy && (
         <WebgenOwnerSeedDialog
           appName={pendingOwnerSeedDeploy.appName}
-          isSubmitting={isCreating || isSubmittingOwnerSeed}
+          isSubmitting={lifecycleBusy || isSubmittingOwnerSeed}
           onCancel={() => setPendingOwnerSeedDeploy(null)}
           onSubmit={(seed) => void handleOwnerSeedReentry(seed)}
         />

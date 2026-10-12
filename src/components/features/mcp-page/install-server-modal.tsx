@@ -522,6 +522,7 @@ export function InstallServerModal({
     return handleStdioSubmit();
   };
 
+  // @spec MCP-004 — Form feedback follows readable theme text roles
   const renderFields = () => {
     if (template?.kind === "shttp" || template?.kind === "sse") {
       const oauthMode = isOAuthOption(option);
@@ -542,7 +543,7 @@ export function InstallServerModal({
             className="w-full"
           />
           {state.errors.url && (
-            <p className="text-xs text-status-error">{state.errors.url}</p>
+            <p className="text-xs text-feedback-error">{state.errors.url}</p>
           )}
           {headerFields.map((field) => (
             <div key={field.key} className="flex flex-col gap-1">
@@ -564,7 +565,7 @@ export function InstallServerModal({
                 </p>
               )}
               {state.errors[field.key] && (
-                <p className="text-xs text-status-error">
+                <p className="text-xs text-feedback-error">
                   {state.errors[field.key]}
                 </p>
               )}
@@ -615,7 +616,7 @@ export function InstallServerModal({
                 </p>
               )}
               {state.errors.api_key && (
-                <p className="text-xs text-status-error">
+                <p className="text-xs text-feedback-error">
                   {state.errors.api_key}
                 </p>
               )}
@@ -666,7 +667,7 @@ export function InstallServerModal({
               </p>
             )}
             {state.errors[field.key] && (
-              <p className="text-xs text-status-error">
+              <p className="text-xs text-feedback-error">
                 {state.errors[field.key]}
               </p>
             )}
@@ -701,7 +702,7 @@ export function InstallServerModal({
               </p>
             )}
             {state.errors[field.key] && (
-              <p className="text-xs text-status-error">
+              <p className="text-xs text-feedback-error">
                 {state.errors[field.key]}
               </p>
             )}
@@ -811,10 +812,11 @@ export function InstallServerModal({
 
               <div className="flex flex-col gap-3">{renderFields()}</div>
 
+              {/* @spec MCP-004 — Form feedback follows readable theme text roles */}
               {globalError && (
                 <p
                   data-testid="mcp-install-modal-error"
-                  className="text-sm text-status-error whitespace-pre-wrap"
+                  className="text-sm text-feedback-error whitespace-pre-wrap"
                 >
                   {globalError}
                 </p>

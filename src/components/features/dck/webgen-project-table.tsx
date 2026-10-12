@@ -215,6 +215,7 @@ function WebgenProjectTableRow({
           projectPath={entry.path}
           authProvider={meta?.authProvider ?? null}
           publishedSubdomain={meta?.subdomain ?? null}
+          runtimeStatus={runtime?.status}
           onDispatch={dispatchLifecycle}
           disabled={isBusy}
         />

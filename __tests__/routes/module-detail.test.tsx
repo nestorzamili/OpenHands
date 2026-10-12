@@ -438,6 +438,7 @@ describe("ModuleDetailView projects list", () => {
     expect(mockCreateConversation).not.toHaveBeenCalled();
 
     fireEvent.click(await screen.findByTestId("dck-lifecycle-deploy"));
+    fireEvent.click(await screen.findByTestId("dck-webgen-deploy-submit"));
     await waitFor(() => {
       expect(mockWebgenService.run).toHaveBeenCalledWith("shop", {
         action: "deploy",
@@ -592,6 +593,7 @@ describe("ModuleDetailView webgen lifecycle actions", () => {
     const deployButton = await screen.findByTestId("dck-lifecycle-deploy");
     expect(deployButton).toBeEnabled();
     fireEvent.click(deployButton);
+    fireEvent.click(await screen.findByTestId("dck-webgen-deploy-submit"));
     await waitFor(() => {
       expect(mockWebgenService.run).toHaveBeenCalledWith("shop", {
         action: "deploy",
@@ -609,6 +611,7 @@ describe("ModuleDetailView webgen lifecycle actions", () => {
 
     await waitForAssignedModuleProfile("webgen", "active-profile");
     fireEvent.click(await screen.findByTestId("dck-lifecycle-deploy"));
+    fireEvent.click(await screen.findByTestId("dck-webgen-deploy-submit"));
     await waitFor(() => {
       expect(mockWebgenService.run).toHaveBeenCalledWith("shop", {
         action: "deploy",
@@ -635,6 +638,7 @@ describe("ModuleDetailView webgen lifecycle actions", () => {
 
     await waitForAssignedModuleProfile("webgen", "research-profile");
     fireEvent.click(await screen.findByTestId("dck-lifecycle-deploy"));
+    fireEvent.click(await screen.findByTestId("dck-webgen-deploy-submit"));
     await waitFor(() => {
       expect(mockWebgenService.run).toHaveBeenCalledWith("shop", {
         action: "deploy",
@@ -661,6 +665,11 @@ describe("ModuleDetailView webgen lifecycle actions", () => {
     await waitForAssignedModuleProfile("webgen", "active-profile");
     await waitForAssignedModuleProfile("webgen", "active-profile");
     fireEvent.click(await screen.findByTestId("dck-lifecycle-deploy"));
+    await user.type(
+      screen.getByTestId("dck-webgen-deploy-subdomain-input"),
+      "seed-domain",
+    );
+    fireEvent.click(await screen.findByTestId("dck-webgen-deploy-submit"));
     expect(
       await screen.findByTestId("webgen-owner-seed-dialog"),
     ).toBeInTheDocument();
@@ -678,6 +687,7 @@ describe("ModuleDetailView webgen lifecycle actions", () => {
       expect(mockWebgenService.run).toHaveBeenCalledWith("shop", {
         action: "deploy",
         conversation_id: "conv-web",
+        subdomain: "seed-domain",
       });
     });
     expect(mockOwnerSeedService.stage).toHaveBeenCalledWith(
@@ -698,6 +708,20 @@ describe("ModuleDetailView webgen lifecycle actions", () => {
     await waitFor(() => {
       expect(mockWebgenService.run).toHaveBeenCalledWith("shop", {
         action: "rebuild",
+      });
+    });
+    expect(mockSetMessageToSend).not.toHaveBeenCalled();
+  });
+
+  it("starts a stopped app through the typed API without rebuilding", async () => {
+    renderWithProviders(
+      <ModuleDetailView dckModule={getDckModuleById("webgen")} />,
+    );
+
+    fireEvent.click(await screen.findByTestId("dck-lifecycle-start"));
+    await waitFor(() => {
+      expect(mockWebgenService.run).toHaveBeenCalledWith("shop", {
+        action: "start",
       });
     });
     expect(mockSetMessageToSend).not.toHaveBeenCalled();
@@ -726,7 +750,7 @@ describe("ModuleDetailView webgen lifecycle actions", () => {
     );
 
     fireEvent.click(await screen.findByTestId("dck-lifecycle-publish"));
-    const input = screen.getByTestId("dck-webgen-subdomain-input");
+    const input = screen.getByTestId("dck-webgen-publish-subdomain-input");
     expect(screen.getByTestId("dck-webgen-publish-submit")).toBeInTheDocument();
     await user.clear(input);
     expect(screen.getByTestId("dck-webgen-publish-submit")).toBeInTheDocument();

@@ -11,7 +11,6 @@ describe("buildWebgenLifecycleCommand", () => {
     expect(cmd).toContain("docker compose ps");
     expect(cmd).toContain("docker compose logs -n 50 app");
     expect(cmd).toContain("curl -s http://localhost:3100/");
-    // Instructs the agent to record the verified status for the portal badge.
     expect(cmd).toContain("webgen/shop/.dck.json");
     expect(cmd).toContain('"lastStatus" to "running"');
     expect(cmd).toContain("lastCheckedAt");
@@ -21,16 +20,30 @@ describe("buildWebgenLifecycleCommand", () => {
     const cmd = buildWebgenLifecycleCommand("rebuild", ctx);
     expect(cmd).toContain("cd webgen/shop");
     expect(cmd).toContain(
-      "docker compose down && docker compose up -d --build",
+      "docker compose down --remove-orphans && docker compose up -d --build",
     );
     expect(cmd).toContain("curl -s http://localhost:3100/");
     expect(cmd).toContain('"lastStatus" to "running"');
   });
 
-  it("stop builds docker compose down (no volumes) and records stopped status", () => {
+  it("starts without rebuilding after stop has removed the containers", () => {
+    const cmd = buildWebgenLifecycleCommand("start", ctx);
+    expect(cmd).toContain("docker compose up -d");
+    expect(cmd).not.toContain("--build");
+  });
+
+  it("restarts without rebuilding and removes orphan containers first", () => {
+    const cmd = buildWebgenLifecycleCommand("restart", ctx);
+    expect(cmd).toContain(
+      "docker compose down --remove-orphans && docker compose up -d",
+    );
+    expect(cmd).not.toContain("--build");
+  });
+
+  it("stop removes containers and orphans but keeps volumes and images", () => {
     const cmd = buildWebgenLifecycleCommand("stop", ctx);
     expect(cmd).toContain("cd webgen/shop");
-    expect(cmd).toContain("docker compose down");
+    expect(cmd).toContain("docker compose down --remove-orphans");
     expect(cmd).not.toContain("-v");
     expect(cmd).not.toContain("--rmi");
     expect(cmd).toContain('"lastStatus" to "stopped"');

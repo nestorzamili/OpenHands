@@ -59,7 +59,8 @@ interface PendingOwnerSeedDeploy {
   appName: string;
   projectPath: string;
   conversationId: string;
-  action: "deploy" | "rebuild";
+  action: "deploy" | "rebuild" | "start" | "restart";
+  subdomain?: string;
 }
 
 function ListState({
@@ -483,7 +484,10 @@ export function ModuleDetailView({
     let conversationId: string | undefined;
     try {
       if (
-        (action === "deploy" || action === "rebuild") &&
+        (action === "deploy" ||
+          action === "rebuild" ||
+          action === "start" ||
+          action === "restart") &&
         authProvider === "better-auth"
       ) {
         if (moduleProfileSelectionBlocked) {
@@ -507,8 +511,9 @@ export function ModuleDetailView({
               projectPath: path,
               conversationId,
               action,
+              ...(subdomain ? { subdomain } : {}),
             });
-            return false;
+            return true;
           }
           throw error;
         }
@@ -520,7 +525,10 @@ export function ModuleDetailView({
       return true;
     } catch (error) {
       if (
-        (action === "deploy" || action === "rebuild") &&
+        (action === "deploy" ||
+          action === "rebuild" ||
+          action === "start" ||
+          action === "restart") &&
         isWebgenOwnerSeedReentryRequired(error) &&
         conversationId
       ) {
@@ -529,8 +537,9 @@ export function ModuleDetailView({
           projectPath: path,
           conversationId,
           action,
+          ...(subdomain ? { subdomain } : {}),
         });
-        return false;
+        return true;
       }
       displayErrorToast(error instanceof Error ? error.message : null);
       return false;
@@ -613,7 +622,12 @@ export function ModuleDetailView({
       await performWebgenAction(
         pendingOwnerSeedDeploy.appName,
         pendingOwnerSeedDeploy.action,
-        { conversationId: pendingOwnerSeedDeploy.conversationId },
+        {
+          conversationId: pendingOwnerSeedDeploy.conversationId,
+          ...(pendingOwnerSeedDeploy.subdomain
+            ? { subdomain: pendingOwnerSeedDeploy.subdomain }
+            : {}),
+        },
       );
       setPendingOwnerSeedDeploy(null);
     } catch (error) {

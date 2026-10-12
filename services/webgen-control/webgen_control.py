@@ -25,7 +25,7 @@ RESERVED={"agent","www","api","mail","smtp","ftp","admin","root","ns1","ns2","lo
 SECRET_NAME_RE=re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
 ENV_KEY_RE=re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 ENV_LINE_RE=re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=")
-ACTIONS={"deploy","rebuild","stop","delete","publish","unpublish"}; MAX_BODY=16*1024; UTC=timezone.utc
+ACTIONS={"deploy","rebuild","start","restart","stop","delete","publish","unpublish"}; MAX_BODY=16*1024; UTC=timezone.utc
 
 class SecretMaterializationError(RuntimeError):
     def __init__(self,message,status=422,code="secrets_required"):
@@ -57,7 +57,7 @@ def command_for(slug,action,compose_file,project_dir=None):
     if not valid_slug(slug) or action not in ACTIONS-{"publish","unpublish"}: raise ValueError("invalid operation")
     base=["docker","compose","-p",slug,"-f",str(compose_file)]
     if project_dir is not None: base.extend(["--project-directory",str(project_dir)])
-    return base+{"deploy":["up","-d","--build"],"rebuild":["up","-d","--build"],"stop":["down","--remove-orphans"],"delete":["down","-v","--rmi","local"]}[action]
+    return base+{"deploy":["up","-d","--build"],"rebuild":["up","-d","--build"],"start":["up","-d"],"restart":["up","-d"],"stop":["down","--remove-orphans"],"delete":["down","-v","--rmi","local"]}[action]
 def _master_key(path):
     path=Path(path); path.parent.mkdir(parents=True,exist_ok=True)
     try:
@@ -292,8 +292,14 @@ class Service:
             with tempfile.TemporaryDirectory(prefix="webgen-compose-") as temporary:
                 snapshot=Path(temporary)/"docker-compose.yml"; snapshot.write_bytes(source_bytes); os.chmod(snapshot,0o400)
                 self.compose_config(slug,p,compose_file=snapshot,source_bytes=source_bytes)
-                command=command_for(slug,action,snapshot,p)
-                return subprocess.run(command,cwd=str(p),capture_output=True,text=True,timeout=900,check=False,env=clean_env)
+                base=["docker","compose","-p",slug,"-f",str(snapshot),"--project-directory",str(p)]
+                commands=[]
+                if action in {"rebuild","restart"}: commands.append(base+["down","--remove-orphans"])
+                commands.append(command_for(slug,action,snapshot,p))
+                for command in commands:
+                    result=subprocess.run(command,cwd=str(p),capture_output=True,text=True,timeout=900,check=False,env=clean_env)
+                    if result.returncode: return result
+                return result
     @staticmethod
     def _secret_environment_key(name):
         upper=name.upper()
@@ -510,7 +516,7 @@ class Service:
                     except Exception:pass
                     raise RuntimeError("publication failed")
                 return self.project(slug,p)
-            if action in {"deploy","rebuild"} and m.get("authProvider",m.get("auth_provider"))=="better-auth":
+            if action in {"deploy","rebuild","start","restart"} and m.get("authProvider",m.get("auth_provider"))=="better-auth":
                 if not valid_conversation(conv): raise ValueError("conversation_id required")
                 state=self.owner_state(slug)
                 if state not in {"owner_exists"} and not self.seed.authorized(slug,conv): raise RuntimeError("owner authorization required")
@@ -519,14 +525,19 @@ class Service:
                 r=self.compose(slug,p,action)
                 if r.returncode: self.update_meta(p,lastStatus="error",lastCheckedAt=now_iso()); raise RuntimeError("compose operation failed")
                 self.update_meta(p,lastStatus="stopped",lastCheckedAt=now_iso()); return self.project(slug,p)
-            current=self._published_label(m); base="" if current else f"/preview/{slug}"
+            current=self._published_label(m)
+            requested=body.get("subdomain") if action=="deploy" else None
+            if requested is not None and not valid_subdomain(requested): raise ValueError("invalid subdomain")
+            target=requested or current
+            if requested and requested!=current: self._ensure_unique_subdomain(slug,requested)
+            base="" if target else f"/preview/{slug}"
             self.materialize_env(slug,p,session_api_key,base)
             r=self.compose(slug,p,action)
             if r.returncode: self.update_meta(p,lastStatus="error",lastCheckedAt=now_iso()); raise RuntimeError("compose operation failed")
             if not self._health(slug,port,base+"/" if base else "/"): self.update_meta(p,lastStatus="error",lastCheckedAt=now_iso()); raise RuntimeError("application health check failed")
             routes=self._snapshot_routes(slug); oldmeta=(p/".dck.json").read_bytes()
             try:
-                self._set_route(slug,p,m,current)
+                self._set_route(slug,p,m,target)
             except Exception:
                 self._restore_routes(routes); self._atomic_bytes(p/".dck.json",oldmeta,0o644)
                 try:self.nginx_reload()

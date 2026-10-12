@@ -1,6 +1,8 @@
 export type WebgenLifecycleAction =
   | "deploy"
   | "rebuild"
+  | "start"
+  | "restart"
   | "stop"
   | "delete"
   | "publish"
@@ -75,16 +77,28 @@ export function buildWebgenLifecycleCommand(
       return withOwnerSeedInstructions(
         [
           `Rebuild the "${context.appName}" webgen app with a clean restart (containerized, never on the host):`,
-          `${enter} && docker compose down && docker compose up -d --build`,
+          `${enter} && docker compose down --remove-orphans && docker compose up -d --build`,
           `then verify: ${verifySuffix(context.port)}`,
           `then update ${dir}/.dck.json: set "lastStatus" to "running" if healthy (else "error") and "lastCheckedAt" to the current ISO-8601 UTC time.`,
         ].join("\n"),
         context,
       );
+    case "start":
+      return [
+        `Start the "${context.appName}" webgen app without rebuilding its image:`,
+        `${enter} && docker compose up -d`,
+        `then verify: ${verifySuffix(context.port)}`,
+      ].join("\n");
+    case "restart":
+      return [
+        `Restart the "${context.appName}" webgen app without rebuilding its image:`,
+        `${enter} && docker compose down --remove-orphans && docker compose up -d`,
+        `then verify: ${verifySuffix(context.port)}`,
+      ].join("\n");
     case "stop":
       return [
         `Stop the "${context.appName}" webgen app:`,
-        `${enter} && docker compose down`,
+        `${enter} && docker compose down --remove-orphans`,
         `then update ${dir}/.dck.json: set "lastStatus" to "stopped" and "lastCheckedAt" to the current ISO-8601 UTC time.`,
       ].join("\n");
     case "delete":

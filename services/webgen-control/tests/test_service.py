@@ -163,6 +163,9 @@ networks:
             command,
             ["docker", "compose", "-p", "safe-app", "-f", "/x/docker-compose.yml", "up", "-d", "--build"],
         )
+        self.assertEqual(command_for("safe-app", "start", Path("/x/docker-compose.yml"))[-2:], ["up", "-d"])
+        self.assertEqual(command_for("safe-app", "restart", Path("/x/docker-compose.yml"))[-2:], ["up", "-d"])
+        self.assertEqual(command_for("safe-app", "stop", Path("/x/docker-compose.yml"))[-2:], ["down", "--remove-orphans"])
         with self.assertRaises(ValueError):
             command_for("../x", "deploy", Path("/x"))
 
@@ -250,6 +253,122 @@ networks:
                 "webgen_control.subprocess.run", side_effect=run
             ):
                 service.compose("x", project, "deploy")
+
+    def test_compose_runs_distinct_allowlisted_sequences_for_each_lifecycle_action(self):
+        with tempfile.TemporaryDirectory() as d:
+            project = Path(d)
+            self.make_project(project)
+            service = self.make_service()
+            service.build_lock = threading.RLock()
+
+            class Result:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+
+            for action, expected in {
+                "deploy": [["up", "-d", "--build"]],
+                "rebuild": [["down", "--remove-orphans"], ["up", "-d", "--build"]],
+                "start": [["up", "-d"]],
+                "restart": [["down", "--remove-orphans"], ["up", "-d"]],
+                "stop": [["down", "--remove-orphans"]],
+            }.items():
+                calls = []
+
+                def run(command, **kwargs):
+                    calls.append(command)
+                    return Result()
+
+                with patch.object(service, "compose_config"), patch(
+                    "webgen_control.subprocess.run", side_effect=run
+                ):
+                    service.compose("x", project, action)
+                tails = [command[command.index("--project-directory") + 2:] for command in calls]
+                self.assertEqual(tails, expected, action)
+
+    def test_deploy_accepts_optional_subdomain_and_routes_to_the_requested_host(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            project = root / "shop"
+            project.mkdir()
+            self.make_project(project)
+            service = self.make_service()
+            service.root = root
+            service.locks = {}
+            service.guard = threading.Lock()
+            service._ensure_unique_subdomain = lambda slug, subdomain: None
+            service.materialize_env = unittest.mock.Mock()
+
+            class Result:
+                returncode = 0
+
+            service.compose = unittest.mock.Mock(return_value=Result())
+            service._health = unittest.mock.Mock(return_value=True)
+            service._snapshot_routes = unittest.mock.Mock(return_value={})
+            service._set_route = unittest.mock.Mock()
+            service.update_meta = unittest.mock.Mock()
+            service.project = unittest.mock.Mock(return_value={"slug": "shop"})
+
+            result = service.action(
+                "shop", {"action": "deploy", "subdomain": "new-shop"}, "session-key"
+            )
+
+            self.assertEqual(result, {"slug": "shop"})
+            service.materialize_env.assert_called_once_with("shop", project, "session-key", "")
+            service.compose.assert_called_once_with("shop", project, "deploy")
+            service._health.assert_called_once_with("shop", 3000, "/")
+            service._set_route.assert_called_once_with(
+                "shop", project, {"port": 3000}, "new-shop"
+            )
+
+    def test_deploy_without_subdomain_preserves_the_existing_public_domain(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            project = root / "shop"
+            project.mkdir()
+            self.make_project(project)
+            (project / ".dck.json").write_text(
+                json.dumps({"port": 3000, "subdomain": "current-shop.dckautoposting.com"})
+            )
+            service = self.make_service()
+            service.root = root
+            service.locks = {}
+            service.guard = threading.Lock()
+            service._ensure_unique_subdomain = unittest.mock.Mock()
+            service.materialize_env = unittest.mock.Mock()
+
+            class Result:
+                returncode = 0
+
+            service.compose = unittest.mock.Mock(return_value=Result())
+            service._health = unittest.mock.Mock(return_value=True)
+            service._snapshot_routes = unittest.mock.Mock(return_value={})
+            service._set_route = unittest.mock.Mock()
+            service.update_meta = unittest.mock.Mock()
+            service.project = unittest.mock.Mock(return_value={"slug": "shop"})
+
+            service.action("shop", {"action": "deploy"}, "session-key")
+
+            service._set_route.assert_called_once_with(
+                "shop", project, {"port": 3000, "subdomain": "current-shop.dckautoposting.com"}, "current-shop"
+            )
+            service._ensure_unique_subdomain.assert_not_called()
+
+    def test_deploy_rejects_invalid_subdomain_before_running_containers(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            project = root / "shop"
+            project.mkdir()
+            self.make_project(project)
+            service = self.make_service()
+            service.root = root
+            service.locks = {}
+            service.guard = threading.Lock()
+            service.compose = unittest.mock.Mock()
+
+            with self.assertRaisesRegex(ValueError, "invalid subdomain"):
+                service.action("shop", {"action": "deploy", "subdomain": "-invalid"})
+            service.compose.assert_not_called()
 
     def test_materializes_only_project_secrets_and_quotes_values(self):
         with tempfile.TemporaryDirectory() as d:

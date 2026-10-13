@@ -365,6 +365,33 @@ networks:
                     service.compose_config("x", project)
                 run.assert_not_called()
 
+    def test_compose_preserves_docker_state_directory_in_its_clean_environment(self):
+        from subprocess import CompletedProcess
+        with tempfile.TemporaryDirectory() as d:
+            project = Path(d)
+            self.make_project(project)
+            service = self.make_service()
+            service.build_lock = threading.RLock()
+            config = {
+                "networks": {"dck": {"external": True, "name": "dck"}},
+                "services": {"app": {
+                    "container_name": "x-app", "networks": ["dck"],
+                    "ports": [{"target": 3000, "published": "3000", "host_ip": "127.0.0.1"}],
+                }},
+            }
+            with patch.dict(os.environ, {
+                "WEBGEN_DOCKER_CONFIG": str(project / "docker-state"),
+                "UNRELATED_HOST_SECRET": "must-not-leak",
+            }), patch("webgen_control.subprocess.run", side_effect=[
+                CompletedProcess([], 0, stdout=json.dumps(config)),
+                CompletedProcess([], 0),
+            ]) as run:
+                service.compose("x", project, "deploy")
+
+            for call in run.call_args_list:
+                self.assertEqual(call.kwargs["env"].get("DOCKER_CONFIG"), str(project / "docker-state"))
+                self.assertNotIn("UNRELATED_HOST_SECRET", call.kwargs["env"])
+
     @unittest.skipUnless(os.name == "posix", "POSIX snapshot permission contract")
     def test_compose_validates_and_executes_the_same_root_owned_snapshot(self):
         with tempfile.TemporaryDirectory() as d:

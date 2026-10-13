@@ -276,9 +276,14 @@ class Service:
                 keys.update(re.findall(r"(?<!\$)\$([A-Za-z_][A-Za-z0-9_]*)",value))
         scan(raw)
         return keys
+    @staticmethod
+    def docker_environment():
+        env={"PATH":os.getenv("PATH","/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"),"HOME":"/root","COMPOSE_PARALLEL_LIMIT":"1"}
+        if config:=os.getenv("WEBGEN_DOCKER_CONFIG"): env["DOCKER_CONFIG"]=config
+        return env
     def compose_config(self,slug,p,compose_file=None,source_bytes=None):
         cf,source,app,env_files=self._source_compose(p,source_bytes); compose_file=compose_file or cf; m=self.metadata(p); port=self.port(m)
-        clean_env={"PATH":os.getenv("PATH","/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"),"HOME":"/root","COMPOSE_PARALLEL_LIMIT":"1"}
+        clean_env=self.docker_environment()
         try:r=subprocess.run(["docker","compose","-f",str(compose_file),"-p",slug,"--project-directory",str(p),"config","--format","json"],cwd=str(p),capture_output=True,text=True,timeout=30,check=False,env=clean_env)
         except (OSError,subprocess.TimeoutExpired): raise RuntimeError("compose validation failed")
         if r.returncode: raise RuntimeError("compose validation failed")
@@ -301,7 +306,7 @@ class Service:
             if target!=3000 or pub!=port or host!="127.0.0.1": raise ValueError("unsafe compose ports")
         return cfg
     def compose(self,slug,p,action):
-        clean_env={"PATH":os.getenv("PATH","/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"),"HOME":"/root","COMPOSE_PARALLEL_LIMIT":"1"}
+        clean_env=self.docker_environment()
         source=p/"docker-compose.yml"
         if not source.is_file() or source.is_symlink() or source.stat().st_size>1024*1024: raise ValueError("invalid compose")
         source_bytes=source.read_bytes()

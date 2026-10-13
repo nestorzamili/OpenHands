@@ -14,6 +14,9 @@ Environment=WEBGEN_NGINX_DIR=/etc/nginx/dck-apps
 Environment=WEBGEN_CANVAS_AUTH_URL=http://127.0.0.1:8012/api/workspaces
 Environment=WEBGEN_CONTROL_KEY=/opt/dck-agentic/config/webgen-control.key
 Environment=WEBGEN_CONTROL_PORT=8769
+Environment=WEBGEN_DOCKER_CONFIG=/var/lib/dck-webgen-control/docker
+StateDirectory=dck-webgen-control
+StateDirectoryMode=0700
 WorkingDirectory=/opt/dck-agentic
 ExecStart=/opt/dck-agentic/webgen-control-venv/bin/python /opt/dck-agentic/services/webgen-control/webgen_control.py
 Restart=on-failure

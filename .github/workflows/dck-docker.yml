@@ -89,7 +89,7 @@ jobs:
           SHORT_SHA=$(echo "$RELEVANT_SHA" | cut -c1-7)
           echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
 
-          TAGS="${IMAGE}:sha-${SHORT_SHA}-${ARCH}"
+          TAGS="${IMAGE}:${SHORT_SHA}-${ARCH}"
           echo "tags=$TAGS" >> "$GITHUB_OUTPUT"
           echo "Tags: $TAGS"
 
@@ -195,7 +195,7 @@ jobs:
 
       - name: Compute image tag
         id: tag
-        run: echo "sha=sha-$(echo "${GITHUB_SHA}" | cut -c1-7)" >> "$GITHUB_OUTPUT"
+        run: echo "sha=$(echo "${GITHUB_SHA}" | cut -c1-7)" >> "$GITHUB_OUTPUT"
 
       - name: Stage deploy files
         run: |
@@ -205,7 +205,6 @@ jobs:
           cp .env.production.sample "$STAGE/"
           cp -r workspace/.agents "$STAGE/workspace/"
           cp workspace/AGENTS.md "$STAGE/workspace/"
-          cp scripts/migrate-automation-db.sh "$STAGE/scripts/"
           cp scripts/dck-deploy.sh "$STAGE/scripts/"
           cp scripts/sync-managed-skills.py "$STAGE/scripts/"
           cp scripts/dck-deploy-remote.sh "$STAGE/scripts/"

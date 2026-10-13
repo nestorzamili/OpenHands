@@ -13,24 +13,19 @@
 - The stored shape is `{ [scopeKey]: { [moduleId]: profileId } }`.
 - `scopeKey` is the JSON tuple `[organizationId, normalizedWorkspaceRoot]`; `organizationId` is `null` when the active settings scope has no selected organization.
 - User identity is provided by the settings service: a Local Agent Server's settings are server-owned, and Cloud preferences are owned by the authenticated account and selected organization.
-- A module with no entry is unassigned. A saved empty scope remains meaningful so a cleared assignment cannot be resurrected by one-time migration.
+- A module with no entry is unassigned. A saved empty scope represents no assigned profiles.
 
-### DCK-PROFILE-003: Legacy migration
-
-- Older module config files can contain `agentProfileAssignments`.
-- If the current settings scope has no saved entry, migrate the entire legacy module map to that scope, preserving `null`/missing and unavailable profile IDs as-is; then remove the legacy config field.
-- If the settings scope already exists, it is authoritative even when empty. Never overwrite it with legacy values.
-- If settings persistence is unavailable, preserve the legacy values until migration can complete; do not discard assignment IDs during a module-config write.
+### ~~DCK-PROFILE-003: Retired~~
 
 ### DCK-PROFILE-004: No implicit profile fallback
 
 - Never substitute the globally active Agent Profile when a module has no assignment or its assigned profile is missing/deleted.
 - Unassigned, unresolved, and unavailable selections block module conversation creation and module launch actions.
-- Keep a stale ID visible and blocked until the user explicitly chooses an available profile.
+- Keep a stale ID visible in the module editor and blocked until the user explicitly chooses an available profile.
 - Changing the global active profile does not change any module assignment.
 
 ### Verification
 
 - Local settings tests assert the nested `misc_settings_diff.app_preferences` save and GET round-trip.
 - Cloud settings tests assert assignment round-trip and selected organization context.
-- DCK tests cover stable scope, legacy migration, deletion cleanup, unassigned/stale launch blocking, and no active-profile fallback.
+- DCK tests cover stable scope, settings-only reads, deletion cleanup, unassigned/stale launch blocking, and no active-profile fallback.

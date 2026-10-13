@@ -10,7 +10,7 @@ python3 -m venv .venv-webgen
 sudo .venv-webgen/bin/python -m unittest discover -s services/webgen-control/tests -v
 ```
 
-Run these tests from the repository root on an isolated Linux test host with nginx installed. Production uses the systemd unit installed by `scripts/dck-deploy.sh`; see [deployment](DEPLOYMENT.md) and the [production action plan](webgen-production-migration.md).
+Run these tests from the repository root on an isolated Linux test host with nginx installed. Production uses the systemd unit installed by `scripts/dck-deploy.sh`; see [deployment](DEPLOYMENT.md).
 
 Environment: `WEBGEN_WORKSPACE_ROOT` (default `/opt/dck-agentic/workspace`), `WEBGEN_NGINX_DIR` (default `/etc/nginx/dck-apps`), `WEBGEN_CANVAS_AUTH_URL` (`http://127.0.0.1:8012/api/workspaces`), `WEBGEN_CONTROL_KEY` (default `/opt/dck-agentic/config/webgen-control.key`, created atomically mode 0600), `WEBGEN_BIND_HOST`, and `WEBGEN_CONTROL_PORT` (default `8769`). The deploy script discovers the bridge gateway rather than relying on the service default. `WEBGEN_POSTGRES_USER` comes from deployment `POSTGRES_USER`; database maintenance connects to `postgres`.
 

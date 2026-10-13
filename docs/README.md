@@ -11,7 +11,6 @@ This directory contains the project documentation.
 - [Testing matrix](./TESTING_MATRIX.md): release smoke-test coverage across installers, operating systems, and agents.
 - [DCK Agentic](./DCK.md): current modules, state ownership, and WebGen flow.
 - [DCK Agentic deployment](./DEPLOYMENT.md): Docker Compose deployment, workspace layout, and dev-vs-deploy env.
-- [Next production deployment](./webgen-production-migration.md): ordered actions for the existing VM cutover and subsequent releases.
 - [WebGen control service](./webgen-control.md): runtime configuration, secrets, readiness, and lifecycle behavior.
 - [DCK reliability](./webgen-reliability.md): behavioral contracts and regression checks.
 - [Feature verification map](../.agents/skills/verify-openhands/references/feature-map/README.md): every user-facing feature with entry points and rerunnable `control-openhands` recipes; start with the [verify-openhands skill](../.agents/skills/verify-openhands/SKILL.md) to launch and drive the real app.

@@ -34,7 +34,6 @@ import {
 import { WebgenNewProjectDialog } from "#/components/features/dck/webgen-new-project-dialog";
 import type { WebgenOwnerSeedInput } from "#/components/features/dck/webgen-owner-seed-fields";
 import { DckModuleManager } from "#/components/features/dck/dck-module-manager";
-import { DckModuleAgentProfileSummary } from "#/components/features/dck/dck-module-agent-profile-selector";
 import { buildDckModulePrompt } from "#/dck/module-config";
 import {
   buildWebgenScaffoldPrompt,
@@ -59,13 +58,11 @@ function ProjectsCard({
   onNewProject,
   isCreating,
   profileSelectionBlocked,
-  profileSummary,
 }: {
   module: DckModule;
   onNewProject: () => void;
   isCreating: boolean;
   profileSelectionBlocked: boolean;
-  profileSummary: React.ReactNode;
 }) {
   const { t } = useTranslation("openhands");
   const subdirs = useSearchSubdirs(module.workspacePath);
@@ -75,7 +72,6 @@ function ProjectsCard({
     <ModuleCardShell
       module={module}
       count={formatDckModuleCount(count, module.kind)}
-      profileSummary={profileSummary}
       action={
         <button
           type="button"
@@ -99,7 +95,6 @@ function ConversationsCard({
   createNew,
   isCreating,
   profileSelectionBlocked,
-  profileSummary,
   agentProfileId,
 }: {
   module: DckModule;
@@ -112,7 +107,6 @@ function ConversationsCard({
   ) => void;
   isCreating: boolean;
   profileSelectionBlocked: boolean;
-  profileSummary: React.ReactNode;
   agentProfileId?: string;
 }) {
   const { t } = useTranslation("openhands");
@@ -125,7 +119,6 @@ function ConversationsCard({
     <ModuleCardShell
       module={module}
       count={formatDckModuleCount(count, module.kind)}
-      profileSummary={profileSummary}
       action={
         <button
           type="button"
@@ -281,20 +274,12 @@ export function DckModulesSection() {
             getDckModuleAgentProfileIdForLaunch(profileSelection);
           const profileSelectionBlocked =
             isDckModuleAgentProfileSelectionBlocked(profileSelection);
-          const profileSummary = (
-            <DckModuleAgentProfileSummary
-              moduleId={module.id}
-              profiles={agentProfiles}
-              selection={profileSelection}
-            />
-          );
 
           if (module.kind === "projects") {
             return (
               <ProjectsCard
                 key={module.id}
                 module={module}
-                profileSummary={profileSummary}
                 profileSelectionBlocked={profileSelectionBlocked}
                 onNewProject={
                   module.id === "webgen"
@@ -318,7 +303,6 @@ export function DckModulesSection() {
               conversations={conversations}
               createNew={createNew}
               agentProfileId={moduleAgentProfileId}
-              profileSummary={profileSummary}
               isCreating={isCreating}
               profileSelectionBlocked={profileSelectionBlocked}
             />
@@ -350,13 +334,11 @@ function ModuleCardShell({
   module,
   count,
   action,
-  profileSummary,
   children,
 }: {
   module: DckModule;
   count: string | null;
   action: React.ReactNode;
-  profileSummary: React.ReactNode;
   children: React.ReactNode;
 }) {
   const Icon = module.icon;
@@ -385,7 +367,6 @@ function ModuleCardShell({
           {count}
         </p>
       )}
-      {profileSummary}
       <div className="flex min-h-0 flex-col">{children}</div>
     </section>
   );

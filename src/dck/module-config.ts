@@ -53,41 +53,6 @@ function coerceStringList(value: unknown): string[] {
   ];
 }
 
-function coerceModuleSkillNames(record: Record<string, unknown>): string[] {
-  const legacySkillName = coerceString(record.skillName);
-  return [
-    ...new Set([
-      ...coerceStringList(record.skillNames),
-      ...(legacySkillName ? [legacySkillName] : []),
-    ]),
-  ];
-}
-
-function legacyPersonaSkillsById(parsed: unknown): Map<string, string[]> {
-  if (
-    typeof parsed !== "object" ||
-    parsed === null ||
-    !Array.isArray((parsed as { personas?: unknown }).personas)
-  ) {
-    return new Map();
-  }
-
-  const byId = new Map<string, string[]>();
-  (parsed as { personas: unknown[] }).personas.forEach((entry) => {
-    if (typeof entry !== "object" || entry === null) return;
-    const record = entry as Record<string, unknown>;
-    const id = coerceString(record.id);
-    if (!id || byId.has(id)) return;
-    byId.set(
-      id,
-      coerceStringList(record.requiredSkills).concat(
-        coerceStringList(record.optionalSkills),
-      ),
-    );
-  });
-  return byId;
-}
-
 function coerceOrder(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) {
     return value;
@@ -158,32 +123,6 @@ export function getDckModuleAgentProfileScopeKey(
 }
 
 /**
- * Read the former `.dck/modules.json` assignment field for one-time migration
- * into server-backed user preferences. The current serializer does not write it.
- */
-export function parseDckModuleAgentProfileAssignments(
-  raw: string | null,
-): DckModuleAgentProfileAssignments {
-  if (!raw) return {};
-
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (
-      typeof parsed !== "object" ||
-      parsed === null ||
-      Array.isArray(parsed)
-    ) {
-      return {};
-    }
-    return sanitizeDckModuleAgentProfileAssignments(
-      (parsed as { agentProfileAssignments?: unknown }).agentProfileAssignments,
-    );
-  } catch {
-    return {};
-  }
-}
-
-/**
  * Parse the `.dck/modules.json` registry into a sorted list of custom modules.
  *
  * Defensive by design: the file is user- and agent-writable, so malformed
@@ -215,7 +154,6 @@ export function parseDckModulesConfig(
 
   if (!list) return [];
 
-  const personaSkills = legacyPersonaSkillsById(parsed);
   const reservedIds = new Set(options.reservedIds ?? []);
   const seenIds = new Set<string>();
   const seenSlugs = new Set<string>();
@@ -248,12 +186,7 @@ export function parseDckModulesConfig(
       iconName: coerceString(record.iconName) ?? "",
       description: coerceString(record.description) ?? "",
       promptTemplate,
-      skillNames: [
-        ...new Set([
-          ...coerceModuleSkillNames(record),
-          ...(personaSkills.get(coerceString(record.personaId) ?? "") ?? []),
-        ]),
-      ],
+      skillNames: coerceStringList(record.skillNames),
       order: coerceOrder(record.order) ?? index,
     });
   });
@@ -307,11 +240,8 @@ export function parseDckBuiltinModuleOverrides(
         override[field] = normalized;
       });
 
-      if (
-        Array.isArray(record.skillNames) ||
-        typeof record.skillName === "string"
-      ) {
-        override.skillNames = coerceModuleSkillNames(record);
+      if (Array.isArray(record.skillNames)) {
+        override.skillNames = coerceStringList(record.skillNames);
       }
 
       if (Object.keys(override).length === 1) return [];
@@ -324,7 +254,6 @@ export function parseDckBuiltinModuleOverrides(
 export function serializeDckModulesConfig(
   modules: DckCustomModule[],
   builtinOverrides: readonly DckBuiltinModuleOverride[] = [],
-  legacyAgentProfileAssignments?: DckModuleAgentProfileAssignments,
 ): string {
   const normalized = modules.map((module, index) => ({
     id: module.id,
@@ -353,17 +282,10 @@ export function serializeDckModulesConfig(
   const serialized: {
     modules: typeof normalized;
     builtinOverrides: typeof normalizedOverrides;
-    agentProfileAssignments?: DckModuleAgentProfileAssignments;
   } = {
     modules: normalized,
     builtinOverrides: normalizedOverrides,
   };
-  const legacyAssignments = sanitizeDckModuleAgentProfileAssignments(
-    legacyAgentProfileAssignments,
-  );
-  if (Object.keys(legacyAssignments).length > 0) {
-    serialized.agentProfileAssignments = legacyAssignments;
-  }
   return `${JSON.stringify(serialized, null, 2)}\n`;
 }
 

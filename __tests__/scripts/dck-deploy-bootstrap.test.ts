@@ -44,10 +44,6 @@ async function createFixture() {
     writeFile(path.join(stage, "scripts", "dck-deploy.sh"), "#!/bin/sh\n"),
     writeFile(path.join(stage, "scripts", "sync-managed-skills.py"), ""),
     writeFile(
-      path.join(stage, "scripts", "migrate-automation-db.sh"),
-      "#!/bin/sh\n",
-    ),
-    writeFile(
       path.join(stage, "services", "webgen-control", "webgen_control.py"),
       "# service\n",
     ),

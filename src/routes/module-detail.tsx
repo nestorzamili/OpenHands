@@ -680,13 +680,15 @@ export function ModuleDetailView({
             </div>
             {headerAction}
           </div>
-          <div className="max-w-md rounded-lg border border-border bg-base-secondary p-3">
-            <DckModuleAgentProfileSummary
-              moduleId={dckModule.id}
-              profiles={agentProfiles}
-              selection={moduleProfileSelection}
-            />
-          </div>
+          {dckModule.id !== "webgen" && (
+            <div className="max-w-md rounded-lg border border-border bg-base-secondary p-3">
+              <DckModuleAgentProfileSummary
+                moduleId={dckModule.id}
+                profiles={agentProfiles}
+                selection={moduleProfileSelection}
+              />
+            </div>
+          )}
           <div className="flex flex-col">
             {dckModule.kind === "projects" && (
               <ModuleProjectsList

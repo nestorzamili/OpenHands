@@ -1,6 +1,6 @@
 # WebGen and DCK reliability
 
-The revision targets `dev` and uses the Agent Server 1.54 contract. WebGen migration is a cutover to the new runtime format, without old-route adapters, metadata aliases, localhost links, or chat-driven deployment. Module definitions remain workspace-owned; profile assignments remain settings-owned. Owner credentials are never persisted.
+WebGen uses the host runtime API for project status and lifecycle actions. Module definitions remain workspace-owned; profile assignments remain settings-owned. Owner credentials are never persisted.
 
 | ID | Required behavior |
 | --- | --- |
@@ -34,17 +34,17 @@ The revision targets `dev` and uses the Agent Server 1.54 contract. WebGen migra
 
 ## Preservation and recovery
 
-`config/managed-skills.json` records deployment-owned file hashes. The first upgrade does not adopt existing files. Conflicting incoming files go to `config/skill-update-candidates`. Upstream deletions remove only files matching the recorded hash. Content deleted by older releases requires restoration from backup.
+`config/managed-skills.json` records deployment-owned file hashes. Files without a recorded hash require explicit adoption. Conflicting incoming files go to `config/skill-update-candidates`. Upstream deletions remove only files matching the recorded hash.
 
 Setup holds an exclusive `<portal-store>.setup-lock`. Normal completion, errors, and disconnects release it. An unclean process termination deliberately fails closed: stop all portal processes sharing the store, inspect persisted admin state, and remove the stale lock before restarting. Never remove a live lock.
 
-Old module-root scaffold chats remain accessible by ID; no project association is guessed. Project-workspace conversations are reused. Owner-seed reentry recovers missing temporary credentials without saving passwords.
+Project-workspace conversations are reused. Owner-seed reentry recovers missing temporary credentials without saving passwords.
 
 Skill create checks target existence using the existing FileClient contract. This is not cross-client atomic creation; that guarantee would require an SDK contract change.
 
 ## Verification and rollout
 
-Follow the [production action plan](webgen-production-migration.md) for release preparation, one-time cutover, and subsequent deployments. It covers port 8012, route ownership, upload storage, secrets, and first-time skill adoption. Runtime configuration and lifecycle details live in [WebGen control](webgen-control.md).
+Follow [deployment](DEPLOYMENT.md) for release preparation and deployment. Runtime configuration and lifecycle details live in [WebGen control](webgen-control.md).
 
 Run focused portal/ingress, DCK settings, skill, module-detail, and scaffold tests; then lint, full Vitest, app/library builds, and the direct API-call guard. Regenerate translation declarations and verify locale completeness.
 

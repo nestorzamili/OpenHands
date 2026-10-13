@@ -1,6 +1,6 @@
 # DCK Agentic
 
-DCK Agentic adalah kustomisasi Agent Canvas pada branch `dev`. Konfigurasi deployment berada di [DEPLOYMENT.md](DEPLOYMENT.md); langkah cutover VM existing dan deployment berikutnya berada di [webgen-production-migration.md](webgen-production-migration.md).
+DCK Agentic adalah kustomisasi Agent Canvas pada branch `dev`. Konfigurasi deployment berada di [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ## Modul dan penyimpanan
 

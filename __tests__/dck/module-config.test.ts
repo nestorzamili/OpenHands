@@ -4,7 +4,6 @@ import {
   buildModuleFolderDeleteCommand,
   composePromptWithSkillTrigger,
   getDckModuleAgentProfileScopeKey,
-  parseDckModuleAgentProfileAssignments,
   parseDckBuiltinModuleOverrides,
   parseDckModulesConfig,
   serializeDckModulesConfig,
@@ -108,24 +107,6 @@ describe("parseDckModulesConfig", () => {
       [],
     );
   });
-
-  it("reads valid and stale assignments for one-time migration from the module config", () => {
-    const raw = JSON.stringify({
-      modules: [],
-      agentProfileAssignments: {
-        research: "deleted-profile",
-        analytics: "  profile-two  ",
-        content: null,
-        invalid: "   ",
-      },
-    });
-
-    expect(parseDckModuleAgentProfileAssignments(raw)).toEqual({
-      research: "deleted-profile",
-      analytics: "profile-two",
-      content: null,
-    });
-  });
 });
 
 describe("serializeDckModulesConfig", () => {
@@ -157,18 +138,10 @@ describe("serializeDckModulesConfig", () => {
     ).toEqual([override]);
   });
 
-  it("does not write profile assignments into the module config anymore", () => {
+  it("does not write profile assignments into the module config", () => {
     const text = serializeDckModulesConfig([module({})]);
 
     expect(JSON.parse(text)).not.toHaveProperty("agentProfileAssignments");
-    expect(parseDckModuleAgentProfileAssignments(text)).toEqual({});
-  });
-
-  it("keeps un-migrated legacy assignments until server-side persistence succeeds", () => {
-    const legacy = { research: "deleted-profile", content: null };
-    const text = serializeDckModulesConfig([module({})], [], legacy);
-
-    expect(parseDckModuleAgentProfileAssignments(text)).toEqual(legacy);
   });
 
   it("keys assignments by organization and normalized stable workspace root", () => {
@@ -194,57 +167,6 @@ describe("serializeDckModulesConfig", () => {
     expect(parseDckBuiltinModuleOverrides(raw, ["research", "webgen"])).toEqual(
       [{ id: "research", name: "Desk Research" }],
     );
-  });
-
-  it("migrates legacy Skill fields and ignores Persona data without losing links", () => {
-    const legacy = JSON.stringify({
-      modules: [
-        {
-          ...module({ skillNames: ["research-brief", "seo-audit"] }),
-          skillName: "analytics",
-          personaId: "writer",
-        },
-      ],
-      builtinOverrides: [{ id: "research", skillName: "research-brief" }],
-      personas: [
-        {
-          id: "writer",
-          name: "Writer",
-          roleInstructions: "Write clearly.",
-          requiredSkills: ["research-brief"],
-          optionalSkills: ["persona-optional"],
-        },
-      ],
-    });
-    const parsedModules = parseDckModulesConfig(legacy);
-    const parsedOverrides = parseDckBuiltinModuleOverrides(legacy, [
-      "research",
-    ]);
-    const serialized = JSON.parse(
-      serializeDckModulesConfig(parsedModules, parsedOverrides),
-    );
-
-    expect(parsedModules[0].skillNames).toEqual([
-      "research-brief",
-      "seo-audit",
-      "analytics",
-      "persona-optional",
-    ]);
-    expect(parsedModules[0]).not.toHaveProperty("personaId");
-    expect(parsedOverrides[0].skillNames).toEqual(["research-brief"]);
-    expect(serialized.modules[0].skillNames).toEqual([
-      "research-brief",
-      "seo-audit",
-      "analytics",
-      "persona-optional",
-    ]);
-    expect(serialized.modules[0]).not.toHaveProperty("skillName");
-    expect(serialized.builtinOverrides[0].skillNames).toEqual([
-      "research-brief",
-    ]);
-    expect(serialized.builtinOverrides[0]).not.toHaveProperty("skillName");
-    expect(serialized.modules[0]).not.toHaveProperty("personaId");
-    expect(serialized).not.toHaveProperty("personas");
   });
 });
 

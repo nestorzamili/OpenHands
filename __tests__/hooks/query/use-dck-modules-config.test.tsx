@@ -240,29 +240,29 @@ describe("useDckModulesConfig", () => {
     });
   });
 
-  it("migrates legacy workspace assignments into settings without replacing stale profile IDs", async () => {
-    downloadTextFileMock.mockResolvedValue(
-      configJson([], { research: "deleted-profile" }),
-    );
-
-    const { result } = renderHook(() => useDckModulesConfig(), {
-      wrapper: makeWrapper(),
-    });
-
-    const scopeKey = getDckModuleAgentProfileScopeKey(null, "/projects");
-    await waitFor(() =>
-      expect(
-        mockSettingsApi.value.dck_module_agent_profile_assignments[scopeKey],
-      ).toEqual({ research: "deleted-profile" }),
-    );
-    await waitFor(() => expect(uploadTextFileMock).toHaveBeenCalled());
-    expect(result.current.agentProfileAssignments).toEqual({
-      research: "deleted-profile",
-    });
-    expect(uploadTextFileMock).toHaveBeenCalled();
-    const [text] = uploadTextFileMock.mock.calls.at(-1)!;
-    expect(JSON.parse(text)).not.toHaveProperty("agentProfileAssignments");
-  });
+  it.each([
+    undefined,
+    {} as Record<string, string | null>,
+    { research: "current-profile" },
+  ])(
+    "reads assignments only from settings without writes on load: %j",
+    async (saved) => {
+      downloadTextFileMock.mockResolvedValue(
+        configJson([], { research: "obsolete-profile" }),
+      );
+      const scopeKey = getDckModuleAgentProfileScopeKey(null, "/projects");
+      if (saved)
+        mockSettingsApi.value.dck_module_agent_profile_assignments[scopeKey] =
+          saved;
+      const { result } = renderHook(() => useDckModulesConfig(), {
+        wrapper: makeWrapper(),
+      });
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+      expect(result.current.agentProfileAssignments).toEqual(saved ?? {});
+      expect(mockSettingsApi.save).not.toHaveBeenCalled();
+      expect(uploadTextFileMock).not.toHaveBeenCalled();
+    },
+  );
 
   it("persists only changed built-in fields and preserves custom modules", async () => {
     downloadTextFileMock.mockResolvedValue(
@@ -305,72 +305,15 @@ describe("useDckModulesConfig", () => {
     expect(JSON.parse(text).builtinOverrides[0]).not.toHaveProperty("iconName");
   });
 
-  it("migrates legacy Persona config on save without losing module Skills", async () => {
-    downloadTextFileMock.mockResolvedValue(
-      JSON.stringify({
-        modules: [
-          {
-            id: "custom-writer",
-            name: "Writer",
-            slug: "writer",
-            iconName: "pen-line",
-            description: "",
-            promptTemplate: "Write.",
-            skillName: "research-brief",
-            personaId: "legacy-writer",
-            order: 0,
-          },
-        ],
-        builtinOverrides: [],
-        personas: [
-          {
-            id: "legacy-writer",
-            name: "Writer",
-            roleInstructions: "Be accurate.",
-            requiredSkills: ["research-brief"],
-            optionalSkills: ["seo-audit"],
-          },
-        ],
-      }),
-    );
-
-    const { result } = renderHook(() => useDckModulesConfig(), {
-      wrapper: makeWrapper(),
-    });
-    await waitFor(() => expect(result.current.modules).toHaveLength(1));
-    expect(result.current.modules[0].skillNames).toEqual([
-      "research-brief",
-      "seo-audit",
-    ]);
-    expect(result.current.modules[0]).not.toHaveProperty("personaId");
-
-    await act(async () => {
-      await result.current.upsert({
-        ...result.current.modules[0],
-        promptTemplate: "Write a concise report.",
-      });
-    });
-
-    const [text] = uploadTextFileMock.mock.calls[0];
-    const saved = JSON.parse(text);
-    expect(saved.modules[0]).toMatchObject({
-      skillNames: ["research-brief", "seo-audit"],
-      promptTemplate: "Write a concise report.",
-    });
-    expect(saved.modules[0]).not.toHaveProperty("skillName");
-    expect(saved.modules[0]).not.toHaveProperty("personaId");
-    expect(saved).not.toHaveProperty("personas");
-  });
-
   it("removes a module", async () => {
+    mockSettingsApi.value.dck_module_agent_profile_assignments[
+      getDckModuleAgentProfileScopeKey(null, "/projects")
+    ] = { a: "profile-a", b: "profile-b" };
     downloadTextFileMock.mockResolvedValue(
-      configJson(
-        [
-          { id: "a", name: "A", slug: "a" },
-          { id: "b", name: "B", slug: "b" },
-        ],
-        { a: "profile-a", b: "profile-b" },
-      ),
+      configJson([
+        { id: "a", name: "A", slug: "a" },
+        { id: "b", name: "B", slug: "b" },
+      ]),
     );
 
     const { result } = renderHook(() => useDckModulesConfig(), {
@@ -383,7 +326,6 @@ describe("useDckModulesConfig", () => {
         mockSettingsApi.value.dck_module_agent_profile_assignments[scopeKey],
       ).toEqual({ a: "profile-a", b: "profile-b" }),
     );
-    await waitFor(() => expect(uploadTextFileMock).toHaveBeenCalled());
 
     await act(async () => {
       await result.current.remove("a");

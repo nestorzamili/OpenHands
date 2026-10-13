@@ -3,8 +3,6 @@
 DCK Agentic runs the OpenHands Agent Canvas as an all-in-one container, served
 at the root of `https://agent.dckautoposting.com`, deployed to a VM from CI over
 SSH. This guide describes the current deployment architecture and fresh setup.
-For the existing VM and the next release, follow the ordered
-[production action plan](webgen-production-migration.md).
 
 Facts the setup relies on:
 
@@ -76,7 +74,7 @@ Run `.github/workflows/dck-docker.yml` manually from the Actions tab with branch
 `dev` and `action: build and deploy`. The default action is `build only`, which
 publishes the image without changing the VM. The workflow image is
 `ghcr.io/<repository-owner>/dck-agentic`; there is no image override input.
-It passes that image path and the selected commit's `sha-<short>` tag into the
+It passes that image path and the selected commit's `<short>` tag into the
 VM's `.env`.
 
 ```bash
@@ -98,7 +96,7 @@ renewal setup remains valid.
 `dck-deploy.sh` is idempotent:
 
 - First run (no `.env`): creates `/opt/dck-agentic/{config,workspace,pgdata}`,
-  generates `.env` (random Postgres password, image repo + `sha-<short>` tag),
+  generates `.env` (random Postgres password, image repo + `<short>` tag),
   records the private Docker bridge gateway, installs and health-checks the
   typed WebGen host service, then `pull` + `up -d`.
 - Update: refreshes Compose/scripts and the host service, updates image and
@@ -115,9 +113,8 @@ not enable UFW or expose that port on public interfaces. It checks both `/alive`
 (200/302) and WebGen `/healthz` **from inside Canvas**, rolls back to the previous
 tag on failure, and prunes old images from the selected image repository. This
 automatic recovery covers the Canvas image only, not the copied Compose,
-host-service files, or database schema. Back up the whole release before the
-cutover; rollback must restore a coherent release. The automation schema
-migrates automatically on startup.
+host-service files, or database schema. The automation service prepares its
+database schema automatically on startup.
 
 ## 4. nginx
 
@@ -245,10 +242,6 @@ docker compose down          # data persists on the bind mounts
 
 Reset the portal: delete `config/portal-auth.json` and restart.
 
-> Out-of-band DB migration (rare; automatic otherwise): run
-> `scripts/migrate-automation-db.sh` with `CONTAINER=dck-agentic-canvas` and
-> `AUTOMATION_DB_URL` set.
-
 ## Backup & restore
 
 Canvas durable state is under `/opt/dck-agentic/`. Agent Profile choices for DCK
@@ -256,7 +249,7 @@ modules are server-side user settings (Local Agent Server `misc_settings`),
 while module definitions remain in the workspace `.dck/modules.json`; the
 `config` and `workspace` backup below covers both. Separately back up host
 nginx/TLS configuration and application external storage; those are outside
-these directories. During the existing VM cutover, back up upload volumes too.
+these directories.
 
 ```bash
 cd /opt/dck-agentic

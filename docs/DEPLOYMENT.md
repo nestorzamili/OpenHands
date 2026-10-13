@@ -109,7 +109,10 @@ renewal setup remains valid.
   manifest and host-service configuration, and does not recursively `chown`
   application project directories.
 
-After `up -d` it health-checks `/alive` (200/302), rolls back to the previous
+After `up -d`, an active UFW receives a rule limited to the `dck` bridge interface
+and IPv4 subnet, the private host gateway, and TCP port `8769`. The script does
+not enable UFW or expose that port on public interfaces. It checks both `/alive`
+(200/302) and WebGen `/healthz` **from inside Canvas**, rolls back to the previous
 tag on failure, and prunes old images from the selected image repository. This
 automatic recovery covers the Canvas image only, not the copied Compose,
 host-service files, or database schema. Back up the whole release before the
@@ -203,6 +206,12 @@ accepts only typed lifecycle operations, validates Compose policy, serializes
 image builds, and retrieves only `<SECRET_NAME>_<PROJECT_SLUG>` values from
 Secret Manager into a mode-`0600` project `.env`. The Canvas container never
 receives or mounts `/var/run/docker.sock`; do not expose port `8769` publicly.
+
+If WebGen shows `Unknown` while host-side checks pass, check the container path:
+`docker compose exec -T canvas python -c 'import urllib.request; print(urllib.request.urlopen("http://webgen-control.internal:8769/healthz", timeout=5).status)'`.
+On hosts using a firewall other than UFW, configure the equivalent private
+bridge input rule. Confirm the authenticated portal's `/api/webgen/projects`
+returns 200 and the WebGen table shows the verified runtime status.
 
 ## 6. LLM / agent credentials (from the web)
 

@@ -17,6 +17,8 @@ DCK WebGen uses a read-only internal proxy on host loopback port 8012 for API-ke
 
 WebGen's systemd sandbox keeps `/root` read-only. Docker Compose/Buildx must use `WEBGEN_DOCKER_CONFIG` under its root-owned `StateDirectory`; preserve that path as `DOCKER_CONFIG` in the sanitized subprocess environment. Do not disable `ProtectHome` to make builds work. Container status inspection must tolerate missing Docker `State.Health` on services without healthchecks.
 
+DCK deployment readiness includes the Canvas-container-to-WebGen-host connection, not just host-local probes. An active UFW needs an input rule scoped to the actual `dck` bridge interface/subnet, private service gateway and TCP 8769. Discover Docker network metadata rather than hardcoding the production bridge name. Never enable UFW or open the service publicly as a deployment workaround.
+
 - When the agent-canvas dev launchers (`npm run dev` / `dev:static` / the published `agent-canvas` binary) start a stack with ingress/static-server, the backend-facing server appends runtime service metadata to `/server_info` as the optional `runtime_services` field. The frontend reads that backend-provided value when creating conversations and forwards it as `AgentContext.system_message_suffix` on `POST /api/conversations`, so conversations land with a `<RUNTIME_SERVICES>` block appended to the system prompt.
 - The block lists URLs **from the agent's point of view**:
   - The Agent Server is always reachable as `http://localhost:<port>` from inside the sandbox — but that is _you_, not the automation backend.

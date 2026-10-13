@@ -64,14 +64,31 @@ async function createFixture() {
     path.join(bin, "docker"),
     `#!/usr/bin/env bash
 set -e
+printf '%s\\n' "$*" >> "${root}/docker.log"
+if [[ "$1 $2 $3" == "compose exec -T" ]]; then exit "\${WEBGEN_PROBE_EXIT:-0}"; fi
 if [[ "$1 $2" == "compose version" ]]; then exit 0; fi
 if [[ "$1 $2" == "compose pull" ]]; then exit 0; fi
 if [[ "$1 $2" == "compose up" ]]; then exit 0; fi
-if [[ "$1 $2" == "network inspect" ]]; then printf '172.17.0.1\\n'; exit 0; fi
+if [[ "$1 $2" == "network inspect" ]]; then
+  if [[ "$3" == "bridge" ]]; then printf '172.17.0.1\\n';
+  elif [[ "$5" == *'.Id'* ]]; then printf 'abc123def4567890\\n';
+  elif [[ "$5" == *'.Subnet'* ]]; then printf '172.21.0.0/16\\n';
+  elif [[ "$5" == *'.Options'* ]]; then printf '\\n';
+  else exit 2; fi
+  exit 0
+fi
 if [[ "$1" == "images" ]]; then exit 0; fi
 exit 2
 `,
   );
+  await writeFile(
+    path.join(bin, "ufw"),
+    `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "${root}/ufw.log"
+if [[ "$1" == "status" ]]; then printf 'Status: %s\\n' "\${UFW_STATE:-inactive}"; fi
+`,
+  );
+  await writeFile(path.join(bin, "sleep"), "#!/bin/sh\nexit 0\n");
   await writeFile(path.join(bin, "curl"), "#!/bin/sh\nprintf 200\n");
   await writeFile(
     path.join(bin, "chown"),
@@ -95,9 +112,16 @@ exit 2
 `,
   );
   await Promise.all(
-    ["docker", "curl", "chown", "systemctl", "install", "python3"].map((name) =>
-      chmod(path.join(bin, name), 0o755),
-    ),
+    [
+      "docker",
+      "curl",
+      "chown",
+      "systemctl",
+      "install",
+      "python3",
+      "ufw",
+      "sleep",
+    ].map((name) => chmod(path.join(bin, name), 0o755)),
   );
   return { root, stage, target, bin };
 }
@@ -149,10 +173,17 @@ describe("DCK production deploy bootstrap", () => {
           PATH: `${bin}:${process.env.PATH}`,
           TARGET_DIR: target,
           CHOWN_LOG: chownLog,
+          UFW_STATE: "active",
         },
       },
     );
 
+    expect(await readFile(path.join(root, "ufw.log"), "utf8")).toContain(
+      "allow in on br-abc123def456 from 172.21.0.0/16 to 172.17.0.1 port 8769 proto tcp",
+    );
+    expect(await readFile(path.join(root, "docker.log"), "utf8")).toContain(
+      "compose exec -T canvas python",
+    );
     const env = await readEnv(path.join(target, ".env"));
     expect(env.CANVAS_IMAGE).toBe("ghcr.io/example/dck-agentic");
     expect(env.WEBGEN_CONTROL_HOST_IP).toBe("172.17.0.1");
@@ -188,6 +219,7 @@ describe("DCK production deploy bootstrap", () => {
           PATH: `${bin}:${process.env.PATH}`,
           TARGET_DIR: target,
           CHOWN_LOG: chownLog,
+          UFW_STATE: "active",
         },
       },
     );
@@ -200,4 +232,35 @@ describe("DCK production deploy bootstrap", () => {
     expect(chownCommands).toContain(`${target}/workspace/.agents`);
     expect(chownCommands).not.toMatch(/-R [^\n]*\/workspace(?:\s|$)/);
   });
+});
+
+it("rolls back when Canvas cannot reach WebGen even though host health checks pass", async () => {
+  const { stage, target, bin, root } = await createFixture();
+  await mkdir(target, { recursive: true });
+  await writeFile(
+    path.join(target, ".env"),
+    "CANVAS_IMAGE=ghcr.io/example/dck-agentic\nCANVAS_IMAGE_TAG=sha-old\nPOSTGRES_USER=dck\n",
+  );
+  await expect(
+    execFileAsync(
+      "bash",
+      [path.join(repositoryRoot, "scripts/dck-deploy.sh"), "sha-new", stage],
+      {
+        env: {
+          ...process.env,
+          PATH: `${bin}:${process.env.PATH}`,
+          TARGET_DIR: target,
+          CHOWN_LOG: path.join(root, "chown.log"),
+          UFW_STATE: "inactive",
+          WEBGEN_PROBE_EXIT: "1",
+        },
+      },
+    ),
+  ).rejects.toMatchObject({ code: 1 });
+  expect((await readEnv(path.join(target, ".env"))).CANVAS_IMAGE_TAG).toBe(
+    "sha-old",
+  );
+  expect(await readFile(path.join(root, "ufw.log"), "utf8")).not.toContain(
+    "allow",
+  );
 });

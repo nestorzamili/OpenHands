@@ -140,16 +140,38 @@ log "pull + up..."
 docker compose pull canvas
 docker compose up -d
 
+# Canvas reaches the host through the dck bridge, which an active UFW input
+# policy otherwise blocks even when the host-side health check succeeds.
+if command -v ufw >/dev/null 2>&1 && LC_ALL=C ufw status | grep -q '^Status: active'; then
+  DCK_NETWORK_ID="$(docker network inspect dck --format '{{.Id}}')"
+  DCK_BRIDGE="$(docker network inspect dck --format '{{with index .Options "com.docker.network.bridge.name"}}{{.}}{{end}}')"
+  DCK_SUBNET="$(docker network inspect dck --format '{{range .IPAM.Config}}{{println .Subnet}}{{end}}' | awk '/^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\/[0-9]+$/ { print; exit }')"
+  [[ "$DCK_NETWORK_ID" =~ ^[a-f0-9]{12,64}$ ]] || die "invalid dck network ID"
+  DCK_BRIDGE="${DCK_BRIDGE:-br-${DCK_NETWORK_ID:0:12}}"
+  [[ "$DCK_BRIDGE" =~ ^[a-zA-Z0-9_.:-]{1,15}$ ]] || die "invalid dck bridge interface"
+  [[ "$DCK_SUBNET" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2}$ ]] || die "cannot determine dck IPv4 subnet"
+  ufw allow in on "$DCK_BRIDGE" from "$DCK_SUBNET" to "$WEBGEN_GATEWAY" port 8769 proto tcp comment 'DCK Canvas to WebGen control'
+fi
+
 code=000
 ok=0
+webgen_ok=0
 for _ in $(seq 1 40); do
   code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:8010/alive 2>/dev/null || echo 000)"
-  case "$code" in 200|302) ok=1; break;; esac
+  case "$code" in
+    200|302)
+      if docker compose exec -T canvas python -c 'import urllib.request; r = urllib.request.urlopen("http://webgen-control.internal:8769/healthz", timeout=5); raise SystemExit(0 if r.status == 200 else 1)' >/dev/null 2>&1; then
+        webgen_ok=1
+        ok=1
+        break
+      fi
+      ;;
+  esac
   sleep 3
 done
 
 if [ "$ok" != "1" ]; then
-  log "HEALTH CHECK FAILED (last=$code) — rolling back to $PREV_TAG"
+  log "HEALTH CHECK FAILED (canvas=$code, container-to-WebGen=$webgen_ok) — rolling back to $PREV_TAG"
   write_env_value CANVAS_IMAGE_TAG "$PREV_TAG"
   if [ -n "$PREV_IMAGE" ]; then
     write_env_value CANVAS_IMAGE "$PREV_IMAGE"

@@ -108,9 +108,7 @@ vi.mock("#/hooks/query/use-project-skills", () => ({
   }),
 }));
 
-function customConfig(
-  agentProfileAssignments: Record<string, string | null> = {},
-) {
+function customConfig() {
   return JSON.stringify({
     modules: [
       {
@@ -120,21 +118,10 @@ function customConfig(
         iconName: "mail",
         description: "Drip sequences",
         promptTemplate: "Draft an email campaign.",
-        skillName: "web-generator",
-        personaId: "legacy-writer",
+        skillNames: ["web-generator"],
         order: 0,
       },
     ],
-    personas: [
-      {
-        id: "legacy-writer",
-        name: "Writer",
-        roleInstructions: "Be concise.",
-        requiredSkills: ["web-generator"],
-        optionalSkills: [],
-      },
-    ],
-    agentProfileAssignments,
   });
 }
 
@@ -282,9 +269,10 @@ describe("DckModuleManager", () => {
   });
 
   it("edits an existing custom module while keeping its folder stable", async () => {
-    downloadTextFileMock.mockResolvedValue(
-      customConfig({ "custom-email": "research-profile" }),
-    );
+    mockSettingsApi.value.dck_module_agent_profile_assignments[
+      getDckModuleAgentProfileScopeKey(null, "/projects")
+    ] = { "custom-email": "research-profile" };
+    downloadTextFileMock.mockResolvedValue(customConfig());
     uploadTextFileMock.mockImplementation(async (text: string) => {
       downloadTextFileMock.mockResolvedValue(text);
       return { success: true };
@@ -298,8 +286,7 @@ describe("DckModuleManager", () => {
         mockSettingsApi.value.dck_module_agent_profile_assignments[scopeKey],
       ).toEqual({ "custom-email": "research-profile" }),
     );
-    await waitFor(() => expect(uploadTextFileMock).toHaveBeenCalled());
-    uploadTextFileMock.mockClear();
+    expect(uploadTextFileMock).not.toHaveBeenCalled();
 
     await user.click(await screen.findByTestId("dck-module-edit-custom-email"));
     const profileSelector = screen.getByTestId(

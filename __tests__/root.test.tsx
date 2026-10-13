@@ -238,7 +238,7 @@ describe("App root agent-server availability guard", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("shows first-run onboarding before the recovery modal when locked to Cloud with no backend", async () => {
+  it("shows Cloud login before the recovery modal when locked to Cloud with no backend", async () => {
     vi.stubEnv("VITE_LOCK_TO_CLOUD", "https://app.all-hands.dev");
     vi.stubEnv("VITE_SESSION_API_KEY", "");
     delete (window as unknown as Record<string, unknown>)
@@ -247,13 +247,16 @@ describe("App root agent-server availability guard", () => {
     __resetActiveStoreForTests();
 
     renderApp(["/"]);
+    await vi.dynamicImportSettled();
 
     await waitFor(() => {
       expect(
         screen.getByTestId("first-run-onboarding-screen"),
       ).toBeInTheDocument();
     });
-    expect(await screen.findByTestId("onboarding-modal")).toBeInTheDocument();
+    expect(
+      await screen.findByTestId("onboarding-modal"),
+    ).toBeInTheDocument();
     expect(
       screen.queryByTestId("agent-server-onboarding-screen"),
     ).not.toBeInTheDocument();

@@ -132,7 +132,10 @@ export function NativeIntegrationPanel({
       </div>
 
       {error && (
-        <p data-testid="mcp-native-error" className="text-sm text-status-error">
+        <p
+          data-testid="mcp-native-error"
+          className="text-sm text-feedback-error"
+        >
           {error}
         </p>
       )}

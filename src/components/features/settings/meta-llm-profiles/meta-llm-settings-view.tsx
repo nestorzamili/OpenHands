@@ -344,7 +344,7 @@ export function MetaLlmSettingsView() {
         ) : null}
 
         {error ? (
-          <p className="text-sm text-status-error">
+          <p className="text-sm text-feedback-error">
             {t(I18nKey.ERROR$GENERIC)}
           </p>
         ) : null}

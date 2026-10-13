@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { listeners, proxy } = vi.hoisted(() => {
-  const handlers: Record<string, (...args: unknown[]) => void> = {};
+  const handlers: Record<string, ((...args: unknown[]) => void)[]> = {};
   const fakeProxy = {
     on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
-      handlers[event] = handler;
+      (handlers[event] ??= []).push(handler);
     }),
     web: vi.fn(() => Promise.resolve()),
     ws: vi.fn(() => Promise.resolve()),
@@ -68,7 +68,10 @@ describe("server-side proxy authentication", () => {
     handlers.proxyHttp(req as never, response as never, target);
 
     expect(req.headers["x-session-api-key"]).toBeUndefined();
-    expect(proxy.web).toHaveBeenCalledWith(req, response, { target });
+    expect(proxy.web).toHaveBeenCalledWith(req, response, {
+      target,
+      headers: {},
+    });
   });
 
   it("adds the internal tkn only to proxied VS Code URLs and redacts redirects", () => {
@@ -96,7 +99,36 @@ describe("server-side proxy authentication", () => {
     const proxyResponse = {
       headers: { location: `/vscode/?tkn=${internalKey}` },
     };
-    listeners.proxyRes(proxyResponse, req);
+    listeners.proxyRes.forEach((handler) => handler(proxyResponse, req));
     expect(proxyResponse.headers.location).toBe("/vscode/");
+  });
+
+  it("preserves response rewriting and custom headers with server-side authentication", () => {
+    const handlers = createProxyHandlers({
+      sessionApiKey: internalKey,
+      serverSideSessionAuth: true,
+    });
+    const req = { method: "GET", url: "/api/conversations", headers: {} };
+    const onResponse = vi.fn();
+    const target = "http://127.0.0.1:18101";
+
+    handlers.proxyHttp(req as never, response as never, target, {
+      headers: { "accept-encoding": "identity" },
+      onResponse,
+    });
+    const upstreamResponse = { headers: {} };
+    listeners.proxyRes.forEach((handler) =>
+      handler(upstreamResponse, req, response),
+    );
+
+    expect(proxy.web).toHaveBeenCalledWith(req, response, {
+      target,
+      headers: {
+        "accept-encoding": "identity",
+        "X-Session-API-Key": internalKey,
+      },
+      selfHandleResponse: true,
+    });
+    expect(onResponse).toHaveBeenCalledWith(upstreamResponse, req, response);
   });
 });

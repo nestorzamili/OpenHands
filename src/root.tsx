@@ -43,6 +43,7 @@ import {
 import { TOAST_OPTIONS } from "#/utils/custom-toast-handlers";
 import { LoadingSpinner } from "#/components/shared/loading-spinner";
 import { useConfig } from "#/hooks/query/use-config";
+import { useRestoreMarsTunnels } from "#/hooks/use-mars-tunnel-backend";
 import { QUERY_KEYS } from "#/hooks/query/query-keys";
 import { AgentServerUIRoot } from "#/components/providers";
 import { TelemetryConsentBanner } from "#/components/features/analytics/telemetry-consent-banner";
@@ -284,6 +285,7 @@ export default function App() {
   const isActiveCloudBackend = active.backend.kind === "cloud";
   const authMissing =
     bakedKeyMissing && !hasRegisteredKey && !isActiveCloudBackend;
+  const restoringMarsTunnel = useRestoreMarsTunnels();
   const queryClient = useQueryClient();
   // In locked-to-Cloud mode the only valid backend is a Cloud backend whose
   // host matches the configured locked Cloud host. A missing backend, a stale
@@ -361,6 +363,7 @@ export default function App() {
     enabled:
       !authMissing &&
       !showFirstRunOnboarding &&
+      !restoringMarsTunnel &&
       mainAppAuthAllowsBackendQueries,
   });
   const activeCloudHealth = useBackendsHealth(
@@ -407,6 +410,7 @@ export default function App() {
   if (
     waitingForMainAppAuth ||
     redirectingToMainAppLogin ||
+    restoringMarsTunnel ||
     (cookieSessionMaybeExpired && mainAppAuth.isFetching)
   ) {
     return <AgentServerBootstrapLoading />;

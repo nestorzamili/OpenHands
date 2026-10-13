@@ -78,13 +78,18 @@ describe("WebgenNewProjectDialog", () => {
   it("validates owner input as it changes with Better Auth fixed", async () => {
     const user = userEvent.setup();
     renderDialog({ existingNames: [] });
-    await user.type(screen.getByTestId("webgen-new-project-name"), "members");
+    const name = screen.getByTestId("webgen-new-project-name");
     await user.click(screen.getByTestId("webgen-new-project-auth"));
+    expect(name).not.toHaveAttribute("aria-invalid", "true");
+    await user.type(name, "members");
     expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
     const email = screen.getByTestId("webgen-owner-seed-email");
     const password = screen.getByTestId("webgen-owner-seed-password");
     expect(email).not.toHaveAttribute("aria-invalid", "true");
     expect(password).not.toHaveAttribute("aria-invalid", "true");
+    await user.click(email);
+    await user.tab();
+    expect(email).not.toHaveAttribute("aria-invalid", "true");
     await user.type(email, "invalid");
     await user.type(password, "short");
     expect(email).toHaveAttribute("aria-invalid", "true");

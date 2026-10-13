@@ -371,7 +371,10 @@ function ModuleForm({
         isDisabled={isSaving || selectableSkills.length === 0}
         variant="bordered"
         classNames={{ trigger: "min-h-11", popoverContent: "bg-content1" }}
-        popoverProps={{ classNames: { base: "z-[80]" } }}
+        popoverProps={{
+          shouldCloseOnScroll: false,
+          classNames: { base: "z-[80]" },
+        }}
       >
         {selectableSkills.map((name) => (
           <SelectItem key={name} textValue={name}>

@@ -90,7 +90,7 @@ const DCK_BUILTIN_MODULE_DEFS: DckModuleDef[] = [
     iconName: "globe",
     description: "",
     promptTemplate:
-      "Scaffold a new containerized Next.js fullstack app under webgen/ following the web-generator standard. Use Better Auth whenever authentication is requested unless I explicitly name another provider. Ask me for the app name and whether it needs a database or auth before scaffolding.",
+      "Scaffold a new containerized Next.js fullstack app in the project workspace following the web-generator standard. Use Better Auth whenever authentication is requested. Follow the provided project specification.",
   },
   {
     id: "research",

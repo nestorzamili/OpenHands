@@ -65,7 +65,6 @@ export function WebgenOwnerSeedFields({
         type="email"
         value={value.email}
         onChange={(next) => update("email", next)}
-        onBlur={() => touch("email")}
         error={
           touched.email && validation.emailError
             ? t(validation.emailError)
@@ -99,7 +98,6 @@ export function WebgenOwnerSeedFields({
         maxLength={1024}
         required
         showRequiredTag
-        onBlur={() => touch("password")}
         isDisabled={disabled}
         error={
           (showPasswordError || touched.password) && validation.passwordError

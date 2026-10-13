@@ -61,7 +61,7 @@ explicitly asks for that separate action.
 ## 2. Stack Defaults
 
 - Next.js (App Router + API routes), TypeScript, Tailwind CSS, shadcn, Lucide icons.
-- better-auth and Prisma: scaffold only when the app needs login or a database. When authentication is requested, use Better Auth by default unless the project spec explicitly names another provider. Landing pages and static prototypes ship without them.
+- better-auth and Prisma: scaffold only when the app needs login or a database. When authentication is requested, use Better Auth. Landing pages and static prototypes ship without them.
 - Database and cache connectivity (prod topology — see `docs/DEPLOYMENT.md`):
   - **PostgreSQL** is the dedicated DCK cluster, reached by the compose
     **service name `postgres`** on the shared `dck` network (it is NOT published

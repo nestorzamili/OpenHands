@@ -127,7 +127,6 @@ export function WebgenNewProjectDialog({
             setName(next);
             setNameTouched(true);
           }}
-          onBlur={() => setNameTouched(true)}
           placeholder={t(I18nKey.DCK$NEW_PROJECT_NAME_PLACEHOLDER)}
           showRequiredTag
           isDisabled={isSubmitting}

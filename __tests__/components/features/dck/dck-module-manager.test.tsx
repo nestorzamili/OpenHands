@@ -1,5 +1,5 @@
 import React from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -235,6 +235,7 @@ describe("DckModuleManager", () => {
     await user.click(
       screen.getByRole("button", { name: /DCK\$MODULE_FORM_SKILL_LABEL/ }),
     );
+    fireEvent.scroll(screen.getByTestId("dck-module-form").parentElement!);
     const webgenSkill = screen.getByRole("option", { name: "web-generator" });
     expect(webgenSkill).toHaveAttribute("aria-selected", "true");
     await user.click(webgenSkill);

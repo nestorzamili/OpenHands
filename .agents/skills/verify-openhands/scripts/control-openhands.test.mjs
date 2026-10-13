@@ -2253,3 +2253,57 @@ test("help documents assert and bug, and the shipped map's known-bug blocks are 
   assert.equal(list.json.ok, true, list.stdout);
   assert.ok(list.json.count >= 1);
 });
+
+test("external browser runs cannot control services or send session-key API calls", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cov-external-"));
+  const attached = run([
+    "attach",
+    "https://example.com",
+    "--run",
+    dir,
+    "--no-browser",
+  ]);
+  assert.equal(attached.status, 0);
+  const state = JSON.parse(readFileSync(join(dir, "run.json"), "utf8"));
+  assert.equal(state.mode, "external");
+  assert.equal(state.launcherPid, undefined);
+  assert.equal(existsSync(join(dir, "private", "session-key")), false);
+  for (const command of [
+    ["restart"],
+    ["service", "stop", "agent-server"],
+    ["api", "GET", "/api/settings"],
+  ]) {
+    const result = run([...command, "--run", dir]);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stdout, /browser-only/);
+  }
+  assert.equal(run(["stop", "--run", dir, "--purge-private"]).status, 0);
+});
+
+test("external browser attach rejects URL credentials and existing run state", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cov-external-"));
+  assert.notEqual(
+    run([
+      "attach",
+      "https://user:private@example.com",
+      "--run",
+      dir,
+      "--no-browser",
+    ]).status,
+    0,
+  );
+  assert.equal(existsSync(join(dir, "run.json")), false);
+  assert.equal(
+    run(["attach", "https://example.com", "--run", dir, "--no-browser"]).status,
+    0,
+  );
+  assert.notEqual(
+    run(["attach", "https://other.example", "--run", dir, "--no-browser"])
+      .status,
+    0,
+  );
+  assert.equal(
+    JSON.parse(readFileSync(join(dir, "run.json"), "utf8")).baseUrl,
+    "https://example.com/",
+  );
+});

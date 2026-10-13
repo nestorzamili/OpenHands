@@ -186,6 +186,12 @@ function loadRun(flags, options) {
   if (!dir) return undefined;
   const run = JSON.parse(readFileSync(join(dir, "run.json"), "utf8"));
   run.dir = dir;
+  if (run.mode === "external" && !options?.allowExternal) {
+    throw new CliError(
+      "External runs are browser-only; this command cannot control the deployment.",
+      { code: 2 },
+    );
+  }
   return run;
 }
 
@@ -1121,8 +1127,44 @@ async function cmdService({ positional, flags }) {
   );
 }
 
+async function cmdAttach({ positional, flags }) {
+  if (!positional[0] || !flags.run || flags.run === true)
+    usage("attach needs an origin and a new --run directory");
+  const url = new URL(positional[0]);
+  if (
+    !["http:", "https:"].includes(url.protocol) ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash ||
+    url.pathname !== "/"
+  ) {
+    usage(
+      "attach requires an HTTP(S) origin without credentials, path, query or fragment",
+    );
+  }
+  const dir = resolve(flags.run);
+  if (existsSync(join(dir, "run.json")))
+    usage("Refusing to replace existing run state");
+  for (const sub of ["", "private", "evidence"])
+    mkdirSync(join(dir, sub), { recursive: true, mode: 0o700 });
+  const run = {
+    dir,
+    runId: basename(dir),
+    repo: repoRoot,
+    revision: checkoutRevision(),
+    mode: "external",
+    baseUrl: url.href,
+    ports: {},
+    startedAt: new Date().toISOString(),
+  };
+  saveRun(run);
+  const browser = flags["no-browser"] ? undefined : await startBrowser(run);
+  out({ ok: true, run: dir, baseUrl: run.baseUrl, mode: run.mode, browser });
+}
+
 async function cmdStatus({ flags }) {
-  const run = loadRun(flags);
+  const run = loadRun(flags, { allowExternal: true });
   out({
     ok: true,
     run: run.dir,
@@ -1138,7 +1180,22 @@ async function cmdStatus({ flags }) {
 }
 
 async function cmdDoctor({ flags }) {
-  const run = loadRun(flags);
+  const run = loadRun(flags, { allowExternal: true });
+  if (run.mode === "external") {
+    const response = await fetch(run.baseUrl, {
+      signal: AbortSignal.timeout(15000),
+    });
+    const ok = response.ok && Boolean(daemonInfo(run));
+    out({
+      ok,
+      mode: run.mode,
+      status: response.status,
+      browserAlive: Boolean(daemonInfo(run)),
+      scope: "Remote HTTP availability and local browser only",
+    });
+    if (!ok) process.exitCode = 3;
+    return;
+  }
   const checks = [];
   const add = (name, ok, detail, severity = "fail") =>
     checks.push({ name, ok, severity: ok ? "ok" : severity, detail });
@@ -1290,9 +1347,17 @@ function tmuxDirFor(runDir) {
 }
 
 async function cmdStop({ flags }) {
-  const run = loadRun(flags);
+  const run = loadRun(flags, { allowExternal: true });
   const result = { run: run.dir };
   result.browser = await stopBrowser(run);
+  if (run.mode === "external") {
+    run.stoppedAt = new Date().toISOString();
+    saveRun(run);
+    if (flags["purge-private"])
+      rmSync(join(run.dir, "private"), { recursive: true, force: true });
+    out({ ok: true, ...result, remoteServicesUntouched: true });
+    return;
+  }
   const pgid = run.launcherPgid;
   const launcher = await stopLauncher(run);
   if (launcher.forced) result.forced = true;
@@ -2640,7 +2705,7 @@ function inspectDownload(path, needle) {
 }
 
 async function cmdBrowser({ positional, flags }) {
-  const run = loadRun(flags);
+  const run = loadRun(flags, { allowExternal: true });
   const [verb, ...rest] = positional;
   const timeout =
     flags.timeout !== undefined ? intFlag(flags.timeout) : undefined;
@@ -3158,7 +3223,7 @@ function compareLedgers(before, after) {
 }
 
 async function cmdEvidence({ positional, flags }) {
-  const run = loadRun(flags);
+  const run = loadRun(flags, { allowExternal: true });
   const ledger = join(run.dir, "evidence", "ledger.jsonl");
   const [sub] = positional;
   if (sub === "add") {
@@ -4453,6 +4518,13 @@ async function cmdMap({ positional, flags }) {
 // Help and dispatch.
 // ---------------------------------------------------------------------------
 const HELP = {
+  attach: `control-openhands attach <http(s)://origin> --run <new-directory> [--no-browser]
+
+Starts a local browser and evidence directory for an existing deployment.
+No session key is injected and no remote service is started or stopped.
+Log in through the browser UI. Only browser, doctor, status, stop and evidence
+commands support this run; doctor checks HTTP and local browser availability.
+`,
   login: `control-openhands login
 
 Public-mode runs only: types the run's session key into whichever prompt the UI
@@ -4489,6 +4561,7 @@ states can be driven through the UI. Bring everything back with restart.
 Usage: control-openhands <command> [args] [--run <dir>]
 
 Lifecycle
+  attach        Open a browser-only run for an authorized existing deployment
   launch        Build this checkout if needed, start an isolated stack + browser
   doctor        Read-only health check; run first and after any surprise
   status        Show the current run's ports, revision and liveness
@@ -4827,6 +4900,7 @@ check also verifies every Source: path exists and the baseline line's shape.
 };
 
 const COMMANDS = {
+  attach: cmdAttach,
   launch: cmdLaunch,
   status: cmdStatus,
   doctor: cmdDoctor,

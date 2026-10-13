@@ -58,6 +58,15 @@ Other agents on the machine may be running the same script: edit a copy, run
 
 ## Launch → doctor → drive → evidence → cleanup
 
+For an explicitly authorized existing deployment, use
+`control-openhands attach https://example.com --run /tmp/production-check`.
+This creates a browser-only run: log in through the real UI with `browser fill`
+(`--value-file` keeps passwords out of command arguments). It injects no session
+key and cannot run API helpers, fixtures or service lifecycle commands. `doctor`
+checks remote HTTP availability and the local browser, not remote process health.
+Use `browser`, `status`, `evidence` and `stop --purge-private` as usual; stopping
+an attached run closes only its local browser. Always pass its explicit `--run`.
+
 ```sh
 export OH_VERIFY_RUN=$(control-openhands launch --new --print-run)   # builds if needed; isolated run
 control-openhands doctor                       # read-only; must be ok before driving

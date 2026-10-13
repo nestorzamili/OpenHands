@@ -27,6 +27,40 @@ class _Response:
 
 
 class TestWebgen(unittest.TestCase):
+    # @spec WR-019 — Runtime status tolerates containers without healthchecks.
+    def test_runtime_status_handles_optional_health_and_failed_containers(self):
+        from subprocess import CompletedProcess
+
+        containers = [
+            ("a" * 12, "shop", "running", {"ExitCode": 0, "Health": {"Status": "healthy"}}),
+            ("b" * 12, "worker", "running", {"ExitCode": 0}),
+            ("c" * 12, "failed", "exited", {"ExitCode": 1}),
+        ]
+        listing = "\n".join(json.dumps({
+            "ID": cid, "Names": f"{slug}-app", "State": state,
+            "Status": "Up" if state == "running" else "Exited (1)",
+            "Labels": f"com.docker.compose.project={slug}",
+        }) for cid, slug, state, _ in containers)
+        inspection = "\n".join(f"{cid}|{json.dumps(state)}" for cid, _, _, state in containers)
+        service = self.make_service()
+        with tempfile.TemporaryDirectory() as d:
+            service.root = Path(d)
+            for _, slug, _, _ in containers:
+                project = service.root / slug
+                project.mkdir()
+                (project / ".dck.json").write_text(json.dumps({"port": 3000}))
+            with patch("webgen_control.subprocess.run", side_effect=[
+                CompletedProcess([], 0, stdout=listing),
+                CompletedProcess([], 0, stdout=inspection),
+            ]):
+                projects = {p["slug"]: p for p in service.projects()}
+
+        self.assertEqual(projects["shop"]["status"], "running")
+        self.assertEqual(projects["shop"]["containers"][0]["health"], "healthy")
+        self.assertEqual(projects["worker"]["status"], "running")
+        self.assertIsNone(projects["worker"]["containers"][0]["health"])
+        self.assertEqual(projects["failed"]["status"], "error")
+
     def test_runtime_reports_starting_and_only_the_active_address(self):
         with tempfile.TemporaryDirectory() as d:
             p = Path(d)

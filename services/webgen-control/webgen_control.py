@@ -147,15 +147,23 @@ class Service:
         ids=[x["id"] for x in raw if re.fullmatch(r"[A-Fa-f0-9]{12,64}",x["id"])]
         if ids:
             try:
-                ir=subprocess.run(["docker","inspect","--format","{{.Id}}|{{.State.ExitCode}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}"]+ids,capture_output=True,text=True,timeout=3,check=False)
+                # @spec WR-019 — Health is absent on containers without a healthcheck.
+                ir=subprocess.run(["docker","inspect","--format","{{.Id}}|{{json .State}}"]+ids,capture_output=True,text=True,timeout=3,check=False)
                 if ir.returncode: return None
-                info={x.split("|",2)[0]:x.split("|",2) for x in ir.stdout.splitlines() if len(x.split("|",2))==3}
+                info={}
+                for line in ir.stdout.splitlines():
+                    cid,separator,state=line.partition("|")
+                    if not separator: return None
+                    try: state=json.loads(state)
+                    except ValueError: return None
+                    if not isinstance(state,dict): return None
+                    info[cid]=state
                 for d in raw:
                     x=next((v for k,v in info.items() if k.startswith(d["id"])),None)
-                    if x:
-                        try:d["exit_code"]=int(x[1])
-                        except ValueError: pass
-                        d["health"]=x[2] or d["health"]
+                    if x is not None:
+                        d["exit_code"]=x.get("ExitCode")
+                        health=x.get("Health")
+                        d["health"]=health.get("Status") if isinstance(health,dict) else None
             except (OSError,subprocess.TimeoutExpired): return None
         return self.group_containers(raw)
     def project(self,slug,p,status_groups=None):

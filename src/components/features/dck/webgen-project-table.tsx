@@ -181,7 +181,7 @@ export function WebgenProjectTable({
     <div className="overflow-x-auto rounded-lg border border-border">
       <table
         data-testid="dck-webgen-project-table"
-        className="w-full border-collapse text-sm"
+        className="w-full min-w-[640px] border-collapse text-sm"
       >
         <thead>
           <tr className="bg-surface">

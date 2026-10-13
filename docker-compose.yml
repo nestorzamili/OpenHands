@@ -34,6 +34,7 @@ services:
       - ./workspace:/projects
     environment:
       - AGENT_CANVAS_DISABLE_TELEMETRY=1
+      - MARS_WEB=0
       # Canvas at the root path (image is built with VITE_BASE_PATH=/, this
       # keeps the runtime static-server mount consistent with the bundle).
       - AGENT_CANVAS_BASE_PATH=/

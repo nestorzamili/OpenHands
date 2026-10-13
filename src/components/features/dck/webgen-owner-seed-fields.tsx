@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { SettingsInput } from "#/components/features/settings/settings-input";
 import { I18nKey } from "#/i18n/declaration";
 import { useTranslation } from "react-i18next";
@@ -12,6 +13,7 @@ export interface WebgenOwnerSeedInput {
 export function validateWebgenOwnerSeed(input: WebgenOwnerSeedInput): {
   valid: boolean;
   passwordError: I18nKey | null;
+  emailError: I18nKey | null;
 } {
   const email = input.email.trim();
   const validEmail = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email);
@@ -27,6 +29,7 @@ export function validateWebgenOwnerSeed(input: WebgenOwnerSeedInput): {
   return {
     valid: validEmail && username.length <= 64 && passwordError === null,
     passwordError,
+    emailError: validEmail ? null : I18nKey.SETTINGS$INVALID_EMAIL_FORMAT,
   };
 }
 
@@ -43,8 +46,15 @@ export function WebgenOwnerSeedFields({
 }) {
   const { t } = useTranslation("openhands");
   const validation = validateWebgenOwnerSeed(value);
-  const update = (field: keyof WebgenOwnerSeedInput, next: string) =>
+  const [touched, setTouched] = useState<
+    Partial<Record<keyof WebgenOwnerSeedInput, boolean>>
+  >({});
+  const touch = (field: keyof WebgenOwnerSeedInput) =>
+    setTouched((previous) => ({ ...previous, [field]: true }));
+  const update = (field: keyof WebgenOwnerSeedInput, next: string) => {
+    touch(field);
     onChange({ ...value, [field]: next });
+  };
 
   return (
     <div className="flex flex-col gap-3" data-testid="webgen-owner-seed-fields">
@@ -55,6 +65,12 @@ export function WebgenOwnerSeedFields({
         type="email"
         value={value.email}
         onChange={(next) => update("email", next)}
+        onBlur={() => touch("email")}
+        error={
+          touched.email && validation.emailError
+            ? t(validation.emailError)
+            : undefined
+        }
         autoComplete="email"
         isDisabled={disabled}
         required
@@ -83,10 +99,10 @@ export function WebgenOwnerSeedFields({
         maxLength={1024}
         required
         showRequiredTag
-        hint={t(I18nKey.DCK$OWNER_SEED_PASSWORD_HINT)}
+        onBlur={() => touch("password")}
         isDisabled={disabled}
         error={
-          showPasswordError && validation.passwordError
+          (showPasswordError || touched.password) && validation.passwordError
             ? t(validation.passwordError)
             : undefined
         }

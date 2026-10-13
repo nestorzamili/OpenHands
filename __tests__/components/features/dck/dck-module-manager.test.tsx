@@ -219,7 +219,7 @@ describe("DckModuleManager", () => {
       return { success: true };
     });
     const user = userEvent.setup();
-    renderManager();
+    const onClose = renderManager();
 
     await user.click(await screen.findByTestId("dck-module-edit-webgen"));
     const slug = screen.getByTestId("dck-module-form-slug");
@@ -232,12 +232,16 @@ describe("DckModuleManager", () => {
       screen.getByTestId("dck-module-agent-profile-selector-webgen"),
       "active-profile",
     );
-    const webgenSkill = screen.getByTestId(
-      "dck-module-form-skill-web-generator",
+    await user.click(
+      screen.getByRole("button", { name: /DCK\$MODULE_FORM_SKILL_LABEL/ }),
     );
-    expect(webgenSkill).toBeChecked();
+    const webgenSkill = screen.getByRole("option", { name: "web-generator" });
+    expect(webgenSkill).toHaveAttribute("aria-selected", "true");
     await user.click(webgenSkill);
-    expect(webgenSkill).not.toBeChecked();
+    expect(webgenSkill).toHaveAttribute("aria-selected", "false");
+    await user.keyboard("{Escape}");
+    expect(screen.getByTestId("dck-module-form")).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
 
     const name = screen.getByTestId("dck-module-form-name");
     await user.clear(name);
@@ -297,9 +301,13 @@ describe("DckModuleManager", () => {
       "dck-module-form",
     );
     expect(profileSelector).toHaveValue("research-profile");
+    await user.click(
+      screen.getByRole("button", { name: /DCK\$MODULE_FORM_SKILL_LABEL/ }),
+    );
     expect(
-      screen.getByTestId("dck-module-form-skill-web-generator"),
-    ).toBeChecked();
+      screen.getByRole("option", { name: "web-generator" }),
+    ).toHaveAttribute("aria-selected", "true");
+    await user.keyboard("{Escape}");
     expect(screen.queryByTestId("dck-module-form-persona")).toBeNull();
     await user.selectOptions(profileSelector, "active-profile");
 
@@ -389,10 +397,12 @@ describe("DckModuleManager", () => {
       screen.getByTestId("dck-module-form-prompt"),
       "Write a weekly report.",
     );
-    await user.click(screen.getByTestId("dck-module-form-skill-web-generator"));
     await user.click(
-      screen.getByTestId("dck-module-form-skill-research-brief"),
+      screen.getByRole("button", { name: /DCK\$MODULE_FORM_SKILL_LABEL/ }),
     );
+    await user.click(screen.getByRole("option", { name: "web-generator" }));
+    await user.click(screen.getByRole("option", { name: "research-brief" }));
+    await user.keyboard("{Escape}");
     await user.click(screen.getByTestId("dck-module-form-save"));
 
     await waitFor(() => expect(uploadTextFileMock).toHaveBeenCalledTimes(1));

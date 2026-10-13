@@ -591,7 +591,7 @@ class Service:
     def postgres_command(self,sql):
         user=os.getenv("WEBGEN_POSTGRES_USER", "dck")
         if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]*",user): raise ValueError("invalid postgres user")
-        return ["docker","exec","dck-agentic-postgres","psql","-U",user,"-d","postgres","-v","ON_ERROR_STOP=1","-c",sql]
+        return ["docker","exec","dck-postgres","psql","-U",user,"-d","postgres","-v","ON_ERROR_STOP=1","-c",sql]
     def _delete(self,slug,p):
         meta=self.metadata(p)
         needs_db=meta.get("needsDatabase") is not False or meta.get("authProvider")=="better-auth"

@@ -559,7 +559,7 @@ export function ModuleDetailView({
       );
       return;
     }
-    const requiresOwnerSeed = spec.needsAuth && spec.authProvider !== "other";
+    const requiresOwnerSeed = spec.needsAuth;
     if (requiresOwnerSeed && !seed) {
       displayErrorToast(t(I18nKey.DCK$OWNER_SEED_REQUIRED));
       return;

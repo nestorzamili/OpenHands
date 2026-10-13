@@ -1,4 +1,5 @@
 import React from "react";
+import { Select, SelectItem } from "@heroui/react";
 import { useTranslation } from "react-i18next";
 import { ChevronUp, ChevronDown, Pencil, Trash2, Plus } from "lucide-react";
 import type { AgentProfileSummary } from "#/api/agent-profiles-service/agent-profiles-service.api";
@@ -186,6 +187,9 @@ function ModuleForm({
   const { t } = useTranslation("openhands");
   const [draft, setDraft] = React.useState<CustomModuleDraft>(initialDraft);
   const [showErrors, setShowErrors] = React.useState(false);
+  const [touched, setTouched] = React.useState<
+    Partial<Record<keyof CustomModuleDraft, boolean>>
+  >({});
   const [profileIdDraft, setProfileIdDraft] = React.useState<
     string | undefined
   >(undefined);
@@ -211,14 +215,16 @@ function ModuleForm({
   const setField = (
     field: Exclude<keyof CustomModuleDraft, "skillNames">,
     value: string,
-  ) => setDraft((prev) => ({ ...prev, [field]: value }));
-  const setSkillSelected = (skillName: string, selected: boolean) =>
-    setDraft((prev) => ({
-      ...prev,
-      skillNames: selected
-        ? [...new Set([...prev.skillNames, skillName])]
-        : prev.skillNames.filter((name) => name !== skillName),
-    }));
+  ) => {
+    setTouched((previous) => ({ ...previous, [field]: true }));
+    setDraft((prev) => ({ ...prev, [field]: value }));
+  };
+  const selectableSkills = [
+    ...new Set([
+      ...skillOptions.map((skill) => skill.name),
+      ...draft.skillNames,
+    ]),
+  ];
 
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
@@ -250,7 +256,7 @@ function ModuleForm({
           onChange={(event) => setField("name", event.target.value)}
           className={fieldClass}
         />
-        {showErrors && validation.errors.name && (
+        {(showErrors || touched.name) && validation.errors.name && (
           <span data-testid="dck-module-form-name-error" className={errorClass}>
             {t(validation.errors.name)}
           </span>
@@ -267,14 +273,7 @@ function ModuleForm({
           readOnly={isEditing}
           className={cn(fieldClass, isEditing && "bg-base-secondary")}
         />
-        <span className="text-xs font-normal text-text-tertiary">
-          {t(
-            isEditing
-              ? I18nKey.DCK$MODULE_FORM_SLUG_FIXED_HINT
-              : I18nKey.DCK$MODULE_FORM_SLUG_HINT,
-          )}
-        </span>
-        {showErrors && validation.errors.slug && (
+        {(showErrors || touched.slug) && validation.errors.slug && (
           <span data-testid="dck-module-form-slug-error" className={errorClass}>
             {t(validation.errors.slug)}
           </span>
@@ -332,17 +331,15 @@ function ModuleForm({
           rows={4}
           className={cn(fieldClass, "resize-y")}
         />
-        <span className="text-xs font-normal text-text-tertiary">
-          {t(I18nKey.DCK$MODULE_FORM_PROMPT_HINT)}
-        </span>
-        {showErrors && validation.errors.promptTemplate && (
-          <span
-            data-testid="dck-module-form-prompt-error"
-            className={errorClass}
-          >
-            {t(validation.errors.promptTemplate)}
-          </span>
-        )}
+        {(showErrors || touched.promptTemplate) &&
+          validation.errors.promptTemplate && (
+            <span
+              data-testid="dck-module-form-prompt-error"
+              className={errorClass}
+            >
+              {t(validation.errors.promptTemplate)}
+            </span>
+          )}
       </label>
 
       <DckModuleAgentProfileSelector
@@ -355,43 +352,33 @@ function ModuleForm({
         }
       />
 
-      <div className={labelClass}>
-        {t(I18nKey.DCK$MODULE_FORM_SKILL_LABEL)}
-        <div
-          data-testid="dck-module-form-skills"
-          role="group"
-          aria-label={t(I18nKey.DCK$MODULE_FORM_SKILL_LABEL)}
-          className="flex max-h-52 flex-col gap-1 overflow-y-auto rounded-lg border border-border bg-base p-2"
-        >
-          {skillOptions.length === 0 ? (
-            <span className="px-2 py-1 text-xs font-normal text-text-tertiary">
-              {t(I18nKey.DCK$MODULE_FORM_SKILL_NONE)}
-            </span>
-          ) : (
-            skillOptions.map((skill) => (
-              <label
-                key={skill.name}
-                className="flex min-h-11 items-center gap-2 rounded-md px-2 text-xs font-normal text-contrast hover:bg-surface"
-              >
-                <input
-                  type="checkbox"
-                  data-testid={`dck-module-form-skill-${skill.name}`}
-                  checked={draft.skillNames.includes(skill.name)}
-                  onChange={(event) =>
-                    setSkillSelected(skill.name, event.target.checked)
-                  }
-                  disabled={isSaving}
-                  className="size-4 shrink-0"
-                />
-                <span>{skill.name}</span>
-              </label>
-            ))
-          )}
-        </div>
-        <span className="text-xs font-normal text-text-tertiary">
-          {t(I18nKey.DCK$MODULE_FORM_SKILL_HINT)}
-        </span>
-      </div>
+      <Select
+        data-testid="dck-module-form-skills"
+        label={t(I18nKey.DCK$MODULE_FORM_SKILL_LABEL)}
+        labelPlacement="outside"
+        aria-label={t(I18nKey.DCK$MODULE_FORM_SKILL_LABEL)}
+        placeholder={t(I18nKey.DCK$MODULE_FORM_SKILL_NONE)}
+        selectionMode="multiple"
+        listboxProps={{ escapeKeyBehavior: "none" }}
+        selectedKeys={draft.skillNames}
+        onSelectionChange={(keys) =>
+          setDraft((previous) => ({
+            ...previous,
+            skillNames:
+              keys === "all" ? selectableSkills : Array.from(keys, String),
+          }))
+        }
+        isDisabled={isSaving || selectableSkills.length === 0}
+        variant="bordered"
+        classNames={{ trigger: "min-h-11", popoverContent: "bg-content1" }}
+        popoverProps={{ classNames: { base: "z-[80]" } }}
+      >
+        {selectableSkills.map((name) => (
+          <SelectItem key={name} textValue={name}>
+            {name}
+          </SelectItem>
+        ))}
+      </Select>
 
       <div className="sticky bottom-0 flex justify-end gap-2 border-t border-border bg-base-secondary py-3">
         <BrandButton

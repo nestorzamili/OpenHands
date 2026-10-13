@@ -284,7 +284,7 @@ export function useOpenConversation() {
         ...(pending ? { conversationId: pending.id } : {}),
         prepareInitialMessage: async (id) => {
           pendingWebgen.current = { scope, id };
-          if (spec.needsAuth && spec.authProvider !== "other") {
+          if (spec.needsAuth) {
             if (!seed) throw new Error("Owner credentials are required");
             const staged = await stageWebgenOwnerSeed(
               spec.name.trim(),

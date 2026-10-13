@@ -7,8 +7,7 @@ export interface WebgenNewProjectSpec {
   description: string;
   needsDatabase: boolean;
   needsAuth: boolean;
-  authProvider?: "better-auth" | "other";
-  otherAuthProvider?: string;
+  authProvider?: "better-auth";
 }
 
 /** App-name rule: a lowercase slug the agent can use verbatim as the
@@ -72,12 +71,8 @@ export function buildWebgenScaffoldPrompt(
     `- Auth / login: ${spec.needsAuth ? "yes — include authentication" : "no"}`,
   ];
   if (spec.needsAuth) {
-    const provider =
-      spec.authProvider === "other"
-        ? spec.otherAuthProvider?.trim()
-        : "Better Auth";
-    if (provider) lines.push(`- Auth provider: ${provider}`);
-    if (provider === "Better Auth" && ownerSeedVerificationKey) {
+    lines.push("- Auth provider: Better Auth");
+    if (ownerSeedVerificationKey) {
       lines.push(
         `- DCK first-owner bootstrap verification key (public, safe to store in source): ${ownerSeedVerificationKey}`,
         "- Implement the signed, one-time Better Auth owner bootstrap route exactly as specified in the web-generator skill. Disable public sign-up; call Better Auth server APIs only. Never ask for, echo, log, persist, or include owner credentials in prompts, chat, source, .env, telemetry, or the portal Secrets Manager.",

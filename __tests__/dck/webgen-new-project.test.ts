@@ -89,19 +89,6 @@ describe("buildWebgenScaffoldPrompt", () => {
     expect(withNeither).toMatch(/Auth \/ login: no/);
   });
 
-  it("uses an explicitly requested auth provider instead of the Better Auth default", () => {
-    const prompt = buildWebgenScaffoldPrompt({
-      name: "shop",
-      description: "",
-      needsDatabase: true,
-      needsAuth: true,
-      authProvider: "other",
-      otherAuthProvider: "Clerk",
-    });
-    expect(prompt).toContain("- Auth provider: Clerk");
-    expect(prompt).not.toContain("- Auth provider: Better Auth");
-  });
-
   it("includes a trimmed description only when provided", () => {
     const withDesc = buildWebgenScaffoldPrompt({
       name: "shop",

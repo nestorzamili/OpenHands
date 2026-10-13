@@ -43,7 +43,6 @@ describe("WebgenNewProjectDialog", () => {
 
     // Colliding name → still disabled + error shown after touch.
     await user.type(screen.getByTestId("webgen-new-project-name"), "shop");
-    await user.tab();
     expect(submit).toBeDisabled();
     expect(
       screen.getByTestId("webgen-new-project-name-error"),
@@ -76,29 +75,27 @@ describe("WebgenNewProjectDialog", () => {
     });
   });
 
-  it("defaults to Better Auth when enabled and submits an explicitly named alternative", async () => {
+  it("validates owner input as it changes with Better Auth fixed", async () => {
     const user = userEvent.setup();
-    const { onSubmit } = renderDialog({ existingNames: [] });
+    renderDialog({ existingNames: [] });
     await user.type(screen.getByTestId("webgen-new-project-name"), "members");
     await user.click(screen.getByTestId("webgen-new-project-auth"));
-
-    const provider = screen.getByTestId("webgen-new-project-auth-provider");
-    expect(provider).toHaveValue("better-auth");
-    await user.selectOptions(provider, "other");
-    await user.type(
-      screen.getByTestId("webgen-new-project-other-auth-provider"),
-      "Clerk",
-    );
-    await user.click(screen.getByTestId("webgen-new-project-submit"));
-
-    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
-    expect(onSubmit).toHaveBeenCalledWith(
-      expect.objectContaining({
-        needsAuth: true,
-        authProvider: "other",
-        otherAuthProvider: "Clerk",
-      }),
-    );
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    const email = screen.getByTestId("webgen-owner-seed-email");
+    const password = screen.getByTestId("webgen-owner-seed-password");
+    expect(email).not.toHaveAttribute("aria-invalid", "true");
+    expect(password).not.toHaveAttribute("aria-invalid", "true");
+    await user.type(email, "invalid");
+    await user.type(password, "short");
+    expect(email).toHaveAttribute("aria-invalid", "true");
+    expect(password).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByTestId("webgen-new-project-submit")).toBeDisabled();
+    await user.clear(email);
+    await user.type(email, "owner@example.test");
+    await user.type(password, " long enough password");
+    expect(email).not.toHaveAttribute("aria-invalid", "true");
+    expect(password).not.toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByTestId("webgen-new-project-submit")).toBeEnabled();
   });
 
   it("collects Better Auth owner seed separately and preserves password whitespace", async () => {
@@ -131,7 +128,6 @@ describe("WebgenNewProjectDialog", () => {
         needsDatabase: false,
         needsAuth: true,
         authProvider: "better-auth",
-        otherAuthProvider: "",
       },
       { email: "owner@example.test", username: "nestor", password },
     );

@@ -14,7 +14,7 @@ export interface WebgenNewProjectSpec {
 /** App-name rule: a lowercase slug the agent can use verbatim as the
  * `webgen/<name>/` directory and the compose/service name. Starts with a
  * letter or digit, then letters/digits/hyphens, max 64 chars. */
-const APP_NAME_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
+const APP_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const APP_NAME_MAX_LENGTH = 64;
 
 export interface WebgenAppNameValidation {
@@ -65,7 +65,7 @@ export function buildWebgenScaffoldPrompt(
   const name = spec.name.trim();
   const description = spec.description.trim();
   const lines: string[] = [
-    `Scaffold a new containerized Next.js fullstack app named "${name}" under webgen/, following the web-generator standard. Do not ask me for the app name, database, or auth again — they are specified below. Start scaffolding now.`,
+    `Scaffold a new containerized Next.js fullstack app named "${name}" directly in the current project workspace, following the web-generator standard. Do not create a nested webgen/ or app-name directory. Do not ask me for the app name, database, or auth again — they are specified below. Start scaffolding now.`,
     "",
     `- App name: ${name}`,
     `- Database: ${spec.needsDatabase ? "yes — provision a database per the web-generator standard" : "no"}`,
@@ -90,7 +90,7 @@ export function buildWebgenScaffoldPrompt(
   }
   lines.push(
     "",
-    "Pick the first free port ≥ 3000, write .dck.json and .env.example, and apply the antislop skills to all UI, layout, copy, and motion. Verify the deploy with docker compose ps, logs, and an endpoint health check. Name the app container <app-name>-app so the authenticated DCK provisioning capability can reach it on the shared dck network.",
+    "Pick the first free port ≥ 3000, write .dck.json and .env.example, and apply the antislop skills to all UI, layout, copy, and motion. Configure APP_BASE_PATH at build time so the first explicit Deploy serves /preview/<app-name> on the Canvas origin. Do not deploy, publish, create a subdomain, or write nginx configuration while scaffolding. Name the app container <app-name>-app so the authenticated DCK provisioning capability can reach it on the shared dck network.",
   );
   return lines.join("\n");
 }

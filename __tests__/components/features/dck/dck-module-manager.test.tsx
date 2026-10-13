@@ -180,6 +180,29 @@ afterEach(() => {
 });
 
 describe("DckModuleManager", () => {
+  it("blocks changes after a registry read failure and recovers on retry", async () => {
+    downloadTextFileMock.mockRejectedValue(
+      Object.assign(new Error("unavailable"), {
+        name: "HttpError",
+        status: 503,
+      }),
+    );
+    const user = userEvent.setup();
+    renderManager();
+
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(screen.getByTestId("dck-module-add")).toBeDisabled();
+    expect(uploadTextFileMock).not.toHaveBeenCalled();
+
+    downloadTextFileMock.mockResolvedValue(customConfig());
+    await user.click(screen.getByRole("button", { name: "DCK$RETRY" }));
+
+    expect(
+      await screen.findByTestId("dck-module-edit-custom-email"),
+    ).toBeEnabled();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("shows modules without built-in labels and keeps custom management controls", async () => {
     downloadTextFileMock.mockResolvedValue(customConfig());
     renderManager();
@@ -321,7 +344,9 @@ describe("DckModuleManager", () => {
   });
 
   it("blocks saving a module with validation errors and does not write", async () => {
-    downloadTextFileMock.mockRejectedValue(new Error("not found"));
+    downloadTextFileMock.mockRejectedValue(
+      Object.assign(new Error("not found"), { name: "HttpError", status: 404 }),
+    );
     const user = userEvent.setup();
     renderManager();
 
@@ -342,7 +367,9 @@ describe("DckModuleManager", () => {
   });
 
   it("rejects a slug that collides with a built-in module", async () => {
-    downloadTextFileMock.mockRejectedValue(new Error("not found"));
+    downloadTextFileMock.mockRejectedValue(
+      Object.assign(new Error("not found"), { name: "HttpError", status: 404 }),
+    );
     const user = userEvent.setup();
     renderManager();
 
@@ -362,7 +389,9 @@ describe("DckModuleManager", () => {
   });
 
   it("creates a valid custom module and writes the config", async () => {
-    downloadTextFileMock.mockRejectedValue(new Error("not found"));
+    downloadTextFileMock.mockRejectedValue(
+      Object.assign(new Error("not found"), { name: "HttpError", status: 404 }),
+    );
     const user = userEvent.setup();
     renderManager();
 
@@ -391,7 +420,9 @@ describe("DckModuleManager", () => {
   });
 
   it("commits a new module's profile preference only after saving with its stable ID", async () => {
-    downloadTextFileMock.mockRejectedValue(new Error("not found"));
+    downloadTextFileMock.mockRejectedValue(
+      Object.assign(new Error("not found"), { name: "HttpError", status: 404 }),
+    );
     const user = userEvent.setup();
     renderManager();
 
@@ -428,7 +459,9 @@ describe("DckModuleManager", () => {
   });
 
   it("does not commit a selected profile when a new module form is cancelled", async () => {
-    downloadTextFileMock.mockRejectedValue(new Error("not found"));
+    downloadTextFileMock.mockRejectedValue(
+      Object.assign(new Error("not found"), { name: "HttpError", status: 404 }),
+    );
     const user = userEvent.setup();
     renderManager();
 

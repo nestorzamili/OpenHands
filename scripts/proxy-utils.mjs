@@ -3,7 +3,7 @@ import { request as httpsRequest } from "node:https";
 import { createProxyServer } from "httpxy";
 
 const DEFAULT_PROXY_TIMEOUT_MS = 120_000;
-const WEBGEN_ACTION_TIMEOUT_MS = 16 * 60 * 1_000;
+const WEBGEN_ACTION_TIMEOUT_MS = 45 * 60 * 1_000;
 const SERVER_INFO_PATH = "/server_info";
 const BENIGN_SOCKET_ERRORS = new Set([
   "ECONNRESET",

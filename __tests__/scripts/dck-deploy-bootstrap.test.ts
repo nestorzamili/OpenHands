@@ -42,6 +42,7 @@ async function createFixture() {
       "skills\n",
     ),
     writeFile(path.join(stage, "scripts", "dck-deploy.sh"), "#!/bin/sh\n"),
+    writeFile(path.join(stage, "scripts", "sync-managed-skills.py"), ""),
     writeFile(
       path.join(stage, "scripts", "migrate-automation-db.sh"),
       "#!/bin/sh\n",
@@ -82,6 +83,7 @@ exit 2
     path.join(bin, "python3"),
     `#!/usr/bin/env bash
 set -e
+if [[ "$1" == */sync-managed-skills.py ]]; then mkdir -p "$3"; exit 0; fi
 if [[ "$1 $2" == "-m venv" ]]; then
   mkdir -p "$3/bin"
   printf '#!/bin/sh\\nexit 0\\n' > "$3/bin/python"

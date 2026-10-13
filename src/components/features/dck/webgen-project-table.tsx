@@ -2,10 +2,7 @@ import { useTranslation } from "react-i18next";
 import { ExternalLink } from "lucide-react";
 import { I18nKey } from "#/i18n/declaration";
 import { formatRelativeTime } from "#/utils/format-relative-time";
-import { useDckProjectMeta } from "#/hooks/query/use-dck-project-meta";
 import {
-  deriveProjectStatus,
-  latestConversationForPath,
   projectLastTouched,
   relatedConversationCount,
   type DckProjectStatus,
@@ -28,13 +25,11 @@ const CELL = "px-3 py-2 align-middle";
 const LINK_LABEL_KEY: Record<DckProjectLinkKind, I18nKey> = {
   live: I18nKey.DCK$LIVE_LINK,
   preview: I18nKey.DCK$PREVIEW_LINK,
-  local: I18nKey.DCK$LOCALHOST_PORT,
 };
 
 const LINK_ARIA_KEY: Record<DckProjectLinkKind, I18nKey> = {
   live: I18nKey.DCK$OPEN_LIVE_LINK,
   preview: I18nKey.DCK$OPEN_PREVIEW_LINK,
-  local: I18nKey.DCK$OPEN_PROJECT_LINK,
 };
 
 function metaFromRuntime(runtime: WebgenProjectStatus): DckProjectMeta {
@@ -49,27 +44,11 @@ function metaFromRuntime(runtime: WebgenProjectStatus): DckProjectMeta {
     port: runtime.port,
     stack: runtime.stack,
     authProvider: runtime.auth_provider,
-    url: runtime.port === null ? null : `http://localhost:${runtime.port}`,
     previewPath: runtime.preview_path,
     subdomain: runtime.subdomain,
     lastStatus: status,
     lastCheckedAt: runtime.last_checked_at,
   };
-}
-
-function projectStatus(
-  runtime: WebgenProjectStatus | undefined,
-  meta: DckProjectMeta | null,
-  latest: AppConversation | null,
-): DckProjectStatus {
-  if (runtime?.status === "unknown") return "unknown";
-  if (runtime?.status === "starting") return "working";
-  if (runtime) {
-    if (runtime.status === "running") return "running";
-    if (runtime.status === "stopped") return "stopped";
-    if (runtime.status === "error") return "error";
-  }
-  return deriveProjectStatus(meta, latest);
 }
 
 function WebgenProjectTableRow({
@@ -94,13 +73,12 @@ function WebgenProjectTableRow({
   ) => Promise<boolean>;
 }) {
   const { t, i18n } = useTranslation("openhands");
-  const downloadedMeta = useDckProjectMeta(entry.path).data ?? null;
-  const meta = runtime ? metaFromRuntime(runtime) : downloadedMeta;
-  const latest = latestConversationForPath(conversations, entry.path);
-  const status = projectStatus(runtime, meta, latest);
+  const meta = runtime ? metaFromRuntime(runtime) : null;
+  const status: DckProjectStatus = runtime?.status ?? "unknown";
   const count = relatedConversationCount(conversations, entry.path);
   const lastTouched = projectLastTouched(conversations, entry.path);
-  const checkedAt = runtime?.last_checked_at ?? meta?.lastCheckedAt;
+  const checkedAt =
+    runtime?.status !== "unknown" ? runtime?.last_checked_at : null;
 
   return (
     <tr
@@ -160,7 +138,10 @@ function WebgenProjectTableRow({
       </td>
       <td className={CELL}>
         {(() => {
-          const links = getDckProjectLinks(meta, getBrowserOrigin());
+          const links =
+            runtime?.status === "running"
+              ? getDckProjectLinks(meta, getBrowserOrigin())
+              : [];
           if (links.length === 0) {
             return <span className="text-xs text-text-tertiary">—</span>;
           }
@@ -179,9 +160,7 @@ function WebgenProjectTableRow({
                   })}
                   className="inline-flex items-center gap-1 text-xs font-medium text-accent hover:text-contrast"
                 >
-                  {link.kind === "local"
-                    ? t(LINK_LABEL_KEY.local, { port: meta?.port })
-                    : t(LINK_LABEL_KEY[link.kind])}
+                  {t(LINK_LABEL_KEY[link.kind])}
                   <ExternalLink className="size-3" aria-hidden />
                 </a>
               ))}
@@ -217,14 +196,13 @@ function WebgenProjectTableRow({
           publishedSubdomain={meta?.subdomain ?? null}
           runtimeStatus={runtime?.status}
           onDispatch={dispatchLifecycle}
-          disabled={isBusy}
+          disabled={isBusy || !runtime}
         />
       </td>
     </tr>
   );
 }
 
-/** WebGen projects with runtime status sourced from the agent-server. */
 export function WebgenProjectTable({
   entries,
   conversations,

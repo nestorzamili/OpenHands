@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileClient } from "@openhands/typescript-client/clients";
 import { getSnapshot } from "#/api/backend-registry/active-store";
 import { getAgentServerClientOptions } from "#/api/agent-server-client-options";
+import { isSdkHttpStatusError } from "#/api/agent-server-compatibility";
 import { useActiveBackend } from "#/contexts/active-backend-context";
 import {
   DCK_MODULES_CONFIG_FILENAME,
@@ -69,6 +70,19 @@ export async function readDckModulesConfig(
 ): Promise<DckModulesConfig> {
   try {
     const text = await fileClient.downloadTextFile(configPath());
+    const parsed: unknown = JSON.parse(text);
+    if (
+      !parsed ||
+      typeof parsed !== "object" ||
+      (!Array.isArray(parsed) &&
+        "modules" in parsed &&
+        !Array.isArray(parsed.modules)) ||
+      (!Array.isArray(parsed) &&
+        "builtinOverrides" in parsed &&
+        !Array.isArray(parsed.builtinOverrides))
+    ) {
+      throw new Error("Invalid module registry");
+    }
     return {
       modules: parseDckModulesConfig(text, {
         reservedIds: DCK_BUILTIN_MODULE_IDS,
@@ -80,8 +94,9 @@ export async function readDckModulesConfig(
       legacyAgentProfileAssignments:
         parseDckModuleAgentProfileAssignments(text),
     };
-  } catch {
-    return EMPTY_CONFIG;
+  } catch (error) {
+    if (isSdkHttpStatusError(error, 404)) return EMPTY_CONFIG;
+    throw error;
   }
 }
 
@@ -229,6 +244,16 @@ export function useDckModulesConfig() {
 
   const persist = useMutation<DckModulesConfig, Error, DckModulesConfig>({
     mutationFn: async (next) => {
+      const currentActive = getSnapshot().active;
+      if (
+        !query.isSuccess ||
+        query.isError ||
+        isCloud ||
+        currentActive.backend.id !== backendId ||
+        currentActive.orgId !== orgId
+      ) {
+        throw new Error("Module registry is unavailable or its scope changed");
+      }
       const normalized = {
         ...next,
         modules: reindex(next.modules),
@@ -283,13 +308,14 @@ export function useDckModulesConfig() {
     if (normalizedProfileId) {
       nextScope[moduleId] = normalizedProfileId;
     } else {
-      delete nextScope[moduleId];
+      nextScope[moduleId] = null;
     }
 
     await saveSettings.mutateAsync({
       dck_module_agent_profile_assignments: {
-        ...latestScopes,
-        [scopeKey]: nextScope,
+        [scopeKey]: hasLatestScope
+          ? { [moduleId]: normalizedProfileId || null }
+          : nextScope,
       },
     });
 
@@ -395,6 +421,7 @@ export function useDckModulesConfig() {
       saveSettings.isPending ||
       migrationPending ||
       query.isLoading ||
+      query.isError ||
       settingsQuery.isLoading ||
       !settingsQuery.isSuccess,
     saveError: persist.error ?? saveSettings.error ?? migrationError,

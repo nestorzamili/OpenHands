@@ -46,6 +46,7 @@ import {
 } from "./proxy-utils.mjs";
 import {
   createPortalAuthHandler,
+  handlePortalAuthSafely,
   PortalAuthStore,
   PORTAL_AUTH_SESSION_COOKIE,
 } from "./portal-auth.mjs";
@@ -787,7 +788,7 @@ export function startStaticServer(config) {
 
   const server = createServer((req, res) => {
     if (portalAuth) {
-      const handled = portalAuth.handler(req, res);
+      const handled = handlePortalAuthSafely(portalAuth.handler, req, res);
       if (handled) return;
     }
     const url = req.url ?? "/";

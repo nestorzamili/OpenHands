@@ -27,6 +27,13 @@ ENV_KEY_RE=re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 ENV_LINE_RE=re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=")
 ACTIONS={"deploy","rebuild","start","restart","stop","delete","publish","unpublish"}; MAX_BODY=16*1024; UTC=timezone.utc
 
+class WebgenOperationError(RuntimeError):
+    def __init__(self, code, status=500):
+        super().__init__(code); self.code=code; self.status=status
+
+class OwnerSeedUnavailable(WebgenOperationError):
+    def __init__(self): super().__init__("owner_authorization_required", 410)
+
 class SecretMaterializationError(RuntimeError):
     def __init__(self,message,status=422,code="secrets_required"):
         super().__init__(message); self.status=status; self.code=code
@@ -88,25 +95,25 @@ class SeedStore:
     def authorize(self,slug,conversation):
         with self.lock:
             self._drop(); r=self.records.get((slug,conversation))
-            if not r: raise KeyError
+            if not r: raise OwnerSeedUnavailable()
             r.authorized_until=min(r.expires,int(time.time())+300); return {"status":"authorized"}
     def peek(self,slug,conversation):
         with self.lock:
             self._drop(); r=self.records.get((slug,conversation))
-            if not r or r.authorized_until<int(time.time()): raise KeyError
+            if not r or r.expires<int(time.time()) or r.authorized_until<int(time.time()): raise OwnerSeedUnavailable()
             plain=self.aead.decrypt(r.blob[:12],r.blob[12:],(slug+"\0"+conversation).encode()); e,u,p=json.loads(plain.decode()); return r,e,u,p
     def consume(self,slug,conversation):
         with self.lock:
             r=self.records.get((slug,conversation));
-            if not r or r.authorized_until<int(time.time()): raise KeyError
+            if not r or r.expires<int(time.time()) or r.authorized_until<int(time.time()): raise OwnerSeedUnavailable()
             plain=self.aead.decrypt(r.blob[:12],r.blob[12:],(slug+"\0"+conversation).encode()); e,u,p=json.loads(plain.decode())
             self.records.pop((slug,conversation),None); return r,e,u,p
 class Service:
     def __init__(self):
-        self.workspace=Path(os.getenv("WEBGEN_WORKSPACE_ROOT","/opt/dck-agentic/workspace")).resolve(); self.root=self.workspace/"webgen"; self.nginx=Path(os.getenv("WEBGEN_NGINX_DIR","/etc/nginx/dck-apps")); self.canvas=os.getenv("WEBGEN_CANVAS_AUTH_URL","http://127.0.0.1:8010/api/workspaces"); self.seed=SeedStore(); self.locks={}; self.guard=threading.Lock(); self.build_lock=threading.RLock(); self._validate_canvas()
+        self.workspace=Path(os.getenv("WEBGEN_WORKSPACE_ROOT","/opt/dck-agentic/workspace")).resolve(); self.root=self.workspace/"webgen"; self.nginx=Path(os.getenv("WEBGEN_NGINX_DIR","/etc/nginx/dck-apps")); self.canvas=os.getenv("WEBGEN_CANVAS_AUTH_URL","http://127.0.0.1:8012/api/workspaces"); self.seed=SeedStore(); self.locks={}; self.guard=threading.Lock(); self.build_lock=threading.RLock(); self._validate_canvas()
     def _validate_canvas(self):
         u=urlparse(self.canvas)
-        if u.scheme!="http" or u.hostname not in {"127.0.0.1","localhost"} or (u.port or 80)!=8010 or u.path!="/api/workspaces": raise RuntimeError("invalid canvas auth URL")
+        if u.scheme!="http" or u.hostname not in {"127.0.0.1","localhost"} or (u.port or 80)!=8012 or u.path!="/api/workspaces": raise RuntimeError("invalid canvas auth URL")
     def lock_for(self,s):
         with self.guard: return self.locks.setdefault(s,threading.Lock())
     def metadata(self,p):
@@ -155,7 +162,8 @@ class Service:
         m=self.metadata(p); unknown=status_groups is None; cs=[{k:x.get(k) for k in ("id","name","state","health","exit_code")} for x in (status_groups or {}).get(slug,[])]; states=[str(x.get("state") or "").lower() for x in cs]
         if unknown: status="unknown"
         elif any(x.get("health")=="unhealthy" or (x.get("exit_code") not in (None,0) and str(x.get("state") or "").lower()=="exited") for x in cs): status="error"
-        elif any(state in {"running","restarting","created"} for state in states): status="running"
+        elif any(state in {"restarting","created"} for state in states) or any(x.get("health")=="starting" for x in cs): status="starting"
+        elif "running" in states: status="running"
         elif cs: status="stopped"
         else: status="error" if m.get("lastStatus")=="error" else "stopped"
         checked=now_iso() if not unknown else m.get("lastCheckedAt")
@@ -163,10 +171,11 @@ class Service:
         except ValueError: port=None
         name=m.get("name"); name=name[:100] if isinstance(name,str) and name.strip() else slug
         stack=m.get("stack"); stack=stack[:64] if isinstance(stack,str) else None
-        auth=m.get("authProvider",m.get("auth_provider")); auth=auth.lower()[:64] if isinstance(auth,str) else None
+        auth=m.get("authProvider"); auth=auth.lower()[:64] if isinstance(auth,str) else None
         expected_preview=f"/preview/{slug}"; preview=expected_preview if m.get("previewPath")==expected_preview else None
         domain=m.get("subdomain"); subdomain=None
         if isinstance(domain,str) and domain.endswith(".dckautoposting.com") and valid_subdomain(domain[:-len(".dckautoposting.com")]): subdomain=domain
+        if subdomain: preview=None
         return {"slug":slug,"path":f"/projects/webgen/{slug}","name":name,"port":port,"stack":stack,"auth_provider":auth,"preview_path":preview,"subdomain":subdomain,"status":status,"last_checked_at":checked,"containers":cs}
     def projects(self):
         groups=self.all_container_status(); out=[]
@@ -351,8 +360,8 @@ class Service:
         values=self._project_secret_values(slug,api_key)
         required={key for key in env_keys if self._secret_environment_key(key)}
         metadata=self.metadata(p)
-        auth=metadata.get("authProvider",metadata.get("auth_provider"))
-        if auth=="better-auth" or metadata.get("needsDatabase") is True or metadata.get("needs_database") is True: required.add("DATABASE_URL")
+        auth=metadata.get("authProvider")
+        if auth=="better-auth" or metadata.get("needsDatabase") is True: required.add("DATABASE_URL")
         if auth=="better-auth": required.add("BETTER_AUTH_SECRET")
         missing=required-set(values)
         if missing: raise SecretMaterializationError("required project secrets are missing")
@@ -367,19 +376,23 @@ class Service:
         for key,value in sorted(values.items()): lines.append(key+"="+self._dotenv_quote(value))
         lines.append("APP_BASE_PATH="+self._dotenv_quote(base_path))
         self._write_project_env(p,lines)
-    def app_target(self,slug):
+    def active_base_path(self,slug):
+        p=safe_project(self.root,slug)
+        return "" if p and self._published_label(self.metadata(p)) else f"/preview/{slug}"
+    def app_target(self,slug,base_path=None):
+        if base_path is None: base_path=self.active_base_path(slug)
         try:
             r=subprocess.run(["docker","inspect","--format","{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",slug+"-app"],capture_output=True,text=True,timeout=3,check=False); ip=r.stdout.strip().splitlines()[-1] if r.returncode==0 else ""
-            return f"http://{ip}:3000/api/dck/owner-seed" if re.fullmatch(r"(?:\d{1,3}\.){3}\d{1,3}",ip) else None
+            return f"http://{ip}:3000{base_path}/api/dck/owner-seed" if re.fullmatch(r"(?:\d{1,3}\.){3}\d{1,3}",ip) else None
         except (OSError,subprocess.TimeoutExpired): return None
-    def owner_state(self,slug):
-        u=self.app_target(slug)
+    def owner_state(self,slug,base_path=None):
+        u=self.app_target(slug,base_path)
         if not u:return "unreachable"
         try:
             with urlopen(Request(u),timeout=3) as r:return json.loads(r.read(8192)).get("state")
         except Exception:return "unreachable"
-    def deliver_seed(self,slug,p,conversation):
-        r,e,u,pw=self.seed.peek(slug,conversation); issued=int(time.time()); expires=issued+120; signed=canonical_signed_payload(1,slug,conversation,issued,expires,r.nonce,e,u,pw); sig=self.seed.private_for(slug).sign(signed); body=json.dumps({"version":1,"project_slug":slug,"conversation_id":conversation,"issued_at":issued,"expires_at":expires,"nonce":r.nonce,"email":e,"username":u,"password":pw,"signature":base64.b64encode(sig).decode()},ensure_ascii=False,separators=(",",":")).encode(); target=self.app_target(slug)
+    def deliver_seed(self,slug,p,conversation,base_path=None):
+        r,e,u,pw=self.seed.peek(slug,conversation); issued=int(time.time()); expires=issued+120; signed=canonical_signed_payload(1,slug,conversation,issued,expires,r.nonce,e,u,pw); sig=self.seed.private_for(slug).sign(signed); body=json.dumps({"version":1,"project_slug":slug,"conversation_id":conversation,"issued_at":issued,"expires_at":expires,"nonce":r.nonce,"email":e,"username":u,"password":pw,"signature":base64.b64encode(sig).decode()},ensure_ascii=False,separators=(",",":")).encode(); target=self.app_target(slug,base_path)
         if not target:return False
         try:
             with urlopen(Request(target,data=body,headers={"Content-Type":"application/json"},method="POST"),timeout=10) as x: ok=x.status in (200,201,409)
@@ -402,15 +415,15 @@ class Service:
     def config(self,slug,m,preview,sub=None):
         port=self.port(m)
         if preview:
-            return (f"location /preview/{slug}/ {{\n"
-                    f" proxy_pass http://127.0.0.1:{port}/;\n"
+            proxy=(f" proxy_pass http://127.0.0.1:{port};\n"
                     " proxy_http_version 1.1;\n"
                     " proxy_set_header Host $host;\n"
                     " proxy_set_header X-Real-IP $remote_addr;\n"
                     " proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n"
                     " proxy_set_header X-Forwarded-Proto $scheme;\n"
                     " proxy_set_header Upgrade $http_upgrade;\n"
-                    " proxy_set_header Connection \"upgrade\";\n}\n")
+                    " proxy_set_header Connection \"upgrade\";\n")
+            return "".join(f"location {location} {{\n{proxy}}}\n" for location in (f"= /preview/{slug}",f"/preview/{slug}/"))
         if not valid_subdomain(sub or ""): raise ValueError("invalid subdomain")
         host=sub+".dckautoposting.com"
         proxy=(f"proxy_pass http://127.0.0.1:{port}/; proxy_http_version 1.1; "
@@ -427,14 +440,27 @@ class Service:
                 f" location / {{ {proxy} }}\n}}\n"
                 f"server {{ listen 80; listen [::]:80; server_name {host}; return 301 https://$host$request_uri; }}\n")
     def update_meta(self,p,**changes): m=self.metadata(p); m.update(changes); atomic_json(p/".dck.json",m)
-    def _health(self,slug,port,path="/"):
+    def _health(self,slug,port,path="/",timeout=3):
         try:
-            r=subprocess.run(["docker","inspect","--format","{{.State.Status}}" ,slug+"-app"],capture_output=True,text=True,timeout=3,check=False)
+            r=subprocess.run(["docker","inspect","--format","{{.State.Status}}" ,slug+"-app"],capture_output=True,text=True,timeout=timeout,check=False)
             if r.returncode or r.stdout.strip().lower()!="running": return False
-            with socket.create_connection(("127.0.0.1",port),timeout=3) as s:
+            with socket.create_connection(("127.0.0.1",port),timeout=timeout) as s:
                 request=("GET "+path+" HTTP/1.0\r\nHost: localhost\r\n\r\n").encode("ascii"); s.sendall(request); line=s.recv(64).splitlines()[0].decode("ascii","ignore")
             mm=re.match(r"HTTP/\d(?:\.\d)?\s+(\d{3})",line); return bool(mm and 200<=int(mm.group(1))<400)
         except Exception:return False
+    def wait_ready(self,slug,port,path="/",timeout=None):
+        timeout=float(timeout if timeout is not None else os.getenv("WEBGEN_READINESS_TIMEOUT", "120"))
+        if not 0<timeout<=300: raise ValueError("invalid readiness timeout")
+        deadline=time.monotonic()+timeout
+        while True:
+            remaining=deadline-time.monotonic()
+            if remaining<=0: raise WebgenOperationError("readiness_timeout",503)
+            if self._health(slug,port,path,timeout=min(3,remaining/4)): return
+            remaining=deadline-time.monotonic()
+            if remaining<=0: raise WebgenOperationError("readiness_timeout",503)
+            state=subprocess.run(["docker","inspect","--format","{{.State.Status}}",slug+"-app"],capture_output=True,text=True,timeout=min(3,remaining),check=False)
+            if state.stdout.strip() in {"exited","dead"}: raise WebgenOperationError("application_exited",503)
+            time.sleep(min(2,max(0,deadline-time.monotonic())))
     def _atomic_bytes(self,path,data,mode):
         parent=path.parent.stat(); tmp=path.with_name(path.name+".tmp-"+secrets.token_hex(8))
         try:
@@ -473,6 +499,7 @@ class Service:
         if not p: raise KeyError
         action=body.get("action"); conv=body.get("conversation_id")
         if action not in ACTIONS: raise ValueError("invalid action")
+        if "subdomain" in body and action!="publish": raise ValueError("subdomain requires publish")
         with self.lock_for(slug):
             m=self.metadata(p); port=self.port(m)
             if action in {"publish","unpublish"}:
@@ -482,7 +509,7 @@ class Service:
                 if action=="unpublish" and not current: raise ValueError("project is not published")
                 if action=="publish":
                     self._ensure_unique_subdomain(slug,sub)
-                    if m.get("authProvider",m.get("auth_provider"))=="better-auth" and self.owner_state(slug)!="owner_exists": raise RuntimeError("owner authorization required")
+                    if m.get("authProvider")=="better-auth" and self.owner_state(slug)!="owner_exists": raise OwnerSeedUnavailable()
                 oldenv=(p/".env").read_bytes() if (p/".env").is_file() and not (p/".env").is_symlink() else None
                 oldmeta=(p/".dck.json").read_bytes(); oldroutes=self._snapshot_routes(slug); old_base="" if current else f"/preview/{slug}"; runtime_changed=False
                 try:
@@ -491,11 +518,11 @@ class Service:
                     if r.returncode: raise RuntimeError("rebuild failed")
                     runtime_changed=True
                     path="/" if action=="publish" else f"/preview/{slug}/"
-                    if not self._health(slug,port,path): raise RuntimeError("application health check failed")
+                    self.wait_ready(slug,port,path)
                     self._set_route(slug,p,m,sub if action=="publish" else None)
                     self.update_meta(p,lastStatus="running",lastCheckedAt=now_iso())
                 except SecretMaterializationError: raise
-                except Exception:
+                except Exception as failure:
                     self._restore_routes(oldroutes)
                     if oldenv is None: (p/".env").unlink(missing_ok=True)
                     else: self._atomic_bytes(p/".env",oldenv,0o600)
@@ -504,7 +531,8 @@ class Service:
                     if runtime_changed:
                         try:
                             rollback=self.compose(slug,p,"rebuild")
-                            restored=rollback.returncode==0 and self._health(slug,port,old_base+"/" if old_base else "/")
+                            restored=rollback.returncode==0
+                            if restored: self.wait_ready(slug,port,old_base+"/" if old_base else "/")
                         except Exception: restored=False
                     if restored:
                         try:self.update_meta(p,lastStatus="running",lastCheckedAt=now_iso())
@@ -514,27 +542,30 @@ class Service:
                         except Exception:pass
                     try:self.nginx_reload()
                     except Exception:pass
-                    raise RuntimeError("publication failed")
+                    if not restored: raise WebgenOperationError("rollback_failed") from failure
+                    if isinstance(failure,WebgenOperationError): raise failure
+                    raise WebgenOperationError("publication_failed") from failure
                 return self.project(slug,p)
-            if action in {"deploy","rebuild","start","restart"} and m.get("authProvider",m.get("auth_provider"))=="better-auth":
+            if action in {"deploy","rebuild","start","restart"} and m.get("authProvider")=="better-auth":
                 if not valid_conversation(conv): raise ValueError("conversation_id required")
                 state=self.owner_state(slug)
-                if state not in {"owner_exists"} and not self.seed.authorized(slug,conv): raise RuntimeError("owner authorization required")
+                if state not in {"owner_exists"} and not self.seed.authorized(slug,conv): raise OwnerSeedUnavailable()
             if action=="delete": return self._delete(slug,p)
             if action=="stop":
                 r=self.compose(slug,p,action)
                 if r.returncode: self.update_meta(p,lastStatus="error",lastCheckedAt=now_iso()); raise RuntimeError("compose operation failed")
                 self.update_meta(p,lastStatus="stopped",lastCheckedAt=now_iso()); return self.project(slug,p)
             current=self._published_label(m)
-            requested=body.get("subdomain") if action=="deploy" else None
-            if requested is not None and not valid_subdomain(requested): raise ValueError("invalid subdomain")
-            target=requested or current
-            if requested and requested!=current: self._ensure_unique_subdomain(slug,requested)
+            target=current
             base="" if target else f"/preview/{slug}"
             self.materialize_env(slug,p,session_api_key,base)
             r=self.compose(slug,p,action)
             if r.returncode: self.update_meta(p,lastStatus="error",lastCheckedAt=now_iso()); raise RuntimeError("compose operation failed")
-            if not self._health(slug,port,base+"/" if base else "/"): self.update_meta(p,lastStatus="error",lastCheckedAt=now_iso()); raise RuntimeError("application health check failed")
+            try:
+                self.wait_ready(slug,port,base+"/" if base else "/")
+                if m.get("authProvider")=="better-auth" and self.owner_state(slug,base)!="owner_exists" and not self.deliver_seed(slug,p,conv,base): raise WebgenOperationError("owner_seed_delivery_failed",503)
+            except Exception:
+                self.update_meta(p,lastStatus="error",lastCheckedAt=now_iso()); raise
             routes=self._snapshot_routes(slug); oldmeta=(p/".dck.json").read_bytes()
             try:
                 self._set_route(slug,p,m,target)
@@ -543,17 +574,26 @@ class Service:
                 try:self.nginx_reload()
                 except Exception:pass
                 self.update_meta(p,lastStatus="error",lastCheckedAt=now_iso()); raise RuntimeError("route update failed")
-            if m.get("authProvider",m.get("auth_provider"))=="better-auth" and self.owner_state(slug)!="owner_exists" and not self.deliver_seed(slug,p,conv): self.update_meta(p,lastStatus="error",lastCheckedAt=now_iso()); raise RuntimeError("owner seed delivery failed")
             self.update_meta(p,lastStatus="running",lastCheckedAt=now_iso()); return self.project(slug,p)
+    def postgres_command(self,sql):
+        user=os.getenv("WEBGEN_POSTGRES_USER", "dck")
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]*",user): raise ValueError("invalid postgres user")
+        return ["docker","exec","dck-agentic-postgres","psql","-U",user,"-d","postgres","-v","ON_ERROR_STOP=1","-c",sql]
     def _delete(self,slug,p):
-        old=self._snapshot_routes(slug); was_running=self.project(slug,p).get("status")=="running"
+        meta=self.metadata(p)
+        needs_db=meta.get("needsDatabase") is not False or meta.get("authProvider")=="better-auth"
+        if needs_db:
+            probe=subprocess.run(self.postgres_command("SELECT 1"),capture_output=True,text=True,timeout=10,check=False)
+            if probe.returncode: raise WebgenOperationError("database_unavailable",503)
+        old=self._snapshot_routes(slug); was_running=self.project(slug,p,self.all_container_status()).get("status")=="running"
         try:
             for f in old: f.unlink(missing_ok=True)
             self.nginx_reload()
             down=self.compose(slug,p,"delete")
             if down.returncode: raise RuntimeError("container cleanup failed")
-            db=subprocess.run(["docker","exec","dck-agentic-postgres","psql","-U","dck","-d","dck","-v","ON_ERROR_STOP=1","-c",f'DROP DATABASE IF EXISTS "dck_{slug}" WITH (FORCE)'],capture_output=True,text=True,timeout=30,check=False)
-            if db.returncode: raise RuntimeError("database cleanup failed")
+            if needs_db:
+                db=subprocess.run(self.postgres_command(f'DROP DATABASE IF EXISTS "dck_{slug}" WITH (FORCE)'),capture_output=True,text=True,timeout=30,check=False)
+                if db.returncode: raise WebgenOperationError("database_cleanup_failed")
             shutil.rmtree(p); return {"slug":slug,"path":f"/projects/webgen/{slug}","name":None,"port":None,"stack":None,"auth_provider":None,"preview_path":None,"subdomain":None,"status":"stopped","last_checked_at":now_iso(),"containers":[]}
         except Exception:
             self._restore_routes(old)
@@ -562,7 +602,8 @@ class Service:
                 except Exception:pass
             try:self.nginx_reload()
             except Exception:pass
-            raise RuntimeError("delete failed")
+            self.update_meta(p,lastStatus="error",lastCheckedAt=now_iso())
+            raise WebgenOperationError("delete_failed")
 class Handler(BaseHTTPRequestHandler):
     server_version="webgen-control/1"
     def log_message(self,*a): pass
@@ -603,7 +644,7 @@ class Handler(BaseHTTPRequestHandler):
             m=re.fullmatch(r"/api/webgen/projects/([^/]+)/actions",self.path)
             if m:return self.send(200,{"project":self.svc.action(m.group(1),d,self.headers.get("X-Session-API-Key"))})
             self.send(404,{"error":"not_found"})
-        except SecretMaterializationError as e:self.send(e.status,{"error":e.code})
+        except (SecretMaterializationError,WebgenOperationError) as e:self.send(e.status,{"error":e.code})
         except (ValueError,KeyError,json.JSONDecodeError):self.send(400,{"error":"invalid_request"})
         except OverflowError:self.send(429,{"error":"capacity"})
         except RuntimeError as e:self.send(410 if "authorization" in str(e) else 500,{"error":"owner_authorization_required" if "authorization" in str(e) else "operation_failed"})

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BashClient, FileClient } from "@openhands/typescript-client/clients";
 import SkillsService from "#/api/skills-service";
 import { getAgentServerClientOptions } from "#/api/agent-server-client-options";
+import { isSdkHttpStatusError } from "#/api/agent-server-compatibility";
 import {
   getAgentServerHomeDir,
   resolveAbsoluteAgentServerPath,
@@ -252,11 +253,19 @@ export async function writeProjectSkill(
   fields: SkillMarkdownFields,
   fileClient: FileClient = getFileClient(),
 ): Promise<void> {
-  await fileClient.uploadTextFile(
-    serializeSkillMarkdown(fields),
-    skillDirPath(getDckWorkspaceRoot(), slug),
-    "SKILL.md",
-  );
+  const directory = skillDirPath(getDckWorkspaceRoot(), slug);
+  try {
+    await fileClient.downloadTextFile(`${directory}/SKILL.md`);
+  } catch (error) {
+    if (!isSdkHttpStatusError(error, 404)) throw error;
+    await fileClient.uploadTextFile(
+      serializeSkillMarkdown(fields),
+      directory,
+      "SKILL.md",
+    );
+    return;
+  }
+  throw new Error("A skill already exists at this path. Open it to edit.");
 }
 
 export function useProjectSkills() {

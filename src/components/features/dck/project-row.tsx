@@ -22,13 +22,11 @@ import {
 const LINK_LABEL_KEY: Record<DckProjectLinkKind, I18nKey> = {
   live: I18nKey.DCK$LIVE_LINK,
   preview: I18nKey.DCK$PREVIEW_LINK,
-  local: I18nKey.DCK$LOCALHOST_PORT,
 };
 
 const LINK_ARIA_KEY: Record<DckProjectLinkKind, I18nKey> = {
   live: I18nKey.DCK$OPEN_LIVE_LINK,
   preview: I18nKey.DCK$OPEN_PREVIEW_LINK,
-  local: I18nKey.DCK$OPEN_PROJECT_LINK,
 };
 
 export interface ProjectEntry {
@@ -118,9 +116,7 @@ export function ProjectRow({
                 })}
                 className="text-xs font-medium text-indigo-400 hover:text-indigo-300"
               >
-                {link.kind === "local"
-                  ? t(LINK_LABEL_KEY.local, { port: meta?.port })
-                  : t(LINK_LABEL_KEY[link.kind])}
+                {t(LINK_LABEL_KEY[link.kind])}
               </a>
             ))}
           </div>

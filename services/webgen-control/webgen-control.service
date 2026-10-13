@@ -11,7 +11,7 @@ Group=root
 EnvironmentFile=/opt/dck-agentic/webgen-control.env
 Environment=WEBGEN_WORKSPACE_ROOT=/opt/dck-agentic/workspace
 Environment=WEBGEN_NGINX_DIR=/etc/nginx/dck-apps
-Environment=WEBGEN_CANVAS_AUTH_URL=http://127.0.0.1:8010/api/workspaces
+Environment=WEBGEN_CANVAS_AUTH_URL=http://127.0.0.1:8012/api/workspaces
 Environment=WEBGEN_CONTROL_KEY=/opt/dck-agentic/config/webgen-control.key
 Environment=WEBGEN_CONTROL_PORT=8769
 WorkingDirectory=/opt/dck-agentic
@@ -33,7 +33,7 @@ NoNewPrivileges=true
 LockPersonality=true
 RestrictSUIDSGID=true
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-ReadWritePaths=/opt/dck-agentic/workspace/webgen /opt/dck-agentic/config /etc/nginx/dck-apps
+ReadWritePaths=/opt/dck-agentic/workspace/webgen /opt/dck-agentic/config /etc/nginx/dck-apps /var/log/nginx
 
 [Install]
 WantedBy=multi-user.target

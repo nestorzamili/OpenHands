@@ -36,6 +36,7 @@ import {
 } from "./proxy-utils.mjs";
 import {
   createPortalAuthHandler,
+  handlePortalAuthSafely,
   PortalAuthStore,
   PORTAL_AUTH_SESSION_COOKIE,
 } from "./portal-auth.mjs";
@@ -217,7 +218,7 @@ export function startIngress(config) {
       : null;
 
   const server = createServer((req, res) => {
-    if (portalAuth?.handler(req, res)) {
+    if (portalAuth && handlePortalAuthSafely(portalAuth.handler, req, res)) {
       return;
     }
     const url = req.url ?? "/";

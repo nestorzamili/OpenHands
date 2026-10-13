@@ -1,6 +1,8 @@
 import { AgentServerClient } from "@openhands/typescript-client/clients";
 import { getAgentServerClientOptions } from "#/api/agent-server-client-options";
 import { isSdkHttpStatusError } from "#/api/agent-server-compatibility";
+import i18n from "#/i18n";
+import { I18nKey } from "#/i18n/declaration";
 import type { WebgenLifecycleAction } from "#/dck/webgen-lifecycle";
 
 export type WebgenRuntimeStatus =
@@ -48,20 +50,37 @@ export interface WebgenLifecycleResponse {
 
 export class WebgenServiceError extends Error {
   readonly status: number | null;
+  readonly code: string | null;
 
-  constructor(status: number | null) {
+  constructor(status: number | null, code: string | null = null) {
     super(
-      status === 410
-        ? "Owner credentials need to be entered again before deployment."
-        : status === 409
-          ? "This WebGen project is busy or its publish configuration conflicts."
-          : status === 422
-            ? "Check Settings → Secrets and add the required credentials for this app before deploying."
-            : "The WebGen operation could not be completed. Please try again.",
+      code === "readiness_timeout" || code === "application_exited"
+        ? i18n.t(I18nKey.DCK$WEBGEN_READINESS_FAILED)
+        : code === "rollback_failed"
+          ? i18n.t(I18nKey.DCK$WEBGEN_RECOVERY_FAILED)
+          : status === 410
+            ? "Owner credentials need to be entered again before deployment."
+            : status === 409
+              ? "This WebGen project is busy or its publish configuration conflicts."
+              : status === 422
+                ? "Check Settings → Secrets and add the required credentials for this app before deploying."
+                : "The WebGen operation could not be completed. Please try again.",
     );
     this.name = "WebgenServiceError";
     this.status = status;
+    this.code = code;
   }
+}
+
+function codeFromError(error: unknown): string | null {
+  if (!(error instanceof Error) || !("response" in error)) return null;
+  const body = error.response;
+  return body &&
+    typeof body === "object" &&
+    "error" in body &&
+    typeof body.error === "string"
+    ? body.error
+    : null;
 }
 
 function statusFromError(error: unknown): number | null {
@@ -80,7 +99,7 @@ export async function fetchWebgenProjects(): Promise<WebgenProjectsResponse> {
   try {
     return await client.get<WebgenProjectsResponse>("/api/webgen/projects");
   } catch (error) {
-    throw new WebgenServiceError(statusFromError(error));
+    throw new WebgenServiceError(statusFromError(error), codeFromError(error));
   } finally {
     client.close();
   }
@@ -90,14 +109,14 @@ export async function runWebgenLifecycleAction(
   projectSlug: string,
   request: WebgenLifecycleRequest,
 ): Promise<WebgenLifecycleResponse> {
-  const client = getClient(16 * 60 * 1000);
+  const client = getClient(45 * 60 * 1000);
   try {
     return await client.post<WebgenLifecycleResponse>(
       `/api/webgen/projects/${encodeURIComponent(projectSlug)}/actions`,
       request,
     );
   } catch (error) {
-    throw new WebgenServiceError(statusFromError(error));
+    throw new WebgenServiceError(statusFromError(error), codeFromError(error));
   } finally {
     client.close();
   }

@@ -5,17 +5,60 @@
 // WebSocket upgrades are rejected, while the login/setup endpoints and an
 // authenticated session pass through to the routed backend.
 
-import { request, type Server } from "node:http";
+import { createServer, request, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { startIngress } from "../../scripts/ingress.mjs";
+import { createWebgenInternalProxy } from "../../scripts/webgen-internal-proxy.mjs";
 
 describe("ingress portal auth", () => {
   const servers: Server[] = [];
   const tempDirs: string[] = [];
   let nextPort = 42000;
+
+  it("limits internal reads and delegates API-key authentication to the upstream", async () => {
+    const upstream = createServer((req, res) => {
+      if (req.headers["x-session-api-key"] !== "valid-key")
+        res.writeHead(401).end();
+      else res.writeHead(200).end("authenticated");
+    });
+    servers.push(upstream);
+    await new Promise<void>((resolve) =>
+      upstream.listen(0, "127.0.0.1", resolve),
+    );
+    const proxy = createWebgenInternalProxy(
+      `http://127.0.0.1:${(upstream.address() as AddressInfo).port}`,
+    );
+    servers.push(proxy);
+    await new Promise<void>((resolve) => proxy.listen(0, "127.0.0.1", resolve));
+    const base = `http://127.0.0.1:${(proxy.address() as AddressInfo).port}`;
+    for (const [pathName, key, method, status] of [
+      ["/api/workspaces", "valid-key", "GET", 200],
+      ["/api/settings/secrets", "valid-key", "GET", 200],
+      ["/api/settings/secrets/DATABASE_URL_SHOP", "valid-key", "GET", 200],
+      ["/api/workspaces", "invalid-key", "GET", 401],
+      ["/api/workspaces", "", "GET", 401],
+      ["/api/settings", "valid-key", "GET", 404],
+      ["/api/settings/secrets", "valid-key", "POST", 404],
+    ] as const) {
+      const actual = await new Promise<number>((resolve, reject) => {
+        const req = request(
+          `${base}${pathName}`,
+          { method, agent: false, headers: { "X-Session-API-Key": key } },
+          (res) => {
+            res.resume();
+            res.on("end", () => resolve(res.statusCode!));
+          },
+        );
+        req.on("error", reject);
+        req.end();
+      });
+      expect(actual, `${method} ${pathName}`).toBe(status);
+    }
+  });
 
   function startPortalIngress() {
     const dir = mkdtempSync(path.join(tmpdir(), "ingress-portal-"));

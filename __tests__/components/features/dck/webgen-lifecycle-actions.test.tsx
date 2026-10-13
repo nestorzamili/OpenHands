@@ -1,131 +1,40 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { renderWithProviders } from "test-utils";
 import { WebgenLifecycleActions } from "#/components/features/dck/webgen-lifecycle-actions";
 
 describe("WebgenLifecycleActions", () => {
-  it("asks for an optional subdomain during Deploy and sends it through the typed callback", async () => {
-    const user = userEvent.setup();
-    const onDispatch = vi.fn().mockResolvedValue(true);
-    renderWithProviders(
-      <WebgenLifecycleActions
-        appName="shop"
-        projectPath="/projects/webgen/shop"
-        authProvider={null}
-        publishedSubdomain={null}
-        runtimeStatus="stopped"
-        onDispatch={onDispatch}
-      />,
-    );
+  it.each([null, "current-shop.dckautoposting.com"])(
+    "deploys without a domain dialog or publication change for %s",
+    async (publishedSubdomain) => {
+      const user = userEvent.setup();
+      const onDispatch = vi.fn().mockResolvedValue(true);
+      renderWithProviders(
+        <WebgenLifecycleActions
+          appName="shop"
+          projectPath="/projects/webgen/shop"
+          authProvider={null}
+          publishedSubdomain={publishedSubdomain}
+          runtimeStatus="stopped"
+          onDispatch={onDispatch}
+        />,
+      );
 
-    await user.click(screen.getByTestId("dck-lifecycle-deploy"));
-    const input = screen.getByTestId("dck-webgen-deploy-subdomain-input");
-    expect(input).toHaveValue("");
-    await user.type(input, "my-shop");
-    await user.click(screen.getByTestId("dck-webgen-deploy-submit"));
+      await user.click(screen.getByTestId("dck-lifecycle-deploy"));
 
-    await waitFor(() =>
-      expect(onDispatch).toHaveBeenCalledWith(
-        "/projects/webgen/shop",
-        "deploy",
-        "shop",
-        null,
-        "my-shop",
-      ),
-    );
-  });
-
-  it("deploys without changing or setting a domain when the optional input is blank", async () => {
-    const user = userEvent.setup();
-    const onDispatch = vi.fn().mockResolvedValue(true);
-    renderWithProviders(
-      <WebgenLifecycleActions
-        appName="shop"
-        projectPath="/projects/webgen/shop"
-        authProvider={null}
-        publishedSubdomain={null}
-        runtimeStatus="stopped"
-        onDispatch={onDispatch}
-      />,
-    );
-
-    await user.click(screen.getByTestId("dck-lifecycle-deploy"));
-    await user.click(screen.getByTestId("dck-webgen-deploy-submit"));
-
-    await waitFor(() =>
-      expect(onDispatch).toHaveBeenCalledWith(
-        "/projects/webgen/shop",
-        "deploy",
-        "shop",
-        null,
-        undefined,
-      ),
-    );
-  });
-
-  it("prefills an existing subdomain so Deploy can change it", async () => {
-    const user = userEvent.setup();
-    const onDispatch = vi.fn().mockResolvedValue(true);
-    renderWithProviders(
-      <WebgenLifecycleActions
-        appName="shop"
-        projectPath="/projects/webgen/shop"
-        authProvider={null}
-        publishedSubdomain="old-shop.dckautoposting.com"
-        runtimeStatus="running"
-        onDispatch={onDispatch}
-      />,
-    );
-
-    await user.click(screen.getByTestId("dck-lifecycle-deploy"));
-    const input = screen.getByTestId("dck-webgen-deploy-subdomain-input");
-    expect(input).toHaveValue("old-shop");
-    await user.clear(input);
-    await user.type(input, "new-shop");
-    await user.click(screen.getByTestId("dck-webgen-deploy-submit"));
-
-    await waitFor(() =>
-      expect(onDispatch).toHaveBeenCalledWith(
-        "/projects/webgen/shop",
-        "deploy",
-        "shop",
-        null,
-        "new-shop",
-      ),
-    );
-  });
-
-  it("keeps an existing subdomain when the optional Deploy field is cleared", async () => {
-    const user = userEvent.setup();
-    const onDispatch = vi.fn().mockResolvedValue(true);
-    renderWithProviders(
-      <WebgenLifecycleActions
-        appName="shop"
-        projectPath="/projects/webgen/shop"
-        authProvider={null}
-        publishedSubdomain="current-shop.dckautoposting.com"
-        runtimeStatus="running"
-        onDispatch={onDispatch}
-      />,
-    );
-
-    await user.click(screen.getByTestId("dck-lifecycle-deploy"));
-    const input = screen.getByTestId("dck-webgen-deploy-subdomain-input");
-    expect(input).toHaveValue("current-shop");
-    await user.clear(input);
-    await user.click(screen.getByTestId("dck-webgen-deploy-submit"));
-
-    await waitFor(() =>
-      expect(onDispatch).toHaveBeenCalledWith(
-        "/projects/webgen/shop",
-        "deploy",
-        "shop",
-        null,
-        undefined,
-      ),
-    );
-  });
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      await waitFor(() =>
+        expect(onDispatch).toHaveBeenCalledWith(
+          "/projects/webgen/shop",
+          "deploy",
+          "shop",
+          null,
+          undefined,
+        ),
+      );
+    },
+  );
 
   it.each([
     ["dck-lifecycle-rebuild", "rebuild", "stopped"],

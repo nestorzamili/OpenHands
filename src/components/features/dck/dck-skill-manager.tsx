@@ -656,8 +656,8 @@ export function DckSkillManager({ onClose }: { onClose: () => void }) {
   const existingSlugsExcluding = (slug: string | null): string[] =>
     editableSkills
       .filter((skill) => skill.scope === "project")
-      .map((skill) => skill.name)
-      .filter((name) => name !== slug);
+      .map((skill) => skill.filePath?.replace(/\\/g, "/").split("/").at(-2))
+      .filter((name): name is string => Boolean(name) && name !== slug);
 
   const requestAction = (action: () => void) => {
     if (hasUnsavedChanges) {

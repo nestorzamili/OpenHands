@@ -36,7 +36,6 @@ import {
 } from "#/dck/webgen-owner-seed-service";
 import {
   DCK_COPY,
-  conversationWorkingDir,
   conversationsForBase,
   flattenConversationPages,
   findDckModuleById,
@@ -128,6 +127,7 @@ function ModuleProjectsList({
   conversationsLoaded,
   conversationsLoading,
   conversationsError,
+  onRetryConversations,
   emptyCta,
 }: {
   dckModule: DckModule;
@@ -145,6 +145,7 @@ function ModuleProjectsList({
   conversationsLoaded: boolean;
   conversationsLoading: boolean;
   conversationsError: boolean;
+  onRetryConversations: () => void;
   emptyCta?: React.ReactNode;
 }) {
   const isWebgen = dckModule.id === "webgen";
@@ -182,6 +183,7 @@ function ModuleProjectsList({
         state="error"
         onRetry={() => {
           void subdirs.refetch();
+          onRetryConversations();
           if (isWebgen) void runtimeProjectsQuery.refetch();
         }}
         emptyText={DCK_COPY.noProjects}
@@ -239,7 +241,7 @@ function ModuleProjectsList({
 function ModuleConversationsList({
   dckModule,
   conversations,
-  openPath,
+  openConversation,
   isLoading,
   isError,
   onRetry,
@@ -247,7 +249,7 @@ function ModuleConversationsList({
 }: {
   dckModule: DckModule;
   conversations: AppConversation[];
-  openPath: (path: string) => void;
+  openConversation: (path: string) => void;
   isLoading: boolean;
   isError: boolean;
   onRetry: () => void;
@@ -287,11 +289,7 @@ function ModuleConversationsList({
         <li key={conversation.id}>
           <button
             type="button"
-            onClick={() =>
-              openPath(
-                conversationWorkingDir(conversation) ?? dckModule.workspacePath,
-              )
-            }
+            onClick={() => openConversation(conversation.id)}
             data-testid="dck-module-conversation-row"
             className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-surface"
           >
@@ -326,8 +324,14 @@ export function ModuleDetailView({
     isError: conversationsError,
     refetch: refetchConversations,
   } = useAllConversationsQuery();
-  const { openPath, ensureConversation, createScoped, isCreating } =
-    useOpenConversation();
+  const {
+    openPath,
+    openConversation,
+    ensureConversation,
+    createScoped,
+    createWebgenProject,
+    isCreating,
+  } = useOpenConversation();
   const queryClient = useQueryClient();
   const { skills } = useProjectSkills();
   const triggersBySkill = React.useMemo(() => {
@@ -383,10 +387,6 @@ export function ModuleDetailView({
   const lifecycleUiBlocked = lifecycleBusy || Boolean(pendingOwnerSeedDeploy);
   const [isSubmittingOwnerSeed, setIsSubmittingOwnerSeed] =
     React.useState(false);
-  const pendingSeedConversation = React.useRef<{
-    workingDir: string;
-    conversationId: string;
-  } | null>(null);
 
   // Existing webgen project names, used to block duplicate names in the New
   // Project dialog. Only the webgen module needs this; the query is gated on
@@ -566,39 +566,14 @@ export function ModuleDetailView({
     }
     const prompt = (verificationKey?: string) =>
       buildModulePrompt(buildWebgenScaffoldPrompt(spec, verificationKey));
-    const pending = pendingSeedConversation.current;
-    const succeeded =
-      requiresOwnerSeed && seed
-        ? await createScoped(
-            dckModule!.workspacePath,
-            "",
-            moduleAgentProfileId,
-            {
-              ...(pending?.workingDir === dckModule!.workspacePath
-                ? { conversationId: pending.conversationId }
-                : {}),
-              prepareInitialMessage: async (conversationId) => {
-                pendingSeedConversation.current = {
-                  workingDir: dckModule!.workspacePath,
-                  conversationId,
-                };
-                const staged = await stageWebgenOwnerSeed(
-                  spec.name,
-                  conversationId,
-                  dckModule!.workspacePath,
-                  seed,
-                );
-                return prompt(staged.verification_key);
-              },
-            },
-          )
-        : await createScoped(
-            dckModule!.workspacePath,
-            prompt(),
-            moduleAgentProfileId,
-          );
+    const succeeded = await createWebgenProject(
+      dckModule!.workspacePath,
+      spec,
+      prompt,
+      seed,
+      moduleAgentProfileId,
+    );
     if (succeeded) {
-      pendingSeedConversation.current = null;
       setShowNewProjectDialog(false);
     }
   };
@@ -724,6 +699,7 @@ export function ModuleDetailView({
                 conversationsLoaded={conversationsLoaded}
                 conversationsLoading={conversationsLoading}
                 conversationsError={conversationsError}
+                onRetryConversations={() => void refetchConversations()}
                 emptyCta={headerAction}
               />
             )}
@@ -731,7 +707,7 @@ export function ModuleDetailView({
               <ModuleConversationsList
                 dckModule={dckModule}
                 conversations={conversations}
-                openPath={open}
+                openConversation={openConversation}
                 isLoading={conversationsAuthLoading || conversationsLoading}
                 isError={conversationsError}
                 onRetry={() => void refetchConversations()}

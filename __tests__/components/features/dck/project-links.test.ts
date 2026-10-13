@@ -9,7 +9,7 @@ function makeMeta(overrides: Partial<DckProjectMeta>): DckProjectMeta {
     name: "shop",
     port: 3100,
     stack: "nextjs",
-    url: "http://localhost:3100",
+
     previewPath: null,
     subdomain: null,
     lastStatus: null,
@@ -23,17 +23,21 @@ describe("getDckProjectLinks", () => {
     expect(getDckProjectLinks(null, ORIGIN)).toEqual([]);
   });
 
-  it("returns only the localhost link when neither preview nor subdomain is set", () => {
-    expect(getDckProjectLinks(makeMeta({}), ORIGIN)).toEqual([
-      { kind: "local", url: "http://localhost:3100" },
-    ]);
+  it("does not send production users to their own localhost", () => {
+    expect(getDckProjectLinks(makeMeta({}), ORIGIN)).toEqual([]);
+  });
+
+  it("does not infer a localhost URL for a local browser", () => {
+    expect(getDckProjectLinks(makeMeta({}), "http://localhost:3001")).toEqual(
+      [],
+    );
   });
 
   it("returns only the preview link when previewPath is set", () => {
     expect(
       getDckProjectLinks(makeMeta({ previewPath: "/preview/shop" }), ORIGIN),
     ).toEqual([
-      { kind: "preview", url: "https://agent.dckautoposting.com/preview/shop/" },
+      { kind: "preview", url: "https://agent.dckautoposting.com/preview/shop" },
     ]);
   });
 
@@ -46,7 +50,7 @@ describe("getDckProjectLinks", () => {
     ).toEqual([{ kind: "live", url: "https://shop.dckautoposting.com/" }]);
   });
 
-  it("returns both the live and preview links, live first, when both are set", () => {
+  it("does not show a stale preview link for a published build", () => {
     expect(
       getDckProjectLinks(
         makeMeta({
@@ -55,32 +59,28 @@ describe("getDckProjectLinks", () => {
         }),
         ORIGIN,
       ),
-    ).toEqual([
-      { kind: "live", url: "https://shop.dckautoposting.com/" },
-      {
-        kind: "preview",
-        url: "https://agent.dckautoposting.com/preview/shop/",
-      },
-    ]);
-  });
-
-  it("does not fall back to localhost once a published or preview link exists", () => {
-    const links = getDckProjectLinks(
-      makeMeta({ subdomain: "shop.dckautoposting.com" }),
-      ORIGIN,
-    );
-    expect(links.some((link) => link.kind === "local")).toBe(false);
+    ).toEqual([{ kind: "live", url: "https://shop.dckautoposting.com/" }]);
   });
 
   it("omits the preview link when no origin is available", () => {
     expect(
       getDckProjectLinks(makeMeta({ previewPath: "/preview/shop" }), null),
-    ).toEqual([{ kind: "local", url: "http://localhost:3100" }]);
+    ).toEqual([]);
   });
 
-  it("returns no links when there is no url, preview, or subdomain", () => {
-    expect(
-      getDckProjectLinks(makeMeta({ port: null, url: null }), ORIGIN),
-    ).toEqual([]);
+  it.each(["stopped", "error"] as const)(
+    "hides inactive %s links",
+    (lastStatus) => {
+      expect(
+        getDckProjectLinks(
+          makeMeta({ lastStatus, previewPath: "/preview/shop" }),
+          ORIGIN,
+        ),
+      ).toEqual([]);
+    },
+  );
+
+  it("returns no links when there is no preview or subdomain", () => {
+    expect(getDckProjectLinks(makeMeta({ port: null }), ORIGIN)).toEqual([]);
   });
 });

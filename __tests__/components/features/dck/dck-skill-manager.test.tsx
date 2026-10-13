@@ -99,7 +99,10 @@ beforeEach(() => {
     if (path === "/home/agent/.agents/skills/personal-skill/SKILL.md") {
       return personalSkillSource;
     }
-    throw new Error("Skill file not found");
+    throw Object.assign(new Error("Skill file not found"), {
+      name: "HttpError",
+      status: 404,
+    });
   });
   getSkillsMock.mockResolvedValue([
     {
@@ -324,6 +327,34 @@ describe("DckSkillManager", () => {
     expect(text).toContain("name: SEO Audit");
     expect(text).toContain("- seo");
     expect(text).toContain("Audit the site for SEO issues.");
+  });
+
+  it("rejects an existing storage slug even when its display name differs", async () => {
+    getSkillsMock.mockResolvedValue([
+      {
+        name: "Copy writer",
+        source: "/projects/.agents/skills/copy/SKILL.md",
+        description: "Write copy",
+        triggers: [],
+      },
+    ]);
+    downloadTextFileMock.mockResolvedValue(
+      "---\nname: Copy writer\ndescription: Write copy\n---\nInstructions",
+    );
+    const user = userEvent.setup();
+    renderManager();
+    await user.click(await screen.findByTestId("dck-skill-add"));
+    await user.type(screen.getByTestId("dck-skill-form-name"), "New writer");
+    await user.type(screen.getByTestId("dck-skill-form-slug"), "copy");
+    await user.type(
+      screen.getByTestId("dck-skill-form-body"),
+      "New instructions",
+    );
+    await user.click(screen.getByTestId("dck-skill-form-save"));
+    expect(
+      await screen.findByTestId("dck-skill-form-slug-error"),
+    ).toBeInTheDocument();
+    expect(uploadTextFileMock).not.toHaveBeenCalled();
   });
 
   it("deletes a project custom skill only after showing its exact folder", async () => {

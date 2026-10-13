@@ -58,9 +58,7 @@ export function WebgenLifecycleActions({
   disabled?: boolean;
 }) {
   const { t } = useTranslation("openhands");
-  const [domainDialogAction, setDomainDialogAction] = React.useState<
-    "deploy" | "publish" | null
-  >(null);
+  const [showPublishDialog, setShowPublishDialog] = React.useState(false);
   const [confirmingDelete, setConfirmingDelete] = React.useState(false);
   const [confirmingUnpublish, setConfirmingUnpublish] = React.useState(false);
   const [subdomain, setSubdomain] = React.useState(appName);
@@ -73,16 +71,16 @@ export function WebgenLifecycleActions({
     !RESERVED_SUBDOMAINS.has(normalizedSubdomain);
 
   React.useEffect(() => {
-    if (domainDialogAction) subdomainInputRef.current?.focus();
-  }, [domainDialogAction]);
+    if (showPublishDialog) subdomainInputRef.current?.focus();
+  }, [showPublishDialog]);
 
-  const openDomainDialog = (action: "deploy" | "publish") => {
+  const openPublishDialog = () => {
     const currentLabel = publishedSubdomain?.replace(
       /\.dckautoposting\.com$/i,
       "",
     );
-    setSubdomain(currentLabel || (action === "deploy" ? "" : appName));
-    setDomainDialogAction(action);
+    setSubdomain(currentLabel || appName);
+    setShowPublishDialog(true);
   };
 
   const dispatch = async (
@@ -120,7 +118,7 @@ export function WebgenLifecycleActions({
       <button
         type="button"
         disabled={busy}
-        onClick={() => openDomainDialog("deploy")}
+        onClick={() => runAction("deploy")}
         data-testid="dck-lifecycle-deploy"
         aria-label={t(I18nKey.DCK$DEPLOY)}
         title={t(I18nKey.DCK$DEPLOY)}
@@ -185,7 +183,7 @@ export function WebgenLifecycleActions({
       <button
         type="button"
         disabled={busy}
-        onClick={() => openDomainDialog("publish")}
+        onClick={openPublishDialog}
         data-testid="dck-lifecycle-publish"
         aria-label={t(I18nKey.DCK$PUBLISH)}
         title={t(I18nKey.DCK$PUBLISH)}
@@ -221,44 +219,29 @@ export function WebgenLifecycleActions({
         <Trash2 className={iconClassName} aria-hidden />
       </button>
 
-      {domainDialogAction && (
+      {showPublishDialog && (
         <ModalBackdrop
-          onClose={busy ? undefined : () => setDomainDialogAction(null)}
+          onClose={busy ? undefined : () => setShowPublishDialog(false)}
           closeOnEscape={!busy}
           closeOnBackdropClick={!busy}
-          aria-label={
-            domainDialogAction === "deploy"
-              ? t(I18nKey.DCK$DEPLOY_DIALOG_TITLE, { name: appName })
-              : t(I18nKey.DCK$PUBLISH_DIALOG_TITLE, { name: appName })
-          }
+          aria-label={t(I18nKey.DCK$PUBLISH_DIALOG_TITLE, { name: appName })}
         >
           <form
-            data-testid={`dck-webgen-${domainDialogAction}-dialog`}
+            data-testid="dck-webgen-publish-dialog"
             onSubmit={async (event) => {
               event.preventDefault();
-              const isPublish = domainDialogAction === "publish";
-              if (
-                (isPublish && !isSubdomainValid) ||
-                (subdomain.length > 0 && !isSubdomainValid) ||
-                busy
-              )
-                return;
-              const value = normalizedSubdomain || undefined;
-              const succeeded = await dispatch(domainDialogAction, value);
-              if (succeeded) setDomainDialogAction(null);
+              if (!isSubdomainValid || busy) return;
+              const succeeded = await dispatch("publish", normalizedSubdomain);
+              if (succeeded) setShowPublishDialog(false);
             }}
             className="flex w-full max-w-md flex-col gap-4 rounded-xl border border-border bg-base-secondary p-5"
           >
             <div className="flex flex-col gap-1">
               <h2 className="text-lg font-semibold text-contrast">
-                {domainDialogAction === "deploy"
-                  ? t(I18nKey.DCK$DEPLOY_DIALOG_TITLE, { name: appName })
-                  : t(I18nKey.DCK$PUBLISH_DIALOG_TITLE, { name: appName })}
+                {t(I18nKey.DCK$PUBLISH_DIALOG_TITLE, { name: appName })}
               </h2>
               <p className="text-sm text-text-tertiary">
-                {domainDialogAction === "deploy"
-                  ? t(I18nKey.DCK$DEPLOY_DIALOG_DESCRIPTION)
-                  : t(I18nKey.DCK$PUBLISH_DIALOG_DESCRIPTION)}
+                {t(I18nKey.DCK$PUBLISH_DIALOG_DESCRIPTION)}
               </p>
             </div>
             <label className="flex flex-col gap-1 text-sm font-medium text-contrast">
@@ -270,13 +253,13 @@ export function WebgenLifecycleActions({
                   autoComplete="off"
                   spellCheck={false}
                   maxLength={63}
-                  required={domainDialogAction === "publish"}
+                  required
                   value={subdomain}
                   onChange={(event) => setSubdomain(event.target.value)}
                   disabled={busy}
                   aria-invalid={subdomain.length > 0 && !isSubdomainValid}
-                  aria-describedby={`dck-webgen-${domainDialogAction}-subdomain-hint${subdomain.length > 0 && !isSubdomainValid ? ` dck-webgen-${domainDialogAction}-subdomain-error` : ""}`}
-                  data-testid={`dck-webgen-${domainDialogAction}-subdomain-input`}
+                  aria-describedby={`dck-webgen-publish-subdomain-hint${subdomain.length > 0 && !isSubdomainValid ? " dck-webgen-publish-subdomain-error" : ""}`}
+                  data-testid="dck-webgen-publish-subdomain-input"
                   className="min-w-0 flex-1 bg-transparent px-3 py-2 outline-none"
                 />
                 <span className="whitespace-nowrap border-l border-border px-2 py-2 text-xs text-text-tertiary">
@@ -284,17 +267,16 @@ export function WebgenLifecycleActions({
                 </span>
               </span>
               <span
-                id={`dck-webgen-${domainDialogAction}-subdomain-hint`}
+                id="dck-webgen-publish-subdomain-hint"
                 className="text-xs font-normal text-text-tertiary"
               >
-                {domainDialogAction === "deploy"
-                  ? t(I18nKey.DCK$DEPLOY_SUBDOMAIN_HINT)
-                  : t(I18nKey.DCK$PUBLISH_SUBDOMAIN_HINT)}
+                {t(I18nKey.DCK$PUBLISH_SUBDOMAIN_HINT)}
               </span>
               {subdomain.length > 0 && !isSubdomainValid && (
                 <span
+                  id="dck-webgen-publish-subdomain-error"
                   role="alert"
-                  data-testid={`dck-webgen-${domainDialogAction}-subdomain-error`}
+                  data-testid="dck-webgen-publish-subdomain-error"
                   className="text-xs font-normal text-status-error"
                 >
                   {t(I18nKey.DCK$PUBLISH_SUBDOMAIN_INVALID)}
@@ -303,30 +285,22 @@ export function WebgenLifecycleActions({
             </label>
             <div className="flex justify-end gap-2">
               <BrandButton
-                testId={`dck-webgen-${domainDialogAction}-cancel`}
+                testId="dck-webgen-publish-cancel"
                 type="button"
                 variant="secondary"
                 isDisabled={busy}
-                onClick={() => setDomainDialogAction(null)}
+                onClick={() => setShowPublishDialog(false)}
               >
                 {t(I18nKey.BUTTON$CANCEL)}
               </BrandButton>
               <BrandButton
-                testId={`dck-webgen-${domainDialogAction}-submit`}
+                testId="dck-webgen-publish-submit"
                 type="submit"
                 variant="primary"
-                isDisabled={
-                  (domainDialogAction === "publish" && !isSubdomainValid) ||
-                  (subdomain.length > 0 && !isSubdomainValid) ||
-                  busy
-                }
+                isDisabled={!isSubdomainValid || busy}
                 aria-busy={busy}
               >
-                {t(
-                  domainDialogAction === "deploy"
-                    ? I18nKey.DCK$DEPLOY
-                    : I18nKey.DCK$PUBLISH,
-                )}
+                {t(I18nKey.DCK$PUBLISH)}
               </BrandButton>
             </div>
           </form>

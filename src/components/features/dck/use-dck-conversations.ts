@@ -1,4 +1,15 @@
 import React from "react";
+import { BashClient } from "@openhands/typescript-client/clients";
+import { quote } from "shell-quote";
+import { getAgentServerClientOptions } from "#/api/agent-server-client-options";
+import { useActiveBackend } from "#/contexts/active-backend-context";
+import { getSnapshot } from "#/api/backend-registry/active-store";
+import {
+  validateWebgenAppName,
+  type WebgenNewProjectSpec,
+} from "#/dck/webgen-new-project";
+import { stageWebgenOwnerSeed } from "#/dck/webgen-owner-seed-service";
+import type { WebgenOwnerSeedInput } from "./webgen-owner-seed-fields";
 import { useCreateConversation } from "#/hooks/mutation/use-create-conversation";
 import { usePaginatedConversations } from "#/hooks/query/use-paginated-conversations";
 import { useNavigation } from "#/context/navigation-context";
@@ -11,25 +22,52 @@ import {
 import type { AppConversation } from "#/api/conversation-service/agent-server-conversation-service.types";
 
 export function useAllConversations(): AppConversation[] {
-  const query = usePaginatedConversations(50);
-  return React.useMemo(
-    () => flattenConversationPages(query.data?.pages),
-    [query.data],
-  );
+  return useAllConversationsQuery().conversations;
 }
 
 export function useAllConversationsQuery(options: { enabled?: boolean } = {}) {
   const query = usePaginatedConversations(50, options);
+  const pages = query.data?.pages;
+  const cursors = pages?.map((page) => page.next_page_id).filter(Boolean) ?? [];
+  const repeatedCursor = new Set(cursors).size !== cursors.length;
+  React.useEffect(() => {
+    if (
+      options.enabled !== false &&
+      query.hasNextPage &&
+      !query.isFetching &&
+      !query.isError &&
+      !repeatedCursor
+    )
+      void query.fetchNextPage({ cancelRefetch: false });
+  }, [
+    options.enabled,
+    query.hasNextPage,
+    query.isFetching,
+    query.isError,
+    query.fetchNextPage,
+    repeatedCursor,
+  ]);
+  const complete = query.isSuccess && !query.hasNextPage;
   const conversations = React.useMemo(
-    () => flattenConversationPages(query.data?.pages),
+    () => [
+      ...new Map(
+        flattenConversationPages(query.data?.pages).map((conversation) => [
+          conversation.id,
+          conversation,
+        ]),
+      ).values(),
+    ],
     [query.data],
   );
   return {
     conversations,
-    isLoading: query.isLoading,
+    isLoading:
+      query.isLoading ||
+      (query.hasNextPage && !query.isError && !repeatedCursor),
     isAuthLoading: query.isPending && !query.isFetched && !query.isError,
-    hasData: query.data !== undefined,
-    isError: query.isError,
+    hasData: complete,
+    isComplete: complete,
+    isError: query.isError || repeatedCursor,
     isFetching: query.isFetching,
     refetch: query.refetch,
   };
@@ -55,6 +93,11 @@ export interface DckScopedConversationOptions {
 }
 
 export function useOpenConversation() {
+  const active = useActiveBackend();
+  const allConversations = useAllConversationsQuery();
+  const pendingWebgen = React.useRef<{ scope: string; id: string } | null>(
+    null,
+  );
   const { navigate } = useNavigation();
   const { mutateAsync: createConversation, isPending } =
     useCreateConversation();
@@ -77,6 +120,10 @@ export function useOpenConversation() {
       conversations: AppConversation[],
       agentProfileId?: string,
     ): Promise<string> => {
+      if (!allConversations.isComplete)
+        throw new Error(
+          "Conversation list is incomplete. Retry loading conversations.",
+        );
       const existing = latestConversationForPath(conversations, workingDir);
       if (existing) return existing.id;
       const created = await createConversation({
@@ -85,7 +132,7 @@ export function useOpenConversation() {
       });
       return created.conversation_id;
     },
-    [createConversation],
+    [createConversation, allConversations.isComplete],
   );
 
   const openPath = React.useCallback(
@@ -100,6 +147,7 @@ export function useOpenConversation() {
         navigate(`/conversations/${existing.id}`);
         return;
       }
+      if (!allConversations.isComplete) return;
       if (options?.canCreateNew === false) {
         if (options.blockedMessage) displayErrorToast(options.blockedMessage);
         return;
@@ -117,7 +165,7 @@ export function useOpenConversation() {
         displayErrorToast(error instanceof Error ? error.message : null);
       }
     },
-    [createConversation, navigate],
+    [createConversation, navigate, allConversations.isComplete],
   );
 
   const createScoped = React.useCallback(
@@ -128,6 +176,7 @@ export function useOpenConversation() {
       options?: DckScopedConversationOptions,
     ): Promise<boolean> => {
       setIsPreparing(true);
+      const origin = getSnapshot().active;
       try {
         const data = options?.conversationId
           ? { conversation_id: options.conversationId }
@@ -139,6 +188,12 @@ export function useOpenConversation() {
         const preparedQuery = options?.prepareInitialMessage
           ? await options.prepareInitialMessage(data.conversation_id)
           : query;
+        const current = getSnapshot().active;
+        if (
+          current.backend.id !== origin.backend.id ||
+          current.orgId !== origin.orgId
+        )
+          return false;
         if (options?.prepareInitialMessage) setMessageToSend(preparedQuery);
         navigate(`/conversations/${data.conversation_id}`);
         return true;
@@ -159,6 +214,7 @@ export function useOpenConversation() {
       command: string,
       options?: DckConversationLaunchOptions,
     ) => {
+      if (!allConversations.isComplete) return;
       if (options?.canCreateNew === false) {
         const existing = latestConversationForPath(conversations, workingDir);
         if (!existing) {
@@ -191,11 +247,70 @@ export function useOpenConversation() {
         setIsPreparing(false);
       }
     },
-    [continueConversation, createConversation],
+    [continueConversation, createConversation, allConversations.isComplete],
   );
+
+  const createWebgenProject = async (
+    root: string,
+    spec: WebgenNewProjectSpec,
+    prompt: (verificationKey?: string) => string,
+    seed?: WebgenOwnerSeedInput,
+    agentProfileId?: string,
+  ) => {
+    if (!validateWebgenAppName(spec.name, []).valid) return false;
+    const workingDir = `${root.replace(/\/$/, "")}/${spec.name.trim()}`;
+    const scope = JSON.stringify([active.backend.id, active.orgId, workingDir]);
+    const pending =
+      pendingWebgen.current?.scope === scope ? pendingWebgen.current : null;
+    setIsPreparing(true);
+    try {
+      const client = new BashClient(getAgentServerClientOptions());
+      try {
+        const result = await client.executeCommand(
+          `mkdir -p -- ${quote([workingDir])}`,
+        );
+        if (result.exit_code !== 0)
+          throw new Error("Could not prepare project workspace");
+      } finally {
+        client.close();
+      }
+      const current = getSnapshot().active;
+      if (
+        current.backend.id !== active.backend.id ||
+        current.orgId !== active.orgId
+      )
+        return false;
+      const succeeded = await createScoped(workingDir, "", agentProfileId, {
+        ...(pending ? { conversationId: pending.id } : {}),
+        prepareInitialMessage: async (id) => {
+          pendingWebgen.current = { scope, id };
+          if (spec.needsAuth && spec.authProvider !== "other") {
+            if (!seed) throw new Error("Owner credentials are required");
+            const staged = await stageWebgenOwnerSeed(
+              spec.name.trim(),
+              id,
+              workingDir,
+              seed,
+            );
+            return prompt(staged.verification_key);
+          }
+          return prompt();
+        },
+      });
+      if (succeeded) pendingWebgen.current = null;
+      return succeeded;
+    } catch (error) {
+      displayErrorToast(error instanceof Error ? error.message : null);
+      return false;
+    } finally {
+      setIsPreparing(false);
+    }
+  };
 
   return {
     openPath,
+    openConversation: (id: string) => navigate(`/conversations/${id}`),
+    createWebgenProject,
     ensureConversation,
     createScoped,
     prefillAndOpen,

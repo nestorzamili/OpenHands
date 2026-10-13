@@ -8,6 +8,7 @@ import { DCK_STATUS_LABEL_KEYS, type DckProjectStatus } from "#/dck/modules";
  * `working` pulses to signal a live agent turn; the rest are static.
  */
 const STATUS_CLASS: Record<DckProjectStatus, string> = {
+  starting: "border-border bg-surface text-text-secondary",
   running: "border-status-success/30 bg-status-success/10 text-status-success",
   stopped: "border-border bg-surface text-text-tertiary",
   working: "border-status-success/30 bg-status-success/10 text-status-success",
@@ -37,7 +38,8 @@ export function DckProjectStatusBadge({
         aria-hidden
         className={cn(
           "size-1.5 shrink-0 rounded-full bg-current",
-          status === "working" && "animate-pulse motion-reduce:animate-none",
+          (status === "working" || status === "starting") &&
+            "animate-pulse motion-reduce:animate-none",
         )}
       />
       {t(DCK_STATUS_LABEL_KEYS[status])}

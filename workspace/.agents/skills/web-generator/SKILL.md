@@ -5,7 +5,7 @@ description: Expert Autonomous Full Stack Software Engineer specialized in build
 
 # Web Generator — Next.js Single-Service Standard
 
-Build on top of the built-in `frontend-design` skill for layout, styling, and component quality, and the built-in `docker` skill for containerization. Use the built-in `vercel` skill only when a preview deployment is explicitly requested. For every piece of user-facing output — UI, layout, copy, and code — also apply the vendored `antislop` skills (see §0). This skill defines the DCK project conventions those skills must follow here.
+Build on top of the built-in `frontend-design` skill for layout, styling, and component quality, and the built-in `docker` skill for containerization. WebGen preview uses the Canvas domain path described in §7. For every piece of user-facing output — UI, layout, copy, and code — also apply the vendored `antislop` skills (see §0). This skill defines the DCK project conventions those skills must follow here.
 
 ## 0. Anti-Slop Is Mandatory for All UI Output
 
@@ -140,21 +140,19 @@ Choose the lowest free port ≥ 3000 not in either set. Record it in
 `webgen/<app-name>/.dck.json`:
 
 ```json
-{ "name": "<app-name>", "port": 3000, "stack": "nextjs", "lastStatus": "stopped", "lastCheckedAt": null, "previewPath": null, "subdomain": null }
+{ "name": "<app-name>", "port": 3000, "stack": "nextjs", "needsDatabase": false, "authProvider": "none", "lastStatus": "stopped", "lastCheckedAt": null, "previewPath": null, "subdomain": null }
 ```
 
-`lastStatus` is the agent-verified container state the portal reads to show an
-honest status badge (the browser cannot reach the Docker daemon). Allowed
-values: `"running"`, `"stopped"`, `"error"`. `lastCheckedAt` is the ISO-8601
-UTC timestamp of the verification (or `null` before the first deploy).
-`previewPath` is the `/preview/<app>` route once a preview block is live (or
-`null`); `subdomain` is `<app>.dckautoposting.com` once published (or `null`).
-Keep all fields in sync with reality on every lifecycle action (§6, §7).
+The host WebGen control service owns runtime status and deployment metadata.
+The UI reads live container state through that service. During scaffolding,
+initialize `lastStatus` to `stopped`, `lastCheckedAt`, `previewPath`, and
+`subdomain` to null, and record `needsDatabase` and `authProvider` accurately.
+Do not fabricate a running status or an available URL before deployment.
 
-Reserved and never assigned to apps: `8010` (DCK Canvas ingress), `8000`/`8080`
-(other host services), `5432`/`3306`/`6379` (infrastructure). Ports are
-published on host loopback (`127.0.0.1:<port>:3000`) — nginx is the only public
-entry point.
+Reserved host ports include `8010` (Canvas), `8011` (existing content service),
+`8012` (WebGen internal authentication), `8769` (WebGen control), `8000`/`8080`
+(other host services), and `5432`/`3306`/`6379` (infrastructure). Publish app
+ports on `127.0.0.1:<port>:3000`; nginx is the public entry point.
 
 ## 5. Database Per App
 
@@ -183,27 +181,30 @@ container, then verify the runtime role can log in and cannot create/alter/drop
 schema objects. Use one shared database only when the operator explicitly says
 so.
 
-## 6. Lifecycle (always via conversation)
+## 6. Lifecycle through the WebGen controls
 
-Code changes, a local Git commit, and a successful build do not imply deployment.
-Do not start, stop, rebuild a running service, reload nginx, or publish unless
-the operator explicitly includes that lifecycle action in the request.
+Scaffolding and code changes do not deploy. The operator uses the WebGen UI's
+typed Deploy, Rebuild, Start, Restart, Stop, Publish, Unpublish, and Delete
+actions. The host control service runs Docker, validates readiness, owns nginx
+routes, and writes deployment metadata. Canvas does not mount the Docker
+socket. Do not ask for that socket or write host nginx configuration from chat.
 
-```bash
-cd webgen/<app-name>
-docker compose up -d --build
-docker compose ps
-docker compose logs -n 50 app
-curl -s http://localhost:<port>/
-docker compose down
-```
+Deploying an unpublished project serves it at the Canvas origin under
+`/preview/<app>`. Deploy/Rebuild/Start/Restart retain an existing publication.
+Only Publish accepts a subdomain. Unpublish explicitly rebuilds the app for
+its preview path and removes the service-managed published route. One app has
+one active deployment mode and one canonical link.
 
-Verify every deploy with `ps`, logs, and an endpoint health check. `docker compose down -v` only with explicit operator confirmation. Never run long-lived dev servers or install packages on the host.
+Use the live runtime status for verification. Never infer successful deployment
+from a source commit or build alone. Compose contains one app service, no host
+mounts or named volumes, and no privileged settings. Store persistent uploads
+in application-owned external storage and database records; container files
+are ephemeral. Use only `authProvider` and `needsDatabase` in `.dck.json`.
 
 ## 6a. Better Auth First-Owner Seed (mandatory when auth is Better Auth)
 
 The New Project dialog collects the first owner's email, optional username, and
-password separately from the agent prompt. The Agent Server keeps that seed
+password separately from the agent prompt. The host WebGen control service keeps that seed
 encrypted for 15 minutes and delivers it once only after an explicit Deploy or
 Rebuild action. Treat the public verification key in the scaffold/deploy message
 as public; it is not a credential.
@@ -211,8 +212,8 @@ as public; it is not a credential.
 - Store `"authProvider": "better-auth"` in `.dck.json`. Give the sole Compose
   service the deterministic `container_name: <app-name>-app`, expose app port
   `3000` inside the container, and join the shared external `dck` network. The
-  Agent Server reaches `http://<app-name>-app:3000/api/dck/owner-seed` on that
-  network.
+  host control service reaches the container on that network, including the
+  active `/preview/<app>` basePath before `/api/dck/owner-seed` in preview mode.
 - Configure Better Auth with email/password sign-up disabled
   (`emailAndPassword.disableSignUp: true`), `minPasswordLength: 15`, and a
   `maxPasswordLength` of at least `512` (use `1024` to accept the full Unicode
@@ -258,117 +259,45 @@ as public; it is not a credential.
   bootstrap, duplicate owner, nonce replay, Unicode/whitespace, and expiry
   using dummy credentials only.
 
-**Always update `.dck.json` status after a lifecycle action** so the portal
-badge stays honest — the frontend reads this file, it cannot query Docker:
+## 7. Preview and explicit publication
 
-- After a successful `up`/deploy/rebuild where `docker compose ps` shows the
-  service up and the health check (`curl -s http://localhost:<port>/`) passes,
-  set `"lastStatus": "running"`.
-- After `docker compose down` (stop), set `"lastStatus": "stopped"`.
-- If the container exits non-zero, the health check fails, or the build breaks,
-  set `"lastStatus": "error"`.
-- Always set `"lastCheckedAt"` to the current ISO-8601 UTC timestamp at the same
-  time (e.g. `"2026-01-15T09:30:00Z"`). Do not touch `name`/`port`/`stack` when
-  updating status.
+Preview uses the existing Canvas origin, for example
+`https://agent.dckautoposting.com/preview/its`. Never create a preview subdomain,
+DNS record, extra server block, or second app container for this route.
 
-## 7. Preview and Publish (subdomain lifecycle)
-
-Every webgen app goes through two public stages, both fronted by the host nginx
-on the DCK domain. The agent only ever writes nginx config under the dedicated
-include dir `/etc/nginx/dck-apps/` (one file per app) and reloads nginx — it
-must never edit `agent.dckautoposting.com` itself or any other site's config.
-
-TLS needs no per-app work: the wildcard `*.dckautoposting.com` certificate and
-the wildcard `*` A record already cover every app subdomain (see
-`docs/DEPLOYMENT.md`).
-
-### 7a. Preview under `/preview/<app>/`
-
-Preview an app on the Canvas origin before giving it a subdomain. The app is
-served under the path prefix `/preview/<app>/`, so Next.js must build with a
-matching `basePath` or every asset and route 404s:
+Configure Next.js with `basePath`:
 
 ```js
-// next.config.js — basePath is driven by an env var so the SAME image works
-// in preview (prefixed) and published (root) modes.
 const basePath = process.env.APP_BASE_PATH || "";
-module.exports = { output: "standalone", basePath, assetPrefix: basePath || undefined };
+module.exports = { output: "standalone", basePath };
 ```
 
-Set `APP_BASE_PATH=/preview/<app>` in the app's `.env` for the preview deploy.
-Write `/etc/nginx/dck-apps/preview-<app>.conf`:
+`APP_BASE_PATH=/preview/<app>` must be available during `next build`. Next.js
+inlines basePath into the client bundle, so changing modes requires a rebuild.
+Do not add `assetPrefix` just to host under a subpath. Next Link/router paths
+respect basePath; explicitly prefix raw fetch URLs and public image URLs where
+required. Scope app cookies and storage keys to the app to avoid collisions on
+the shared origin. Same-origin preview is intended for trusted application
+code; a URL path is not a browser security boundary.
 
-```nginx
-# Included inside the agent.dckautoposting.com server block. The /preview/<app>/
-# prefix is more specific than Canvas's `location /`, so it wins.
-location /preview/<app>/ {
-    proxy_pass http://127.0.0.1:<port>/;
-    proxy_http_version 1.1;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
-}
-```
+The host service generates an exact location for `/preview/<app>` and a prefix
+location for `/preview/<app>/`, both forwarding the full URI without removing
+the prefix. Let Next.js apply its own trailing-slash convention. Verify the
+page, nested routes, assets, and owner endpoint under the same prefix.
 
-```bash
-sudo nginx -t && sudo systemctl reload nginx
-curl -I https://agent.dckautoposting.com/preview/<app>/   # expect 200
-```
+The service owns `/etc/nginx/dck-apps/preview-<app>.conf` and includes it inside
+the existing Canvas server. Preview needs no additional certificate or DNS.
 
-Record `"previewPath": "/preview/<app>"` in `.dck.json`.
+Only an explicit Publish action selects `<label>.dckautoposting.com`, rebuilds
+with an empty basePath, and replaces the preview route with
+`published-<app>.conf` at nginx HTTP scope. It sets `subdomain` and clears
+`previewPath`. The wildcard certificate and DNS are used only for this mode.
+Unpublish performs the inverse transition; it does not maintain a redundant
+second deployment. Keep existing publication unchanged unless the operator
+explicitly chooses Unpublish.
 
-### 7b. Publish to `<app>.dckautoposting.com`
-
-When the operator approves, rebuild the app with an empty `basePath`
-(`APP_BASE_PATH=` unset → served at root) and write a dedicated server block
-`/etc/nginx/dck-apps/<app>.conf`:
-
-```nginx
-server {
-    listen 443 ssl;
-    listen [::]:443 ssl;
-    server_name <app>.dckautoposting.com;
-
-    # Reuse the wildcard cert — no certbot run needed.
-    ssl_certificate     /etc/letsencrypt/live/dckautoposting.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/dckautoposting.com/privkey.pem;
-    include /etc/letsencrypt/options-ssl-nginx.conf;
-    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
-
-    location / {
-        proxy_pass http://127.0.0.1:<port>/;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-    }
-}
-
-server {
-    listen 80;
-    listen [::]:80;
-    server_name <app>.dckautoposting.com;
-    return 301 https://$host$request_uri;
-}
-```
-
-```bash
-sudo nginx -t && sudo systemctl reload nginx
-curl -I https://<app>.dckautoposting.com/     # expect 200
-```
-
-Record `"subdomain": "<app>.dckautoposting.com"` in `.dck.json`. The wildcard
-`*` A record already resolves the host; add an explicit `<app>` A record in
-Cloudflare only if you later proxy it (orange cloud) separately.
-
-Deleting an app also removes its `/etc/nginx/dck-apps/preview-<app>.conf` and
-`/etc/nginx/dck-apps/<app>.conf`, followed by an nginx reload.
+References: [Next.js basePath](https://nextjs.org/docs/app/api-reference/config/next-config-js/basePath)
+and [trailingSlash](https://nextjs.org/docs/app/api-reference/config/next-config-js/trailingSlash).
 
 ## 8. Junk-Free Guarantee
 
@@ -378,12 +307,15 @@ The host VM (especially prod) must stay clean. Source files under `webgen/<app-n
 - Keep app toolchains in containers: do not use host `npm`, `pip`, `node`, or `prisma` for installs, application scripts, migrations, or builds; use throwaway containers (`docker compose run --rm app ...`). For UI/E2E validation only, an already-installed browser automation package may run against localhost when the integrated browser cannot emulate the needed viewport. Do not install host packages or leave generated app artifacts on the host.
 - Temporary files live and die inside containers. Never write scratch files to `/projects` outside the app directory; verify with `git status` that only intended files changed.
 - Named containers follow `<app-name>-<service>` so orphans are identifiable.
-- Deleting an app means `docker compose down -v --rmi local` **plus** removing its nginx files (`/etc/nginx/dck-apps/preview-<app>.conf` and `/etc/nginx/dck-apps/<app>.conf`, then reload) and dropping its database if no longer needed (`DROP DATABASE dck_<app>`). Containers, anonymous and named app volumes, and locally built images go away. The shared DCK Postgres cluster holds no per-app volumes by design.
+- Delete is an explicit host-service action. Back up application data before removal; never run ad-hoc volume deletion or remove unrelated nginx sites from an agent conversation.
 - Dangling leftovers are the operator's scheduled prune (`docker image prune -f`, `docker builder prune -f`), not something the agent runs after every task — but the agent must never be their source.
 
-## 9. Deploy and Rebuild as Automations
+## 9. Automations
 
-For repeatable deploys, register the lifecycle above as a custom automation through the portal's built-in automation setup flow (custom automation backed by the built-in `openhands-automation` skill), so rebuilds get schedules and run history in the Automations UI instead of ad-hoc chat commands. The same applies to recurring jobs owned by other modules (daily trend scan, weekly analytics): scheduled custom automations writing dated artifacts into `research/` and `analytics/`.
+Use custom automations for explicitly requested recurring application tasks.
+Do not schedule Docker/nginx lifecycle shell commands as a workaround for the
+host control service. Deployment and publication remain explicit typed
+operations with their own authorization and readiness checks.
 
 ## 10. Isolated Verification and Local Git
 

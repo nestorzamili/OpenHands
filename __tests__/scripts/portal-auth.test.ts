@@ -8,10 +8,16 @@
 // static + API routes, logout, and credential/session hashing at rest.
 
 import { request, type Server } from "node:http";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { startStaticServer } from "../../scripts/static-server.mjs";
 
 describe("static-server portal auth", () => {
@@ -38,6 +44,61 @@ describe("static-server portal auth", () => {
     servers.push(server);
     return { base: `http://127.0.0.1:${port}`, storePath, dir };
   }
+
+  it("allows only one concurrent first-admin setup", async () => {
+    const { base, storePath } = await startPortalServer();
+    const replies = await Promise.all(
+      ["first", "second"].map((username) =>
+        rawRequest(`${base}/api/portal-auth/setup`, "POST", {
+          body: { username, password: "a-long-test-password" },
+        }),
+      ),
+    );
+    expect(replies.map((r) => r.status).sort()).toEqual([201, 409]);
+    expect(
+      Object.keys(JSON.parse(readFileSync(storePath, "utf8")).users),
+    ).toHaveLength(1);
+  });
+
+  it("reserves setup while reading a slow body and releases it on disconnect", async () => {
+    const { base, storePath } = await startPortalServer();
+    const pending = request(`${base}/api/portal-auth/setup`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      agent: false,
+    });
+    pending.on("error", () => {});
+    pending.write('{"username":');
+    await vi.waitFor(() =>
+      expect(existsSync(`${storePath}.setup-lock`)).toBe(true),
+    );
+    const blocked = await rawRequest(`${base}/api/portal-auth/setup`, "POST", {
+      body: { username: "second", password: "long-test-password" },
+    });
+    expect(blocked.status).toBe(409);
+    pending.destroy();
+    await vi.waitFor(() =>
+      expect(existsSync(`${storePath}.setup-lock`)).toBe(false),
+    );
+    const retry = await rawRequest(`${base}/api/portal-auth/setup`, "POST", {
+      body: { username: "retry", password: "long-test-password" },
+    });
+    expect(retry.status).toBe(201);
+  });
+
+  it("rejects a malformed URL and continues serving requests", async () => {
+    const { base } = await startPortalServer();
+    const status = await new Promise<number>((resolve, reject) => {
+      const req = request(base, { path: "//[", agent: false }, (res) => {
+        res.resume();
+        res.on("end", () => resolve(res.statusCode!));
+      });
+      req.on("error", reject);
+      req.end();
+    });
+    expect(status).toBe(400);
+    expect((await rawRequest(`${base}/setup`)).status).toBe(200);
+  });
 
   afterEach(async () => {
     await Promise.all(

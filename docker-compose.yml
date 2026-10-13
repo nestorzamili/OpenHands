@@ -28,6 +28,7 @@ services:
       # service on this VM, so DCK ingress uses 8010. nginx terminates TLS
       # and forwards here; it MUST set X-Forwarded-Proto / X-Forwarded-For.
       - "127.0.0.1:8010:8000"
+      - "127.0.0.1:8012:18002"
     volumes:
       - ./config:/home/openhands/.openhands
       - ./workspace:/projects
@@ -40,6 +41,7 @@ services:
       # open the site and create the admin at /setup. Store + the internal
       # auto-generated session key persist on the ./config volume.
       - AGENT_CANVAS_PORTAL_AUTH=/home/openhands/.openhands/portal-auth.json
+      - WEBGEN_INTERNAL_PROXY=true
       # External base URL used in automation callbacks injected into sandboxes.
       - AUTOMATION_BASE_URL=${AUTOMATION_BASE_URL:-https://agent.dckautoposting.com}
       - AUTOMATION_DB_URL=${AUTOMATION_DB_URL:?Set AUTOMATION_DB_URL, e.g. postgresql+asyncpg://dck:pass@postgres:5432/dck_agentic}

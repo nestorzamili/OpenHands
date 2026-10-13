@@ -152,6 +152,7 @@ COPY scripts/proxy-utils.mjs /opt/agent-canvas/proxy-utils.mjs
 # portal-auth.mjs is imported by static-server.mjs; the portal login gate
 # (AGENT_CANVAS_PORTAL_AUTH) fails to start without it.
 COPY scripts/portal-auth.mjs /opt/agent-canvas/portal-auth.mjs
+COPY scripts/webgen-internal-proxy.mjs /opt/agent-canvas/webgen-internal-proxy.mjs
 COPY --from=frontend-build /build/node_modules/httpxy /opt/agent-canvas/node_modules/httpxy
 COPY --from=frontend-build /build/node_modules/sirv /opt/agent-canvas/node_modules/sirv
 COPY --from=frontend-build /build/node_modules/@polka /opt/agent-canvas/node_modules/@polka

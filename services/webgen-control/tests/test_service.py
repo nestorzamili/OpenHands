@@ -27,9 +27,118 @@ class _Response:
 
 
 class TestWebgen(unittest.TestCase):
+    def test_runtime_reports_starting_and_only_the_active_address(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d)
+            (p / ".dck.json").write_text(json.dumps({
+                "port": 3000, "previewPath": "/preview/shop",
+                "subdomain": "shop.dckautoposting.com",
+            }))
+            service = self.make_service()
+            project = service.project("shop", p, {"shop": [{
+                "id": "c", "name": "shop-app", "state": "running", "health": "starting", "exit_code": None,
+            }]})
+            self.assertEqual(project["status"], "starting")
+            self.assertIsNone(project["preview_path"])
+            self.assertEqual(project["subdomain"], "shop.dckautoposting.com")
+
+    def setUp(self):
+        if not hasattr(os, "chown"):
+            ownership = patch("webgen_control.os.chown", create=True)
+            ownership.start()
+            self.addCleanup(ownership.stop)
+
+    def test_seed_authorization_http_response_is_recoverable(self):
+        from types import SimpleNamespace
+        handler = Handler.__new__(Handler)
+        handler.path = "/api/webgen-provisioning/projects/shop/conversations/c/authorize-deploy"
+        handler.auth = lambda: True
+        handler.body = lambda: {}
+        with tempfile.TemporaryDirectory() as d:
+            service = self.make_service()
+            service.seed = SeedStore(master_path=Path(d) / "key")
+            service.owner_state = lambda _: "unreachable"
+            handler.server = SimpleNamespace(service=service)
+            replies = []
+            handler.send = lambda code, body: replies.append((code, body))
+            handler.do_POST()
+        self.assertEqual(replies, [(410, {"error": "owner_authorization_required"})])
+
+    def test_delete_without_database_does_not_contact_postgres(self):
+        from unittest.mock import Mock
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "shop"
+            p.mkdir()
+            (p / ".dck.json").write_text(json.dumps({"needsDatabase": False}))
+            service = self.make_service()
+            service._snapshot_routes = Mock(return_value={})
+            service.nginx_reload = Mock()
+            service.all_container_status = Mock(return_value={})
+            service.compose = Mock(return_value=Mock(returncode=0))
+            with patch("webgen_control.subprocess.run") as run:
+                service._delete("shop", p)
+            run.assert_not_called()
+            self.assertFalse(p.exists())
+
+    def test_database_preflight_failure_preserves_project_and_containers(self):
+        from unittest.mock import Mock
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d)
+            (p / ".dck.json").write_text(json.dumps({"needsDatabase": True}))
+            service = self.make_service()
+            service.compose = Mock()
+            with patch.dict(os.environ, {"WEBGEN_POSTGRES_USER": "custom_owner"}), \
+                 patch("webgen_control.subprocess.run", return_value=Mock(returncode=1)) as run:
+                with self.assertRaises(WebgenOperationError): service._delete("shop", p)
+            args = run.call_args.args[0]
+            self.assertEqual(args[args.index("-U") + 1], "custom_owner")
+            self.assertEqual(args[args.index("-d") + 1], "postgres")
+            service.compose.assert_not_called()
+            self.assertTrue((p / ".dck.json").exists())
+
+    def test_owner_target_uses_explicit_transition_base(self):
+        service = self.make_service()
+        with patch("webgen_control.subprocess.run") as run:
+            run.return_value.returncode = 0
+            run.return_value.stdout = "172.18.0.4"
+            self.assertEqual(service.app_target("shop", "/preview/shop"),
+                             "http://172.18.0.4:3000/preview/shop/api/dck/owner-seed")
+            self.assertEqual(service.app_target("shop", ""),
+                             "http://172.18.0.4:3000/api/dck/owner-seed")
+
+    def test_readiness_retries_then_succeeds_and_times_out(self):
+        service = self.make_service()
+        with patch.object(service, "_health", side_effect=[False, True]), \
+             patch("webgen_control.time.sleep"), \
+             patch("webgen_control.subprocess.run") as run:
+            run.return_value.stdout = "running"
+            service.wait_ready("shop", 3000, "/preview/shop/", timeout=5)
+        with patch.object(service, "_health", return_value=False), \
+             patch("webgen_control.time.monotonic", side_effect=[0, 0, 6, 6]), \
+             patch("webgen_control.time.sleep"), \
+             patch("webgen_control.subprocess.run") as run:
+            run.return_value.stdout = "running"
+            with self.assertRaises(WebgenOperationError) as caught:
+                service.wait_ready("shop", 3000, "/", timeout=5)
+            self.assertEqual(caught.exception.code, "readiness_timeout")
+
+    def test_missing_seed_has_reentry_error(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = SeedStore(master_path=Path(d) / "key")
+            with self.assertRaises(OwnerSeedUnavailable):
+                store.authorize("shop", "conversation")
+
+    def test_preview_proxy_preserves_prefix(self):
+        config = self.make_service().config("shop", {"port": 3001}, True)
+        self.assertIn("proxy_pass http://127.0.0.1:3001;", config)
+        self.assertIn("location = /preview/shop", config)
+
     def make_service(self):
         service = Service.__new__(Service)
-        service.canvas = "http://127.0.0.1:8010/api/workspaces"
+        service.canvas = "http://127.0.0.1:8012/api/workspaces"
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        service.nginx = Path(directory.name)
         return service
 
     def make_project(self, p):
@@ -57,8 +166,8 @@ networks:
         self.assertFalse(valid_subdomain("agent"))
         self.assertFalse(valid_subdomain("-bad"))
         self.assertEqual(
-            canonical_signed_payload(1, "x", "c", 1, 2, "n", "é", None, " p  ").decode(),
-            '[1,"x","c",1,2,"n","é",null," p  "]',
+            canonical_signed_payload(1, "x", "c", 1, 2, "n", "ÃƒÂ©", None, " p  ").decode(),
+            '[1,"x","c",1,2,"n","ÃƒÂ©",null," p  "]',
         )
 
     def test_route_switch_writes_single_published_or_preview_config(self):
@@ -143,9 +252,10 @@ networks:
             self.assertEqual(seed.authorize("x", "conv")["status"], "authorized")
             got = seed.consume("x", "conv")
             self.assertEqual(list(got[1:]), ["a@b.test", None, "123456789012345"])
-            with self.assertRaises(KeyError):
+            with self.assertRaises(OwnerSeedUnavailable):
                 seed.consume("x", "conv")
 
+    @unittest.skipUnless(os.name == "posix", "POSIX ownership and permission contract")
     def test_atomic_metadata_is_agent_readable(self):
         with tempfile.TemporaryDirectory() as d:
             project = Path(d) / "project"
@@ -161,7 +271,7 @@ networks:
         command = command_for("safe-app", "deploy", Path("/x/docker-compose.yml"))
         self.assertEqual(
             command,
-            ["docker", "compose", "-p", "safe-app", "-f", "/x/docker-compose.yml", "up", "-d", "--build"],
+            ["docker", "compose", "-p", "safe-app", "-f", str(Path("/x/docker-compose.yml")), "up", "-d", "--build"],
         )
         self.assertEqual(command_for("safe-app", "start", Path("/x/docker-compose.yml"))[-2:], ["up", "-d"])
         self.assertEqual(command_for("safe-app", "restart", Path("/x/docker-compose.yml"))[-2:], ["up", "-d"])
@@ -175,7 +285,11 @@ networks:
             (root / "ok").mkdir()
             (root / "ok" / ".dck.json").write_text("{}")
             self.assertIsNotNone(safe_project(root, "ok"))
-            (root / "link").symlink_to(root / "ok", target_is_directory=True)
+            try:
+                (root / "link").symlink_to(root / "ok", target_is_directory=True)
+            except OSError as error:
+                if getattr(error, "winerror", None) == 1314: self.skipTest("Windows symlink privilege unavailable")
+                raise
             self.assertIsNone(safe_project(root, "link"))
 
     def test_compose_rejects_rendered_unsafe_policy(self):
@@ -217,6 +331,7 @@ networks:
                     service.compose_config("x", project)
                 run.assert_not_called()
 
+    @unittest.skipUnless(os.name == "posix", "POSIX snapshot permission contract")
     def test_compose_validates_and_executes_the_same_root_owned_snapshot(self):
         with tempfile.TemporaryDirectory() as d:
             project = Path(d)
@@ -286,7 +401,7 @@ networks:
                 tails = [command[command.index("--project-directory") + 2:] for command in calls]
                 self.assertEqual(tails, expected, action)
 
-    def test_deploy_accepts_optional_subdomain_and_routes_to_the_requested_host(self):
+    def test_deploy_uses_same_origin_preview_without_publishing(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
             project = root / "shop"
@@ -310,15 +425,15 @@ networks:
             service.project = unittest.mock.Mock(return_value={"slug": "shop"})
 
             result = service.action(
-                "shop", {"action": "deploy", "subdomain": "new-shop"}, "session-key"
+                "shop", {"action": "deploy"}, "session-key"
             )
 
             self.assertEqual(result, {"slug": "shop"})
-            service.materialize_env.assert_called_once_with("shop", project, "session-key", "")
+            service.materialize_env.assert_called_once_with("shop", project, "session-key", "/preview/shop")
             service.compose.assert_called_once_with("shop", project, "deploy")
-            service._health.assert_called_once_with("shop", 3000, "/")
+            service._health.assert_called_once_with("shop", 3000, "/preview/shop/", timeout=3)
             service._set_route.assert_called_once_with(
-                "shop", project, {"port": 3000}, "new-shop"
+                "shop", project, {"port": 3000}, None
             )
 
     def test_deploy_without_subdomain_preserves_the_existing_public_domain(self):
@@ -354,7 +469,7 @@ networks:
             )
             service._ensure_unique_subdomain.assert_not_called()
 
-    def test_deploy_rejects_invalid_subdomain_before_running_containers(self):
+    def test_deploy_rejects_publication_parameters_before_side_effects(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
             project = root / "shop"
@@ -366,8 +481,8 @@ networks:
             service.guard = threading.Lock()
             service.compose = unittest.mock.Mock()
 
-            with self.assertRaisesRegex(ValueError, "invalid subdomain"):
-                service.action("shop", {"action": "deploy", "subdomain": "-invalid"})
+            with self.assertRaisesRegex(ValueError, "subdomain requires publish"):
+                service.action("shop", {"action": "deploy", "subdomain": "valid-domain"})
             service.compose.assert_not_called()
 
     def test_materializes_only_project_secrets_and_quotes_values(self):
@@ -415,7 +530,7 @@ networks:
 
             def fake_urlopen(request, timeout=0):
                 requests.append(request)
-                path = request.full_url.removeprefix("http://127.0.0.1:8010")
+                path = request.full_url.removeprefix("http://127.0.0.1:8012")
                 return _Response(bodies[path])
 
             service = self.make_service()
@@ -429,7 +544,7 @@ networks:
             self.assertIn('BETTER_AUTH_SECRET="s3cr3t-value"', env_text)
             self.assertIn('APP_BASE_PATH="/preview/shop"', env_text)
             self.assertNotIn("OTHER_SECRET", env_text)
-            self.assertEqual((project / ".env").stat().st_mode & 0o777, 0o600)
+            if os.name == "posix": self.assertEqual((project / ".env").stat().st_mode & 0o777, 0o600)
             self.assertTrue(all(r.get_header("X-session-api-key") == "session-key" for r in requests))
 
     def test_missing_required_secret_fails_without_writing_env(self):
@@ -475,7 +590,7 @@ networks:
             seed.authorize("x", "c")
             service = Service.__new__(Service)
             service.seed = seed
-            service.app_target = lambda _: "http://127.0.0.1:1/seed"
+            service.app_target = lambda *args: "http://127.0.0.1:1/seed"
             with patch("webgen_control.urlopen", side_effect=OSError("temporary")):
                 self.assertFalse(service.deliver_seed("x", Path(d), "c"))
             self.assertTrue(seed.authorized("x", "c"))

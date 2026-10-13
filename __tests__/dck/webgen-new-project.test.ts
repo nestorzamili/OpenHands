@@ -20,7 +20,15 @@ describe("validateWebgenAppName", () => {
 
   it("rejects names that break the slug rule", () => {
     // Uppercase, spaces, leading hyphen, and underscores are all invalid.
-    for (const bad of ["Shop", "my app", "-shop", "my_app", "shop!"]) {
+    for (const bad of [
+      "Shop",
+      "my app",
+      "-shop",
+      "my_app",
+      "shop!",
+      "shop-",
+      "shop--demo",
+    ]) {
       expect(validateWebgenAppName(bad, []).errorKey).toBe(
         I18nKey.DCK$NEW_PROJECT_NAME_INVALID,
       );

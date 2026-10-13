@@ -485,6 +485,8 @@ export function DckModuleManager({
     builtinOverrides,
     agentProfileAssignments,
     isSaving,
+    isError,
+    refetch,
     upsert,
     upsertBuiltinOverride,
     remove,
@@ -652,6 +654,14 @@ export function DckModuleManager({
         </header>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-5">
+          {isError && (
+            <div role="alert">
+              <p>{t(I18nKey.DCK$LOAD_ERROR)}</p>
+              <button type="button" onClick={() => void refetch()}>
+                {t(I18nKey.DCK$RETRY)}
+              </button>
+            </div>
+          )}
           {mode.kind === "form" ? (
             <ModuleForm
               moduleId={mode.moduleId}

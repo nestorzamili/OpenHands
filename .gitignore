@@ -72,3 +72,7 @@ build-fresh/
 # is the committed template; the real .env is covered by the `.env` rule above.
 /config/
 /pgdata/
+/webgen-control-venv/
+/webgen-control.env
+/.venv-webgen/
+**/node_modules/

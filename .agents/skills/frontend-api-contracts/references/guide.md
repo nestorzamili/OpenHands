@@ -201,4 +201,6 @@ return new ConversationClient(getAgentServerClientOptions()).someMethod(...);
 
 ### DCK module Agent Profile assignments
 
+Assignment deletion sends a `null` tombstone: omitting a key does not remove it under settings deep merge. Registry reads initialize an empty `.dck/modules.json` only on HTTP 404; other read/parse failures block writes. See `docs/webgen-reliability.md`.
+
 Persist assignments through `SettingsService` as the `dck_module_agent_profile_assignments` app preference. Local uses `PATCH /api/settings` with `misc_settings_diff.app_preferences`; Cloud uses `/api/v1/settings` through `callCloudProxy` and carries the selected organization context. Store entries under the JSON scope key `[organizationId, normalizedWorkspaceRoot]`, then module ID. Keep module definitions in `.dck/modules.json`, but treat its former `agentProfileAssignments` field as migration-only. An existing empty settings scope is authoritative and must not be repopulated from legacy file values. Never consult browser storage or substitute the active Agent Profile: unassigned and stale IDs block launch until the user explicitly assigns an available profile. See `specs/dck-module-agent-profile-assignments.md` for acceptance criteria.

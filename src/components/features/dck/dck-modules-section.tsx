@@ -40,7 +40,6 @@ import {
   buildWebgenScaffoldPrompt,
   type WebgenNewProjectSpec,
 } from "#/dck/webgen-new-project";
-import { stageWebgenOwnerSeed } from "#/dck/webgen-owner-seed-service";
 
 function ViewAllLink({ module }: { module: DckModule }) {
   const { t } = useTranslation("openhands");
@@ -148,7 +147,8 @@ function ConversationsCard({
 export function DckModulesSection() {
   const { t } = useTranslation("openhands");
   const conversations = useAllConversations();
-  const { createScoped, isCreating } = useOpenConversation();
+  const { createScoped, createWebgenProject, isCreating } =
+    useOpenConversation();
   const {
     modules: customModules,
     builtinOverrides,
@@ -208,10 +208,6 @@ export function DckModulesSection() {
           })
         : undefined;
   const [showWebgenDialog, setShowWebgenDialog] = React.useState(false);
-  const pendingSeedConversation = React.useRef<{
-    workingDir: string;
-    conversationId: string;
-  } | null>(null);
   const webgenSubdirs = useSearchSubdirs(webgenModule?.workspacePath ?? null);
   const existingWebgenNames = React.useMemo(
     () => (webgenSubdirs.data?.items ?? []).map((entry) => entry.name),
@@ -240,39 +236,14 @@ export function DckModulesSection() {
         webgenModule,
         buildWebgenScaffoldPrompt(spec, verificationKey),
       );
-    const pending = pendingSeedConversation.current;
-    const succeeded =
-      requiresOwnerSeed && seed
-        ? await createScoped(
-            webgenModule.workspacePath,
-            "",
-            webgenAgentProfileId,
-            {
-              ...(pending?.workingDir === webgenModule.workspacePath
-                ? { conversationId: pending.conversationId }
-                : {}),
-              prepareInitialMessage: async (conversationId) => {
-                pendingSeedConversation.current = {
-                  workingDir: webgenModule.workspacePath,
-                  conversationId,
-                };
-                const staged = await stageWebgenOwnerSeed(
-                  spec.name,
-                  conversationId,
-                  webgenModule.workspacePath,
-                  seed,
-                );
-                return prompt(staged.verification_key);
-              },
-            },
-          )
-        : await createScoped(
-            webgenModule.workspacePath,
-            prompt(),
-            webgenAgentProfileId,
-          );
+    const succeeded = await createWebgenProject(
+      webgenModule.workspacePath,
+      spec,
+      prompt,
+      seed,
+      webgenAgentProfileId,
+    );
     if (succeeded) {
-      pendingSeedConversation.current = null;
       setShowWebgenDialog(false);
     }
   };

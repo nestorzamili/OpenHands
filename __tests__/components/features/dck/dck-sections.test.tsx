@@ -89,6 +89,10 @@ vi.mock("@openhands/typescript-client/clients", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("@openhands/typescript-client/clients")
   >()),
+  BashClient: class {
+    executeCommand = vi.fn(async () => ({ exit_code: 0 }));
+    close = vi.fn();
+  },
   FileClient: class {
     searchSubdirectories = vi.fn(async (path: string) => ({
       items:
@@ -541,8 +545,10 @@ describe("DckModulesSection", () => {
       expect(mockCreateConversation).toHaveBeenCalledTimes(1);
     });
     const payload = mockCreateConversation.mock.calls[0][0];
-    expect(payload.workingDir).toBe("/projects/webgen");
-    expect(payload.query).toContain("promo-site");
+    expect(payload.workingDir).toBe("/projects/webgen/promo-site");
+    expect(mockSetMessageToSend).toHaveBeenCalledWith(
+      expect.stringContaining("promo-site"),
+    );
   });
 
   it("stages Better Auth owner credentials before sending the home-dialog opening task", async () => {
@@ -581,7 +587,7 @@ describe("DckModulesSection", () => {
     expect(mockOwnerSeedService.stage).toHaveBeenCalledWith(
       "members",
       "conv-new",
-      "/projects/webgen",
+      "/projects/webgen/members",
       {
         email: "owner@example.com",
         username: "",

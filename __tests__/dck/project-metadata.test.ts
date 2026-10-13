@@ -3,11 +3,10 @@ import {
   buildPreviewUrl,
   buildPublishedUrl,
   parseDckProjectMeta,
-  projectUrlForPort,
 } from "#/dck/project-metadata";
 
 describe("parseDckProjectMeta", () => {
-  it("parses a complete .dck.json and derives the localhost url", () => {
+  it("parses project metadata", () => {
     const result = parseDckProjectMeta(
       JSON.stringify({ name: "dck-landing", port: 3000, stack: "nextjs" }),
     );
@@ -16,7 +15,7 @@ describe("parseDckProjectMeta", () => {
       port: 3000,
       stack: "nextjs",
       authProvider: null,
-      url: "http://localhost:3000",
+
       previewPath: null,
       subdomain: null,
       lastStatus: null,
@@ -33,7 +32,7 @@ describe("parseDckProjectMeta", () => {
       port: 3100,
       stack: "nextjs",
       authProvider: null,
-      url: "http://localhost:3100",
+
       previewPath: null,
       subdomain: null,
       lastStatus: null,
@@ -68,7 +67,7 @@ describe("parseDckProjectMeta", () => {
     expect(result?.subdomain).toBeNull();
   });
 
-  it("parses the agent-written runtime status and verification timestamp", () => {
+  it("parses the service-written runtime status and verification timestamp", () => {
     const result = parseDckProjectMeta(
       JSON.stringify({
         name: "shop",
@@ -89,14 +88,14 @@ describe("parseDckProjectMeta", () => {
     expect(result?.lastStatus).toBeNull();
   });
 
-  it("returns null fields and no url when values are missing or invalid", () => {
+  it("returns null fields when values are missing or invalid", () => {
     const result = parseDckProjectMeta(JSON.stringify({ port: 0, stack: "" }));
     expect(result).toEqual({
       name: null,
       port: null,
       stack: null,
       authProvider: null,
-      url: null,
+
       previewPath: null,
       subdomain: null,
       lastStatus: null,
@@ -119,27 +118,29 @@ describe("parseDckProjectMeta", () => {
   });
 });
 
-describe("projectUrlForPort", () => {
-  it.each([
-    [3000, "http://localhost:3000"],
-    [8080, "http://localhost:8080"],
-    [null, null],
-  ])("maps port %s to %s", (port, expected) => {
-    expect(projectUrlForPort(port)).toBe(expected);
-  });
-});
-
 describe("buildPreviewUrl", () => {
-  it("composes the preview path against the browser origin with a single trailing slash", () => {
+  it.each([
+    "https://other.example/preview/shop",
+    "//other.example",
+    "/preview/../api",
+    "/preview/shop?x=1",
+    "/preview/shop--demo",
+  ])("rejects noncanonical preview path %s", (path) => {
+    expect(
+      buildPreviewUrl(path, "https://agent.dckautoposting.com"),
+    ).toBeNull();
+  });
+
+  it("composes the preview path against the browser origin without forcing a trailing slash", () => {
     expect(
       buildPreviewUrl("/preview/shop", "https://agent.dckautoposting.com"),
-    ).toBe("https://agent.dckautoposting.com/preview/shop/");
+    ).toBe("https://agent.dckautoposting.com/preview/shop");
   });
 
   it("adds a leading slash and strips a trailing origin slash", () => {
     expect(
       buildPreviewUrl("preview/shop/", "https://agent.dckautoposting.com/"),
-    ).toBe("https://agent.dckautoposting.com/preview/shop/");
+    ).toBe("https://agent.dckautoposting.com/preview/shop");
   });
 
   it("returns null when the path or origin is missing", () => {

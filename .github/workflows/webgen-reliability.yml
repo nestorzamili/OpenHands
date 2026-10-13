@@ -1,0 +1,27 @@
+name: WebGen reliability
+
+on:
+  pull_request:
+    paths:
+      - "services/webgen-control/**"
+      - "scripts/sync-managed-skills.py"
+      - ".github/workflows/webgen-reliability.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-regressions:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install nginx and service dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nginx
+          python3 -m venv .venv-webgen
+          .venv-webgen/bin/pip install -r services/webgen-control/requirements.txt
+      - name: Verify Linux filesystem and real nginx routing
+        run: sudo .venv-webgen/bin/python -m unittest discover -s services/webgen-control/tests -v

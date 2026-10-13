@@ -298,6 +298,11 @@ AGENT_SERVER_IMPORT_MODULES="canvas_ui_tool"
 # Track child PIDs so we can clean up on exit.
 PIDS=()
 
+if [ "${WEBGEN_INTERNAL_PROXY:-false}" = "true" ]; then
+  node /opt/agent-canvas/webgen-internal-proxy.mjs &
+  PIDS+=($!)
+fi
+
 cleanup() {
   log "Shutting down..."
   for pid in "${PIDS[@]}"; do

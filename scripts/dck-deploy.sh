@@ -48,8 +48,10 @@ cp "$STAGING/scripts/migrate-automation-db.sh" "$TARGET_DIR/scripts/"
 chmod +x "$TARGET_DIR/scripts/dck-deploy.sh" "$TARGET_DIR/scripts/migrate-automation-db.sh"
 mkdir -p "$TARGET_DIR/services/webgen-control"
 cp "$STAGING/services/webgen-control/webgen_control.py" "$STAGING/services/webgen-control/requirements.txt" "$STAGING/services/webgen-control/webgen-control.service" "$TARGET_DIR/services/webgen-control/"
-rm -rf "$TARGET_DIR/workspace/.agents"
-cp -r "$STAGING/workspace/.agents"   "$TARGET_DIR/workspace/.agents"
+cp "$STAGING/scripts/sync-managed-skills.py" "$TARGET_DIR/scripts/"
+python3 "$TARGET_DIR/scripts/sync-managed-skills.py" \
+  "$STAGING/workspace/.agents" "$TARGET_DIR/workspace/.agents" \
+  "$TARGET_DIR/config/managed-skills.json" "$TARGET_DIR/config/skill-update-candidates"
 cp "$STAGING/workspace/AGENTS.md"    "$TARGET_DIR/workspace/AGENTS.md"
 
 ENV_FILE="$TARGET_DIR/.env"
@@ -113,9 +115,12 @@ if [ "$REQ_HASH" != "$OLD_REQ_HASH" ]; then
   mv "$WEBGEN_VENV/.requirements.sha256.tmp" "$WEBGEN_VENV/.requirements.sha256"
 fi
 "$WEBGEN_VENV/bin/python" -m py_compile "$TARGET_DIR/services/webgen-control/webgen_control.py"
-install -d -m 0755 /etc/nginx/dck-apps
+install -d -m 0755 /etc/nginx/dck-apps /var/log/nginx
 install -m 0644 "$TARGET_DIR/services/webgen-control/webgen-control.service" /etc/systemd/system/webgen-control.service
 printf 'WEBGEN_BIND_HOST=%s\n' "$WEBGEN_GATEWAY" > "$TARGET_DIR/webgen-control.env.tmp"
+PG_USER="$(read_env_value POSTGRES_USER)"
+[[ "$PG_USER" =~ ^[a-zA-Z_][a-zA-Z0-9_-]*$ ]] || die "invalid POSTGRES_USER"
+printf 'WEBGEN_POSTGRES_USER=%s\n' "$PG_USER" >> "$TARGET_DIR/webgen-control.env.tmp"
 chmod 600 "$TARGET_DIR/webgen-control.env.tmp"
 mv "$TARGET_DIR/webgen-control.env.tmp" "$TARGET_DIR/webgen-control.env"
 systemctl daemon-reload

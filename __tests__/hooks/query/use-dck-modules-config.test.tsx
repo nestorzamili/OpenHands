@@ -26,7 +26,20 @@ vi.mock("#/api/settings-service/settings-service.api", () => ({
     getSettings: vi.fn(async () => mockSettingsApi.value),
     saveSettings: vi.fn(async (next: Record<string, unknown>) => {
       mockSettingsApi.save(next);
-      mockSettingsApi.value = { ...mockSettingsApi.value, ...next };
+      const scopes = next.dck_module_agent_profile_assignments as
+        | Record<string, Record<string, string | null>>
+        | undefined;
+      for (const [scope, changes] of Object.entries(scopes ?? {})) {
+        const current = {
+          ...mockSettingsApi.value.dck_module_agent_profile_assignments[scope],
+        };
+        for (const [id, value] of Object.entries(changes)) {
+          if (value === null) delete current[id];
+          else current[id] = value;
+        }
+        mockSettingsApi.value.dck_module_agent_profile_assignments[scope] =
+          current;
+      }
       return true;
     }),
   },
@@ -108,7 +121,9 @@ describe("useDckModulesConfig", () => {
   });
 
   it("returns an empty list when the config file is missing", async () => {
-    downloadTextFileMock.mockRejectedValue(new Error("not found"));
+    downloadTextFileMock.mockRejectedValue(
+      Object.assign(new Error("not found"), { name: "HttpError", status: 404 }),
+    );
 
     const { result } = renderHook(() => useDckModulesConfig(), {
       wrapper: makeWrapper(),
@@ -136,6 +151,21 @@ describe("useDckModulesConfig", () => {
       slug: "email",
     });
   });
+
+  it.each([401, 500, 408])(
+    "blocks registry writes after read error %s",
+    async (status) => {
+      downloadTextFileMock.mockRejectedValue(
+        Object.assign(new Error("unavailable"), { name: "HttpError", status }),
+      );
+      const { result } = renderHook(() => useDckModulesConfig(), {
+        wrapper: makeWrapper(),
+      });
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+      await expect(result.current.move("research", 1)).rejects.toThrow();
+      expect(uploadTextFileMock).not.toHaveBeenCalled();
+    },
+  );
 
   it("upserts a new module and writes the serialized config to the .dck dir", async () => {
     downloadTextFileMock.mockResolvedValue(configJson([]));

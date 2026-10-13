@@ -207,6 +207,7 @@ jobs:
           cp workspace/AGENTS.md "$STAGE/workspace/"
           cp scripts/migrate-automation-db.sh "$STAGE/scripts/"
           cp scripts/dck-deploy.sh "$STAGE/scripts/"
+          cp scripts/sync-managed-skills.py "$STAGE/scripts/"
           cp scripts/dck-deploy-remote.sh "$STAGE/scripts/"
           cp services/webgen-control/webgen_control.py services/webgen-control/requirements.txt services/webgen-control/webgen-control.service "$STAGE/services/webgen-control/"
           tar -czf deploy.tar.gz -C "$STAGE" .

@@ -34,7 +34,15 @@
 
 import { randomBytes, scrypt, timingSafeEqual, createHash } from "node:crypto";
 import { promisify } from "node:util";
-import { mkdirSync, readFileSync, writeFileSync, renameSync } from "node:fs";
+import {
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+  renameSync,
+  openSync,
+  closeSync,
+  unlinkSync,
+} from "node:fs";
 import { dirname, resolve } from "node:path";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -199,6 +207,34 @@ export class PortalAuthStore {
     return Object.values(this.data.users).some((u) => u.isAdmin);
   }
 
+  reserveSetup() {
+    mkdirSync(dirname(this.filePath), { recursive: true });
+    const lockPath = `${this.filePath}.setup-lock`;
+    let fd;
+    try {
+      fd = openSync(lockPath, "wx", 0o600);
+    } catch (error) {
+      if (error.code === "EEXIST") {
+        throw new PortalAuthError(409, "Admin setup is already in progress.");
+      }
+      throw error;
+    }
+    const release = () => {
+      closeSync(fd);
+      unlinkSync(lockPath);
+    };
+    try {
+      writeFileSync(fd, String(process.pid));
+      this.data = this.#load();
+      if (this.hasAdmin)
+        throw new PortalAuthError(409, "Admin already configured.");
+      return release;
+    } catch (error) {
+      release();
+      throw error;
+    }
+  }
+
   async createUser(username, password, { isAdmin = false } = {}) {
     const name = username.trim();
     if (!name || !password)
@@ -322,12 +358,22 @@ class PortalAuthError extends Error {
 
 function readBody(req, limit = 64 * 1024) {
   return new Promise((resolvePromise, reject) => {
+    const timer = setTimeout(() => {
+      reject(new PortalAuthError(408, "Request body timed out."));
+      req.destroy();
+    }, 30_000);
+    timer.unref();
+    const finish = (error, value) => {
+      clearTimeout(timer);
+      if (error) reject(error);
+      else resolvePromise(value);
+    };
     let size = 0;
     const chunks = [];
     req.on("data", (chunk) => {
       size += chunk.length;
       if (size > limit) {
-        reject(new PortalAuthError(413, "Request body too large."));
+        finish(new PortalAuthError(413, "Request body too large."));
         req.destroy();
         return;
       }
@@ -336,12 +382,15 @@ function readBody(req, limit = 64 * 1024) {
     req.on("end", () => {
       try {
         const raw = Buffer.concat(chunks).toString("utf8");
-        resolvePromise(raw ? JSON.parse(raw) : {});
+        finish(null, raw ? JSON.parse(raw) : {});
       } catch {
-        reject(new PortalAuthError(400, "Invalid JSON body."));
+        finish(new PortalAuthError(400, "Invalid JSON body."));
       }
     });
-    req.on("error", reject);
+    req.on("error", finish);
+    req.on("aborted", () =>
+      finish(new PortalAuthError(400, "Request aborted.")),
+    );
   });
 }
 
@@ -719,15 +768,34 @@ export function createPortalAuthHandler(store, opts = {}) {
   return function handlePortalAuth(req, res) {
     const requestTarget = req.url ?? "/";
     const urlPath = requestTarget.split("?")[0];
-    const requestUrl = new URL(requestTarget, PORTAL_AUTH_RETURN_TO_ORIGIN);
+    let requestUrl;
+    try {
+      requestUrl = new URL(requestTarget, PORTAL_AUTH_RETURN_TO_ORIGIN);
+      if (
+        !requestTarget.startsWith("/") ||
+        requestUrl.origin !== PORTAL_AUTH_RETURN_TO_ORIGIN
+      )
+        throw new Error("invalid target");
+    } catch {
+      sendJson(res, 400, { error: "Invalid request URL." });
+      return true;
+    }
     const cookies = parseCookies(req);
     const sessionToken = cookies[PORTAL_AUTH_SESSION_COOKIE];
     const username = store.resolveSession(sessionToken);
 
     // ── First admin setup ────────────────────────────────────────────────────
     if (req.method === "POST" && urlPath === PORTAL_AUTH_SETUP_PATH) {
-      if (store.hasAdmin) {
-        sendJson(res, 409, { error: "Admin already configured." });
+      let release;
+      try {
+        release = store.reserveSetup();
+      } catch (error) {
+        sendJson(res, error instanceof PortalAuthError ? error.status : 500, {
+          error:
+            error instanceof PortalAuthError
+              ? error.message
+              : "Setup unavailable.",
+        });
         return true;
       }
       return readBody(req)
@@ -760,6 +828,7 @@ export function createPortalAuthHandler(store, opts = {}) {
           const status = err instanceof PortalAuthError ? err.status : 500;
           sendJson(res, status, { error: err.message ?? "Internal error." });
         })
+        .finally(release)
         .then(() => true);
     }
 
@@ -928,4 +997,20 @@ export function createPortalAuthHandler(store, opts = {}) {
 
     return false; // authenticated -> continue serving
   };
+}
+
+export function handlePortalAuthSafely(handler, req, res) {
+  const fail = () => {
+    if (res.destroyed || res.writableEnded) return;
+    if (res.headersSent) res.destroy();
+    else sendJson(res, 500, { error: "Authentication unavailable." });
+  };
+  try {
+    const handled = handler(req, res);
+    if (handled && typeof handled.then === "function") handled.catch(fail);
+    return Boolean(handled);
+  } catch {
+    fail();
+    return true;
+  }
 }

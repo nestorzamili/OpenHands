@@ -300,6 +300,7 @@ export function formatDckModuleCount(
 }
 
 export type DckProjectStatus =
+  | "starting"
   | "running"
   | "stopped"
   | "working"
@@ -381,6 +382,7 @@ export function projectLastTouched(
 }
 
 export const DCK_STATUS_LABEL_KEYS: Record<DckProjectStatus, string> = {
+  starting: "COMMON$STARTING",
   running: "DCK$STATUS_RUNNING",
   stopped: "DCK$STATUS_STOPPED",
   working: "DCK$STATUS_WORKING",

@@ -1,10 +1,3 @@
-/**
- * App runtime status the agent writes into `.dck.json` after a lifecycle
- * action (deploy/rebuild/stop) verifies the container with `docker compose ps`
- * + a health check. The frontend cannot talk to the Docker daemon, so this
- * agent-written snapshot — not the browser — is the source of truth for
- * whether the app is actually up. `null` means never verified yet.
- */
 export type DckAppRuntimeStatus = "running" | "stopped" | "error";
 
 export interface DckProjectMeta {
@@ -12,7 +5,6 @@ export interface DckProjectMeta {
   port: number | null;
   stack: string | null;
   authProvider?: string | null;
-  url: string | null;
   previewPath: string | null;
   subdomain: string | null;
   lastStatus: DckAppRuntimeStatus | null;
@@ -54,41 +46,39 @@ function coercePort(value: unknown): number | null {
   return null;
 }
 
-export function projectUrlForPort(port: number | null): string | null {
-  return port === null ? null : `http://localhost:${port}`;
-}
-
-function normalizePreviewPath(previewPath: string | null): string | null {
-  if (previewPath === null) return null;
-  const trimmed = previewPath.trim();
-  if (trimmed.length === 0) return null;
-  const withLeadingSlash = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
-  return withLeadingSlash.endsWith("/")
-    ? withLeadingSlash
-    : `${withLeadingSlash}/`;
-}
-
-function normalizeOrigin(origin: string | null): string | null {
+function normalizeOrigin(origin: string | null): URL | null {
   if (!origin) return null;
-  const trimmed = origin.trim().replace(/\/+$/, "");
-  return trimmed.length > 0 ? trimmed : null;
+  try {
+    const url = new URL(origin);
+    return ["http:", "https:"].includes(url.protocol) &&
+      !url.username &&
+      !url.password
+      ? url
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 export function buildPreviewUrl(
   previewPath: string | null,
   origin: string | null,
 ): string | null {
-  const path = normalizePreviewPath(previewPath);
+  const path = previewPath?.trim().replace(/^\/?/, "/").replace(/\/$/, "");
   const base = normalizeOrigin(origin);
-  if (!path || !base) return null;
-  return `${base}${path}`;
+  if (!path || !base || !/^\/preview\/[a-z0-9]+(?:-[a-z0-9]+)*$/.test(path))
+    return null;
+  return `${base.origin}${path}`;
 }
 
 export function buildPublishedUrl(subdomain: string | null): string | null {
-  if (subdomain === null) return null;
-  const trimmed = subdomain.trim().replace(/\/+$/, "");
-  if (trimmed.length === 0) return null;
-  return `https://${trimmed}/`;
+  const host = subdomain?.trim().toLowerCase().replace(/\/$/, "");
+  if (
+    !host ||
+    !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.dckautoposting\.com$/.test(host)
+  )
+    return null;
+  return `https://${host}/`;
 }
 
 export function parseDckProjectMeta(raw: string | null): DckProjectMeta | null {
@@ -120,7 +110,6 @@ export function parseDckProjectMeta(raw: string | null): DckProjectMeta | null {
     port,
     stack,
     authProvider,
-    url: projectUrlForPort(port),
     previewPath,
     subdomain,
     lastStatus,

@@ -380,18 +380,51 @@ describe("ModuleDetailView header", () => {
 });
 
 describe("ModuleDetailView projects list", () => {
-  it("disables lifecycle actions when runtime metadata is unavailable", async () => {
+  it("keeps project chat available when runtime metadata is unavailable", async () => {
     mockRuntimeProjects.available = false;
+    const navigate = vi.fn();
+    const user = userEvent.setup();
     renderWithProviders(
       <ModuleDetailView dckModule={getDckModuleById("webgen")} />,
+      { navigation: { navigate } },
     );
-    expect(await screen.findByTestId("dck-lifecycle-deploy")).toBeDisabled();
+    await user.click(await screen.findByTestId("dck-lifecycle-menu"));
+    expect(screen.getByTestId("dck-lifecycle-deploy")).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    await user.click(screen.getByTestId("dck-lifecycle-chat"));
+    await waitFor(() =>
+      expect(navigate).toHaveBeenCalledWith("/conversations/conv-web"),
+    );
+    expect(mockCreateConversation).not.toHaveBeenCalled();
     expect(
       screen.queryByTestId("dck-project-link-preview"),
     ).not.toBeInTheDocument();
-    expect(
-      screen.queryByTestId("dck-project-link-live"),
-    ).not.toBeInTheDocument();
+  });
+
+  it("starts a prompt-free chat in the website workspace when no related chat exists", async () => {
+    setModuleProfileAssignments({ webgen: "active-profile" });
+    vi.mocked(
+      AgentServerConversationService.searchConversations,
+    ).mockResolvedValue({ items: [researchConversation], next_page_id: null });
+    const user = userEvent.setup();
+    const navigate = vi.fn();
+    renderWithProviders(
+      <ModuleDetailView dckModule={getDckModuleById("webgen")} />,
+      { navigation: { navigate } },
+    );
+    await waitForAssignedModuleProfile("webgen", "active-profile");
+    await user.click(await screen.findByTestId("dck-lifecycle-menu"));
+    await user.click(screen.getByTestId("dck-lifecycle-chat"));
+    await waitFor(() =>
+      expect(mockCreateConversation).toHaveBeenCalledWith({
+        workingDir: "/projects/webgen/shop",
+        agentProfileId: "active-profile",
+      }),
+    );
+    expect(navigate).toHaveBeenCalledWith("/conversations/conv-new");
+    expect(mockSetMessageToSend).not.toHaveBeenCalled();
   });
 
   it.each(["starting", "unknown", "stopped", "error"] as const)(
@@ -425,6 +458,9 @@ describe("ModuleDetailView projects list", () => {
     expect(
       await screen.findByTestId("dck-project-link-preview"),
     ).toHaveAttribute("href", `${window.location.origin}/preview/shop`);
+    expect(screen.getByTestId("dck-project-link-preview")).toHaveTextContent(
+      `${window.location.origin}/preview/shop`,
+    );
     expect(
       screen.queryByTestId("dck-project-link-live"),
     ).not.toBeInTheDocument();
@@ -438,6 +474,9 @@ describe("ModuleDetailView projects list", () => {
       <ModuleDetailView dckModule={getDckModuleById("webgen")} />,
     );
 
+    expect(
+      await screen.findByTestId("dck-project-link-live"),
+    ).toHaveTextContent("https://shop.dckautoposting.com/");
     expect(await screen.findByTestId("dck-project-link-live")).toHaveAttribute(
       "href",
       "https://shop.dckautoposting.com/",
@@ -514,6 +553,7 @@ describe("ModuleDetailView projects list", () => {
     fireEvent.click(await screen.findByTestId("dck-project-row-open"));
     expect(mockCreateConversation).not.toHaveBeenCalled();
 
+    fireEvent.click(await screen.findByTestId("dck-lifecycle-menu"));
     fireEvent.click(await screen.findByTestId("dck-lifecycle-deploy"));
     await waitFor(() => {
       expect(mockWebgenService.run).toHaveBeenCalledWith("shop", {
@@ -693,6 +733,7 @@ describe("ModuleDetailView webgen lifecycle actions", () => {
       <ModuleDetailView dckModule={getDckModuleById("webgen")} />,
     );
 
+    fireEvent.click(await screen.findByTestId("dck-lifecycle-menu"));
     const deployButton = await screen.findByTestId("dck-lifecycle-deploy");
     expect(deployButton).toBeEnabled();
     fireEvent.click(deployButton);
@@ -712,6 +753,7 @@ describe("ModuleDetailView webgen lifecycle actions", () => {
     );
 
     await waitForAssignedModuleProfile("webgen", "active-profile");
+    fireEvent.click(await screen.findByTestId("dck-lifecycle-menu"));
     fireEvent.click(await screen.findByTestId("dck-lifecycle-deploy"));
     await waitFor(() => {
       expect(mockWebgenService.run).toHaveBeenCalledWith("shop", {
@@ -738,6 +780,7 @@ describe("ModuleDetailView webgen lifecycle actions", () => {
     );
 
     await waitForAssignedModuleProfile("webgen", "research-profile");
+    fireEvent.click(await screen.findByTestId("dck-lifecycle-menu"));
     fireEvent.click(await screen.findByTestId("dck-lifecycle-deploy"));
     await waitFor(() => {
       expect(mockWebgenService.run).toHaveBeenCalledWith("shop", {
@@ -764,6 +807,7 @@ describe("ModuleDetailView webgen lifecycle actions", () => {
 
     await waitForAssignedModuleProfile("webgen", "active-profile");
     await waitForAssignedModuleProfile("webgen", "active-profile");
+    fireEvent.click(await screen.findByTestId("dck-lifecycle-menu"));
     fireEvent.click(await screen.findByTestId("dck-lifecycle-deploy"));
     expect(
       await screen.findByTestId("webgen-owner-seed-dialog"),
@@ -798,6 +842,7 @@ describe("ModuleDetailView webgen lifecycle actions", () => {
       <ModuleDetailView dckModule={getDckModuleById("webgen")} />,
     );
 
+    fireEvent.click(await screen.findByTestId("dck-lifecycle-menu"));
     fireEvent.click(await screen.findByTestId("dck-lifecycle-rebuild"));
     await waitFor(() => {
       expect(mockWebgenService.run).toHaveBeenCalledWith("shop", {
@@ -812,6 +857,7 @@ describe("ModuleDetailView webgen lifecycle actions", () => {
       <ModuleDetailView dckModule={getDckModuleById("webgen")} />,
     );
 
+    fireEvent.click(await screen.findByTestId("dck-lifecycle-menu"));
     fireEvent.click(await screen.findByTestId("dck-lifecycle-start"));
     await waitFor(() => {
       expect(mockWebgenService.run).toHaveBeenCalledWith("shop", {
@@ -826,6 +872,7 @@ describe("ModuleDetailView webgen lifecycle actions", () => {
       <ModuleDetailView dckModule={getDckModuleById("webgen")} />,
     );
 
+    fireEvent.click(await screen.findByTestId("dck-lifecycle-menu"));
     fireEvent.click(await screen.findByTestId("dck-lifecycle-delete"));
     expect(mockWebgenService.run).not.toHaveBeenCalled();
     fireEvent.click(screen.getByTestId("confirm-button"));
@@ -843,6 +890,7 @@ describe("ModuleDetailView webgen lifecycle actions", () => {
       <ModuleDetailView dckModule={getDckModuleById("webgen")} />,
     );
 
+    fireEvent.click(await screen.findByTestId("dck-lifecycle-menu"));
     fireEvent.click(await screen.findByTestId("dck-lifecycle-publish"));
     const input = screen.getByTestId("dck-webgen-publish-subdomain-input");
     expect(screen.getByTestId("dck-webgen-publish-submit")).toBeInTheDocument();
@@ -865,6 +913,7 @@ describe("ModuleDetailView webgen lifecycle actions", () => {
       <ModuleDetailView dckModule={getDckModuleById("webgen")} />,
     );
 
+    fireEvent.click(await screen.findByTestId("dck-lifecycle-menu"));
     fireEvent.click(await screen.findByTestId("dck-lifecycle-unpublish"));
     fireEvent.click(screen.getByTestId("confirm-button"));
     await waitFor(() => {

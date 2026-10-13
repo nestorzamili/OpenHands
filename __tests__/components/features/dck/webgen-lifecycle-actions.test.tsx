@@ -21,6 +21,8 @@ describe("WebgenLifecycleActions", () => {
         />,
       );
 
+      await user.click(screen.getByTestId("dck-lifecycle-menu"));
+
       await user.click(screen.getByTestId("dck-lifecycle-deploy"));
 
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
@@ -57,6 +59,7 @@ describe("WebgenLifecycleActions", () => {
         />,
       );
 
+      await user.click(screen.getByTestId("dck-lifecycle-menu"));
       await user.click(screen.getByTestId(testId));
       await waitFor(() =>
         expect(onDispatch).toHaveBeenCalledWith(
@@ -70,7 +73,8 @@ describe("WebgenLifecycleActions", () => {
     },
   );
 
-  it("only shows start for a stopped app and restart/stop for a running app", () => {
+  it("only shows start for a stopped app and restart/stop for a running app", async () => {
+    const user = userEvent.setup();
     const onDispatch = vi.fn().mockResolvedValue(true);
     const view = renderWithProviders(
       <WebgenLifecycleActions
@@ -83,6 +87,7 @@ describe("WebgenLifecycleActions", () => {
       />,
     );
 
+    await user.click(screen.getByTestId("dck-lifecycle-menu"));
     expect(screen.getByTestId("dck-lifecycle-start")).toBeInTheDocument();
     expect(
       screen.queryByTestId("dck-lifecycle-restart"),
@@ -104,6 +109,32 @@ describe("WebgenLifecycleActions", () => {
     expect(screen.getByTestId("dck-lifecycle-stop")).toBeInTheDocument();
   });
 
+  it("opens actions with the keyboard and restores trigger focus on Escape", async () => {
+    const user = userEvent.setup();
+    const onDispatch = vi.fn();
+    renderWithProviders(
+      <WebgenLifecycleActions
+        appName="shop"
+        projectPath="/projects/webgen/shop"
+        authProvider={null}
+        publishedSubdomain={null}
+        runtimeStatus="running"
+        onDispatch={onDispatch}
+      />,
+    );
+    const trigger = screen.getByTestId("dck-lifecycle-menu");
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    trigger.focus();
+    await user.keyboard("{Enter}");
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    await waitFor(() =>
+      expect(screen.queryByRole("menu")).not.toBeInTheDocument(),
+    );
+    await waitFor(() => expect(trigger).toHaveFocus());
+    expect(onDispatch).not.toHaveBeenCalled();
+  });
+
   it("publishes after validating the requested subdomain", async () => {
     const user = userEvent.setup();
     const onDispatch = vi.fn().mockResolvedValue(true);
@@ -117,6 +148,8 @@ describe("WebgenLifecycleActions", () => {
         onDispatch={onDispatch}
       />,
     );
+
+    await user.click(screen.getByTestId("dck-lifecycle-menu"));
 
     await user.click(screen.getByTestId("dck-lifecycle-publish"));
     const input = screen.getByTestId("dck-webgen-publish-subdomain-input");
@@ -149,12 +182,16 @@ describe("WebgenLifecycleActions", () => {
       />,
     );
 
+    await user.click(screen.getByTestId("dck-lifecycle-menu"));
+
     await user.click(screen.getByTestId("dck-lifecycle-publish"));
     expect(screen.getByTestId("dck-webgen-publish-dialog")).toBeInTheDocument();
     await user.click(screen.getByTestId("dck-webgen-publish-cancel"));
     expect(
       screen.queryByTestId("dck-webgen-publish-dialog"),
     ).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId("dck-lifecycle-menu"));
 
     await user.click(screen.getByTestId("dck-lifecycle-publish"));
     await user.keyboard("{Escape}");
@@ -177,6 +214,8 @@ describe("WebgenLifecycleActions", () => {
         onDispatch={onDispatch}
       />,
     );
+
+    await user.click(screen.getByTestId("dck-lifecycle-menu"));
 
     await user.click(screen.getByTestId("dck-lifecycle-unpublish"));
     expect(screen.getByTestId("confirmation-modal")).toBeInTheDocument();
@@ -206,9 +245,13 @@ describe("WebgenLifecycleActions", () => {
       />,
     );
 
+    await user.click(screen.getByTestId("dck-lifecycle-menu"));
+
     await user.click(screen.getByTestId("dck-lifecycle-delete"));
     await user.click(screen.getByTestId("cancel-button"));
     expect(screen.queryByTestId("confirmation-modal")).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId("dck-lifecycle-menu"));
 
     await user.click(screen.getByTestId("dck-lifecycle-delete"));
     expect(screen.getByTestId("confirmation-modal")).toBeInTheDocument();
@@ -237,6 +280,8 @@ describe("WebgenLifecycleActions", () => {
         onDispatch={onDispatch}
       />,
     );
+
+    await user.click(screen.getByTestId("dck-lifecycle-menu"));
 
     await user.click(screen.getByTestId("dck-lifecycle-publish"));
     const input = screen.getByTestId("dck-webgen-publish-subdomain-input");

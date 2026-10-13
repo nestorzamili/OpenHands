@@ -3,6 +3,8 @@ import {
   CirclePlay,
   Globe,
   Loader2,
+  MoreVertical,
+  MessageSquare,
   Play,
   RotateCcw,
   RotateCw,
@@ -17,7 +19,12 @@ import { ModalBackdrop } from "#/components/shared/modals/modal-backdrop";
 import { I18nKey } from "#/i18n/declaration";
 import type { WebgenLifecycleAction } from "#/dck/webgen-lifecycle";
 import type { WebgenRuntimeStatus } from "#/dck/webgen-service";
-import { cn } from "#/utils/utils";
+import {
+  Dropdown,
+  DropdownTrigger,
+  DropdownMenu,
+  DropdownItem,
+} from "@heroui/react";
 
 const SUBDOMAIN_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const RESERVED_SUBDOMAINS = new Set([
@@ -42,6 +49,8 @@ export function WebgenLifecycleActions({
   runtimeStatus,
   onDispatch,
   disabled = false,
+  lifecycleDisabled = false,
+  onOpen,
 }: {
   appName: string;
   projectPath: string;
@@ -56,6 +65,8 @@ export function WebgenLifecycleActions({
     subdomain?: string,
   ) => Promise<boolean>;
   disabled?: boolean;
+  lifecycleDisabled?: boolean;
+  onOpen?: () => void;
 }) {
   const { t } = useTranslation("openhands");
   const [showPublishDialog, setShowPublishDialog] = React.useState(false);
@@ -87,7 +98,7 @@ export function WebgenLifecycleActions({
     action: WebgenLifecycleAction,
     value?: string,
   ): Promise<boolean> => {
-    if (busy) return false;
+    if (busy || lifecycleDisabled) return false;
     setIsSubmitting(true);
     try {
       return await onDispatch(
@@ -109,115 +120,126 @@ export function WebgenLifecycleActions({
   const canRestart = runtimeStatus === "running" || runtimeStatus === "error";
   const canStop = runtimeStatus === "running" || runtimeStatus === "error";
 
-  const iconClassName = "size-4 shrink-0";
-  const actionButtonClass =
-    "inline-flex size-11 items-center justify-center rounded border border-border text-text-secondary hover:bg-surface hover:text-contrast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-50";
+  const actions = [
+    ...(onOpen
+      ? [
+          {
+            id: "chat",
+            label: I18nKey.DCK$CHAT_WITH_WEBSITE,
+            icon: MessageSquare,
+            run: onOpen,
+          },
+        ]
+      : []),
+    {
+      id: "deploy",
+      label: I18nKey.DCK$DEPLOY,
+      icon: Play,
+      run: () => runAction("deploy"),
+    },
+    {
+      id: "rebuild",
+      label: I18nKey.DCK$REBUILD,
+      icon: RotateCcw,
+      run: () => runAction("rebuild"),
+    },
+    ...(canStart
+      ? [
+          {
+            id: "start",
+            label: I18nKey.DCK$START,
+            icon: CirclePlay,
+            run: () => runAction("start"),
+          },
+        ]
+      : []),
+    ...(canRestart
+      ? [
+          {
+            id: "restart",
+            label: I18nKey.DCK$RESTART,
+            icon: RotateCw,
+            run: () => runAction("restart"),
+          },
+        ]
+      : []),
+    ...(canStop
+      ? [
+          {
+            id: "stop",
+            label: I18nKey.DCK$STOP,
+            icon: Square,
+            run: () => runAction("stop"),
+          },
+        ]
+      : []),
+    {
+      id: "publish",
+      label: I18nKey.DCK$PUBLISH,
+      icon: Globe,
+      run: openPublishDialog,
+    },
+    ...(publishedSubdomain
+      ? [
+          {
+            id: "unpublish",
+            label: I18nKey.DCK$UNPUBLISH,
+            icon: XCircle,
+            run: () => setConfirmingUnpublish(true),
+          },
+        ]
+      : []),
+    {
+      id: "delete",
+      label: I18nKey.DCK$DELETE,
+      icon: Trash2,
+      run: () => setConfirmingDelete(true),
+    },
+  ];
 
   return (
-    <div className="flex shrink-0 items-center justify-end gap-1">
-      <button
-        type="button"
-        disabled={busy}
-        onClick={() => runAction("deploy")}
-        data-testid="dck-lifecycle-deploy"
-        aria-label={t(I18nKey.DCK$DEPLOY)}
-        title={t(I18nKey.DCK$DEPLOY)}
-        className={actionButtonClass}
-      >
-        {busy ? (
-          <Loader2 className={cn(iconClassName, "animate-spin")} aria-hidden />
-        ) : (
-          <Play className={iconClassName} aria-hidden />
-        )}
-      </button>
-      <button
-        type="button"
-        disabled={busy}
-        onClick={() => runAction("rebuild")}
-        data-testid="dck-lifecycle-rebuild"
-        aria-label={t(I18nKey.DCK$REBUILD)}
-        title={t(I18nKey.DCK$REBUILD)}
-        className={actionButtonClass}
-      >
-        <RotateCcw className={iconClassName} aria-hidden />
-      </button>
-      {canStart && (
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => runAction("start")}
-          data-testid="dck-lifecycle-start"
-          aria-label={t(I18nKey.DCK$START)}
-          title={t(I18nKey.DCK$START)}
-          className={actionButtonClass}
+    <div className="flex shrink-0 items-center justify-end">
+      <Dropdown placement="bottom-end" disableAnimation>
+        <DropdownTrigger>
+          <button
+            type="button"
+            disabled={busy}
+            data-testid="dck-lifecycle-menu"
+            aria-label={t(I18nKey.DCK$LIFECYCLE_ACTIONS)}
+            className="inline-flex size-11 items-center justify-center rounded text-text-secondary hover:bg-surface hover:text-contrast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isSubmitting ? (
+              <Loader2 className="size-4 animate-spin" aria-hidden />
+            ) : (
+              <MoreVertical className="size-4" aria-hidden />
+            )}
+          </button>
+        </DropdownTrigger>
+        <DropdownMenu
+          aria-label={t(I18nKey.DCK$LIFECYCLE_ACTIONS)}
+          disabledKeys={actions
+            .filter(
+              (action) => busy || (lifecycleDisabled && action.id !== "chat"),
+            )
+            .map((action) => action.id)}
+          onAction={(key) => actions.find((action) => action.id === key)?.run()}
         >
-          <CirclePlay className={iconClassName} aria-hidden />
-        </button>
-      )}
-      {canRestart && (
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => runAction("restart")}
-          data-testid="dck-lifecycle-restart"
-          aria-label={t(I18nKey.DCK$RESTART)}
-          title={t(I18nKey.DCK$RESTART)}
-          className={actionButtonClass}
-        >
-          <RotateCw className={iconClassName} aria-hidden />
-        </button>
-      )}
-      {canStop && (
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => runAction("stop")}
-          data-testid="dck-lifecycle-stop"
-          aria-label={t(I18nKey.DCK$STOP)}
-          title={t(I18nKey.DCK$STOP)}
-          className={actionButtonClass}
-        >
-          <Square className={iconClassName} aria-hidden />
-        </button>
-      )}
-      <button
-        type="button"
-        disabled={busy}
-        onClick={openPublishDialog}
-        data-testid="dck-lifecycle-publish"
-        aria-label={t(I18nKey.DCK$PUBLISH)}
-        title={t(I18nKey.DCK$PUBLISH)}
-        className={actionButtonClass}
-      >
-        <Globe className={iconClassName} aria-hidden />
-      </button>
-      {publishedSubdomain && (
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => setConfirmingUnpublish(true)}
-          data-testid="dck-lifecycle-unpublish"
-          aria-label={t(I18nKey.DCK$UNPUBLISH)}
-          title={t(I18nKey.DCK$UNPUBLISH)}
-          className={actionButtonClass}
-        >
-          <XCircle className={iconClassName} aria-hidden />
-        </button>
-      )}
-      <button
-        type="button"
-        disabled={busy}
-        onClick={() => setConfirmingDelete(true)}
-        data-testid="dck-lifecycle-delete"
-        aria-label={t(I18nKey.DCK$DELETE)}
-        title={t(I18nKey.DCK$DELETE)}
-        className={cn(
-          actionButtonClass,
-          "text-status-error hover:text-status-error",
-        )}
-      >
-        <Trash2 className={iconClassName} aria-hidden />
-      </button>
+          {actions.map((action) => (
+            <DropdownItem
+              key={action.id}
+              data-testid={`dck-lifecycle-${action.id}`}
+              textValue={t(action.label)}
+              startContent={
+                <action.icon className="size-4 shrink-0" aria-hidden />
+              }
+              className={action.id === "delete" ? "text-danger" : undefined}
+              color={action.id === "delete" ? "danger" : "default"}
+            >
+              {t(action.label)}
+            </DropdownItem>
+          ))}
+        </DropdownMenu>
+      </Dropdown>
 
       {showPublishDialog && (
         <ModalBackdrop

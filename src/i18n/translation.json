@@ -1,4 +1,22 @@
 {
+  "DCK$CHAT_WITH_WEBSITE": {
+    "en": "Chat with website",
+    "ja": "ウェブサイトについてチャット",
+    "zh-CN": "就网站发起对话",
+    "zh-TW": "就網站發起對話",
+    "ko-KR": "웹사이트에 관해 채팅",
+    "no": "Chat om nettstedet",
+    "ar": "محادثة حول الموقع",
+    "de": "Über Website chatten",
+    "fr": "Discuter du site web",
+    "it": "Chat sul sito web",
+    "pt": "Conversar sobre o site",
+    "es": "Chatear sobre el sitio web",
+    "ca": "Xateja sobre el lloc web",
+    "tr": "Web sitesi hakkında sohbet et",
+    "uk": "Чат про вебсайт",
+    "id": "Chat dengan website"
+  },
   "FILES$DISCOVERY_SETTINGS": {
     "en": "File discovery",
     "ja": "ファイル探索",

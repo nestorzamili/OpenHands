@@ -2,11 +2,7 @@ import { useTranslation } from "react-i18next";
 import { ExternalLink } from "lucide-react";
 import { I18nKey } from "#/i18n/declaration";
 import { formatRelativeTime } from "#/utils/format-relative-time";
-import {
-  projectLastTouched,
-  relatedConversationCount,
-  type DckProjectStatus,
-} from "#/dck/modules";
+import { projectLastTouched, type DckProjectStatus } from "#/dck/modules";
 import type { AppConversation } from "#/api/conversation-service/agent-server-conversation-service.types";
 import type { DckProjectMeta } from "#/dck/project-metadata";
 import type { WebgenLifecycleAction } from "#/dck/webgen-lifecycle";
@@ -21,11 +17,6 @@ import {
 } from "./project-links";
 
 const CELL = "px-3 py-2 align-middle";
-
-const LINK_LABEL_KEY: Record<DckProjectLinkKind, I18nKey> = {
-  live: I18nKey.DCK$LIVE_LINK,
-  preview: I18nKey.DCK$PREVIEW_LINK,
-};
 
 const LINK_ARIA_KEY: Record<DckProjectLinkKind, I18nKey> = {
   live: I18nKey.DCK$OPEN_LIVE_LINK,
@@ -75,10 +66,7 @@ function WebgenProjectTableRow({
   const { t, i18n } = useTranslation("openhands");
   const meta = runtime ? metaFromRuntime(runtime) : null;
   const status: DckProjectStatus = runtime?.status ?? "unknown";
-  const count = relatedConversationCount(conversations, entry.path);
   const lastTouched = projectLastTouched(conversations, entry.path);
-  const checkedAt =
-    runtime?.status !== "unknown" ? runtime?.last_checked_at : null;
 
   return (
     <tr
@@ -86,43 +74,7 @@ function WebgenProjectTableRow({
       className="border-t border-border hover:bg-surface"
     >
       <td className={CELL}>
-        <div className="flex flex-col gap-0.5">
-          <DckProjectStatusBadge status={status} />
-          {checkedAt && (
-            <span
-              data-testid="dck-project-verified-at"
-              className="text-xs text-text-tertiary"
-            >
-              {t(I18nKey.DCK$STATUS_VERIFIED_AT, {
-                time: formatRelativeTime(checkedAt, i18n.language, t),
-              })}
-            </span>
-          )}
-          {runtime && runtime.containers.length > 0 && (
-            <ul
-              aria-label={t(I18nKey.DCK$LIVE_CONTAINER_STATUS)}
-              data-testid="dck-project-containers"
-              className="mt-1 flex flex-col gap-0.5 text-xs text-text-tertiary"
-            >
-              {runtime.containers.map((container) => (
-                <li
-                  key={container.id}
-                  data-testid="dck-project-container-status"
-                  title={container.health ?? container.state}
-                >
-                  <span className="font-medium text-text-secondary">
-                    {container.name}
-                  </span>
-                  {": "}
-                  {container.health ?? container.state}
-                  {container.exit_code !== null
-                    ? ` (exit ${container.exit_code})`
-                    : ""}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+        <DckProjectStatusBadge status={status} />
       </td>
       <td className={CELL}>
         <button
@@ -160,21 +112,13 @@ function WebgenProjectTableRow({
                   })}
                   className="inline-flex items-center gap-1 text-xs font-medium text-accent hover:text-contrast"
                 >
-                  {t(LINK_LABEL_KEY[link.kind])}
-                  <ExternalLink className="size-3" aria-hidden />
+                  <span className="break-all">{link.url}</span>
+                  <ExternalLink className="size-3 shrink-0" aria-hidden />
                 </a>
               ))}
             </div>
           );
         })()}
-      </td>
-      <td className={CELL}>
-        <span
-          data-testid="dck-project-count"
-          className="text-xs text-text-tertiary"
-        >
-          {t(I18nKey.DCK$CONVERSATION_COUNT, { count })}
-        </span>
       </td>
       <td className={CELL}>
         {lastTouched ? (
@@ -196,7 +140,9 @@ function WebgenProjectTableRow({
           publishedSubdomain={meta?.subdomain ?? null}
           runtimeStatus={runtime?.status}
           onDispatch={dispatchLifecycle}
-          disabled={isBusy || !runtime}
+          disabled={isBusy}
+          lifecycleDisabled={!runtime}
+          onOpen={() => onOpen(entry.path)}
         />
       </td>
     </tr>
@@ -242,7 +188,6 @@ export function WebgenProjectTable({
             <th className={headClass}>{t(I18nKey.DCK$TABLE_STATUS)}</th>
             <th className={headClass}>{t(I18nKey.DCK$TABLE_NAME)}</th>
             <th className={headClass}>{t(I18nKey.DCK$TABLE_URL)}</th>
-            <th className={headClass}>{t(I18nKey.DCK$TABLE_CONVERSATIONS)}</th>
             <th className={headClass}>{t(I18nKey.DCK$TABLE_LAST_ACTIVITY)}</th>
             <th className={`${headClass} text-right`}>
               <span className="sr-only">

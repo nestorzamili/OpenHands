@@ -2,7 +2,7 @@
 
 DCK scaffold conversations use the individual project workspace. Conversation rows navigate by ID; workspace lookup is for opening a project. Finish pagination before creating a conversation based on a missing match. Skill collision checks use storage paths, not display names. See `docs/webgen-reliability.md`.
 
-WebGen table status, links, and lifecycle metadata come only from the host runtime API. Show links only while running; starting, stopped, error, and unknown states have no active link. Preview is `/preview/<slug>` on the Canvas origin. Deploy does not ask for a domain; only Publish selects a subdomain. One deployment has one active mode and link. Do not restore local-port links, metadata fallbacks, or chat-driven lifecycle commands.
+WebGen table status, links, and lifecycle metadata come only from the host runtime API. Show links only while running; starting, stopped, error, and unknown states have no active link. Preview is `/preview/<slug>` on the Canvas origin. Deploy does not ask for a domain; only Publish selects a subdomain. One deployment has one active mode and link. Show the full URL and a compact status badge in the WebGen table; keep lifecycle actions and project chat in the accessible three-dot menu. Project chat remains available when runtime metadata is unavailable, and uses the same workspace-scoped open behavior as the project name. Do not restore local-port links, metadata fallbacks, or chat-driven lifecycle commands.
 
 ## Inline-style rollout
 

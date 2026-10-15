@@ -101,11 +101,15 @@ app credentials must never be requested through `LookupSecret`, entered into an
 agent prompt, copied into workspace files, or exposed to the agent. The user
 manages them from that project's **Environment** action in the Web Generator list.
 
-- Configure app credentials only in the project-scoped Environment UI. The
-  control service injects them into that app container during an explicit
-  lifecycle action. Saving or editing a value does not deploy or restart; tell
-  the user it takes effect on the next Deploy, Rebuild, Start, Restart, Publish,
-  or Unpublish.
+- Manage custom app credentials in the project-scoped Environment UI. For an
+  app with `needsDatabase: true` or Better Auth, the host control service
+  automatically creates a stable per-project database URL and runtime role on
+  the first explicit lifecycle action; Better Auth also gets a stable generated
+  `BETTER_AUTH_SECRET`. These generated values are stored only in the encrypted
+  host runtime store and injected into that app container. An existing
+  user-provided `DATABASE_URL` is preserved and is not replaced or auto-managed.
+  Saving or editing a custom value does not deploy or restart; it takes effect
+  on the next Deploy preview, Rebuild, Start, Restart, Publish, or Unpublish.
 - `.env` may contain only non-secret defaults copied from `.env.example` and
   `APP_BASE_PATH`. Do not write credentials or secret values to `.env`,
   `.env.example`, Compose YAML, source code, build args, Docker build context,
@@ -159,41 +163,58 @@ ports on `127.0.0.1:<port>:3000`; nginx is the public entry point.
 
 ## 5. Database Per App
 
-Each app that needs persistence gets its own database (`dck_<app-name>`) on the
-shared DCK Postgres cluster, created with an admin/migration role. The cluster is the
-`postgres` service on the `dck` network (see §2) — not a host-published port:
+Each app that needs persistence gets its own database on the shared DCK Postgres
+cluster, reached as the Compose service `postgres` on network `dck` (never via a
+host-published port). The host control service creates the database and a
+distinct runtime role on the first explicit lifecycle action. The conventional
+database name is `dck_<app-name>`; long names are deterministically shortened to
+fit PostgreSQL's 63-byte identifier limit. The generated `DATABASE_URL` uses the
+runtime role and is stored only in the encrypted host runtime store.
 
-```bash
-# Create the per-app database once (admin role from the deployment .env):
-docker compose -f /opt/dck-agentic/docker-compose.yml exec -T postgres \
-  psql -U "$POSTGRES_USER" -c 'CREATE DATABASE dck_<app-name>;'
-```
+The app runtime role must be `LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE
+NOREPLICATION NOBYPASSRLS`; it must not own the database, schema, or tables and
+must not be a member of another role. A distinct per-project migration role owns
+only that project's database and runs only in the host-controlled migration
+container; neither its username/password nor its URL may enter the prompt,
+workspace, project Environment API, runtime env file, build context, logs, or Git.
+Within the app database, the control service revokes public database/schema and
+project-function access, grants the runtime role database `CONNECT` and schema
+`USAGE`, then grants only `SELECT`, `INSERT`, `UPDATE`, and `DELETE` on app data
+tables and `USAGE`/`SELECT` on their sequences. Migration metadata tables are
+excluded. It never grants runtime `CREATE`, ownership, `TRUNCATE`, or execute
+privileges on project-defined functions. New tables receive the same narrow
+default grants. These ACL changes are scoped to the app database; do not revoke
+cluster-wide `PUBLIC CONNECT` from other databases as part of an app lifecycle
+action.
 
-Create a distinct per-app **runtime role** for the URL stored as
-`DATABASE_URL_<SUFFIX>`. It must be `NOSUPERUSER NOCREATEDB NOCREATEROLE
-NOREPLICATION NOBYPASSRLS`, must not own the database/schema/tables, and must
-not inherit the admin role. Grant only `CONNECT` on that app database, `USAGE`
-on the required schema, and the DML privileges (`SELECT`, `INSERT`, `UPDATE`,
-`DELETE`) on the app's data tables; grant sequence privileges only when the
-schema uses sequences. Do not grant `CREATE`, ownership, or access to migration
-metadata tables. Do not grant broad default privileges; after a schema
-migration, grant the runtime role only the privileges needed on newly created
-app data tables. Keep migration/admin credentials separate from runtime
-credentials; run Prisma migrations with the elevated role in a throwaway
-container, then verify the runtime role can log in and cannot create/alter/drop
-schema objects. Use one shared database only when the operator explicitly says
-so.
+For a service-managed database, explicit Deploy/Rebuild/Start/Restart/Publish/
+Unpublish may apply standard PostgreSQL Prisma migrations before building or
+starting the app. Each migration is checksum-tracked and runs in a transaction
+using the separate migration role in a short-lived, read-only, non-root psql
+container attached only to network `dck`; the password is mounted via a
+mode-0600 temporary file outside the workspace and removed afterward. The
+runner accepts ordinary schema DDL only and rejects psql directives, arbitrary
+function calls, procedural SQL, grants/ownership changes, transaction control,
+and edits to the migration ledger. Unsupported migrations fail closed. Never
+run migrations with the app runtime role or bake credentials into the project.
+Existing databases without matching encrypted migration metadata and custom
+user-provided `DATABASE_URL` values are not adopted or migrated; stop for
+operator review rather than weakening ownership checks. Existing custom URLs
+are preserved; do not silently replace them or provision a second database.
 
 ## 6. Lifecycle through the WebGen controls
 
-Scaffolding and code changes do not deploy. The operator uses the WebGen UI's
-typed Deploy, Rebuild, Start, Restart, Stop, Publish, Unpublish, and Delete
-actions. The host control service runs Docker, validates readiness, owns nginx
+Scaffolding and code changes do not deploy. The operator uses **Deploy preview**
+for the first preview deployment; that action disappears once a preview or
+published deployment exists. **Rebuild** remains available for existing
+deployments, while **Start** is shown for stopped deployments. Publish is hidden
+for already-published projects; Unpublish is shown instead. The remaining typed
+actions are Restart, Stop, Publish, Unpublish, and Delete. The host control service runs Docker, validates readiness, owns nginx
 routes, and writes deployment metadata. Canvas does not mount the Docker
 socket. Do not ask for that socket or write host nginx configuration from chat.
 
-Deploying an unpublished project serves it at the Canvas origin under
-`/preview/<app>`. Deploy/Rebuild/Start/Restart retain an existing publication.
+Deploy preview serves an unpublished project at the Canvas origin under
+`/preview/<app>`. Rebuild/Start/Restart retain an existing publication.
 Only Publish accepts a subdomain. Unpublish explicitly rebuilds the app for
 its preview path and removes the service-managed published route. One app has
 one active deployment mode and one canonical link.

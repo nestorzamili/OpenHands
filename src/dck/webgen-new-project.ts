@@ -76,7 +76,7 @@ export function buildWebgenScaffoldPrompt(
       lines.push(
         `- DCK first-owner bootstrap verification key (public, safe to store in source): ${ownerSeedVerificationKey}`,
         "- Implement the signed, one-time Better Auth owner bootstrap route exactly as specified in the web-generator skill. Disable public sign-up; call Better Auth server APIs only. Never ask for, echo, log, persist, or include owner credentials in prompts, chat, source, .env, telemetry, or the portal Secrets Manager.",
-        '- Record authProvider as "better-auth" in .dck.json. The DCK server delivers the seed only after an explicit Deploy/Rebuild action; do not create a seed user during ordinary app start or when the endpoint is merely health-checked.',
+        '- Record authProvider as "better-auth" in .dck.json. The DCK server delivers the seed only after an explicit Deploy preview/Rebuild action; do not create a seed user during ordinary app start or when the endpoint is merely health-checked.',
       );
     }
   }
@@ -85,7 +85,7 @@ export function buildWebgenScaffoldPrompt(
   }
   lines.push(
     "",
-    "Pick the first free port ≥ 3000, write .dck.json and .env.example, and apply the antislop skills to all UI, layout, copy, and motion. Configure APP_BASE_PATH at build time so the first explicit Deploy serves /preview/<app-name> on the Canvas origin. Do not deploy, publish, create a subdomain, or write nginx configuration while scaffolding. Name the app container <app-name>-app so the authenticated DCK provisioning capability can reach it on the shared dck network.",
+    "Pick the first free port ≥ 3000, write .dck.json and .env.example, and apply the antislop skills to all UI, layout, copy, and motion. Configure APP_BASE_PATH at build time so the first explicit Deploy preview serves /preview/<app-name> on the Canvas origin. Do not deploy, publish, create a subdomain, or write nginx configuration while scaffolding. Name the app container <app-name>-app so the authenticated DCK provisioning capability can reach it on the shared dck network.",
   );
   return lines.join("\n");
 }

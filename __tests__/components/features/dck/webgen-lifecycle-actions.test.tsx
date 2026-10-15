@@ -28,9 +28,12 @@ describe("WebgenLifecycleActions", () => {
     expect(onDispatch).not.toHaveBeenCalled();
   });
 
-  it.each([null, "current-shop.dckautoposting.com"])(
-    "deploys without a domain dialog or publication change for %s",
-    async (publishedSubdomain) => {
+  it.each([
+    [null, "dck-lifecycle-deploy", "deploy"],
+    ["current-shop.dckautoposting.com", "dck-lifecycle-rebuild", "rebuild"],
+  ] as const)(
+    "runs the appropriate no-domain action for %s",
+    async (publishedSubdomain, testId, action) => {
       const user = userEvent.setup();
       const onDispatch = vi.fn().mockResolvedValue(true);
       renderWithProviders(
@@ -45,14 +48,13 @@ describe("WebgenLifecycleActions", () => {
       );
 
       await user.click(screen.getByTestId("dck-lifecycle-menu"));
-
-      await user.click(screen.getByTestId("dck-lifecycle-deploy"));
+      await user.click(screen.getByTestId(testId));
 
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
       await waitFor(() =>
         expect(onDispatch).toHaveBeenCalledWith(
           "/projects/webgen/shop",
-          "deploy",
+          action,
           "shop",
           null,
           undefined,
@@ -77,6 +79,7 @@ describe("WebgenLifecycleActions", () => {
           projectPath="/projects/webgen/shop"
           authProvider={null}
           publishedSubdomain={null}
+          previewPath="/preview/shop"
           runtimeStatus={runtimeStatus}
           onDispatch={onDispatch}
         />,
@@ -105,6 +108,7 @@ describe("WebgenLifecycleActions", () => {
         projectPath="/projects/webgen/shop"
         authProvider={null}
         publishedSubdomain={null}
+        previewPath="/preview/shop"
         runtimeStatus="stopped"
         onDispatch={onDispatch}
       />,
@@ -123,6 +127,7 @@ describe("WebgenLifecycleActions", () => {
         projectPath="/projects/webgen/shop"
         authProvider={null}
         publishedSubdomain={null}
+        previewPath="/preview/shop"
         runtimeStatus="running"
         onDispatch={onDispatch}
       />,
@@ -130,6 +135,62 @@ describe("WebgenLifecycleActions", () => {
     expect(screen.queryByTestId("dck-lifecycle-start")).not.toBeInTheDocument();
     expect(screen.getByTestId("dck-lifecycle-restart")).toBeInTheDocument();
     expect(screen.getByTestId("dck-lifecycle-stop")).toBeInTheDocument();
+  });
+
+  it("hides Deploy preview after deployment and avoids duplicate Publish for published apps", async () => {
+    const user = userEvent.setup();
+    const onDispatch = vi.fn().mockResolvedValue(true);
+    const view = renderWithProviders(
+      <WebgenLifecycleActions
+        appName="shop"
+        projectPath="/projects/webgen/shop"
+        authProvider={null}
+        publishedSubdomain={null}
+        runtimeStatus="stopped"
+        onDispatch={onDispatch}
+      />,
+    );
+
+    await user.click(screen.getByTestId("dck-lifecycle-menu"));
+    expect(screen.getByTestId("dck-lifecycle-deploy")).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("dck-lifecycle-rebuild"),
+    ).not.toBeInTheDocument();
+
+    view.rerender(
+      <WebgenLifecycleActions
+        appName="shop"
+        projectPath="/projects/webgen/shop"
+        authProvider={null}
+        publishedSubdomain={null}
+        previewPath="/preview/shop"
+        runtimeStatus="running"
+        onDispatch={onDispatch}
+      />,
+    );
+    expect(
+      screen.queryByTestId("dck-lifecycle-deploy"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId("dck-lifecycle-rebuild")).toBeInTheDocument();
+
+    view.rerender(
+      <WebgenLifecycleActions
+        appName="shop"
+        projectPath="/projects/webgen/shop"
+        authProvider={null}
+        publishedSubdomain="shop.dckautoposting.com"
+        runtimeStatus="stopped"
+        onDispatch={onDispatch}
+      />,
+    );
+    expect(
+      screen.queryByTestId("dck-lifecycle-deploy"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId("dck-lifecycle-start")).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("dck-lifecycle-publish"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId("dck-lifecycle-unpublish")).toBeInTheDocument();
   });
 
   it("opens actions with the keyboard and restores trigger focus on Escape", async () => {

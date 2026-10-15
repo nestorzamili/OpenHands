@@ -29,6 +29,7 @@ export interface WebgenProjectStatus {
   auth_provider: string | null;
   preview_path: string | null;
   subdomain: string | null;
+  has_deployment?: boolean;
   status: WebgenRuntimeStatus;
   last_checked_at: string | null;
   containers: WebgenContainerStatus[];

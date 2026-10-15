@@ -47,6 +47,8 @@ export function WebgenLifecycleActions({
   projectPath,
   authProvider,
   publishedSubdomain,
+  previewPath,
+  hasDeployment,
   runtimeStatus,
   onDispatch,
   disabled = false,
@@ -58,6 +60,8 @@ export function WebgenLifecycleActions({
   projectPath: string;
   authProvider: string | null;
   publishedSubdomain: string | null;
+  previewPath?: string | null;
+  hasDeployment?: boolean;
   runtimeStatus?: WebgenRuntimeStatus;
   onDispatch: (
     projectPath: string,
@@ -119,9 +123,27 @@ export function WebgenLifecycleActions({
   const runAction = (action: WebgenLifecycleAction) => {
     void dispatch(action);
   };
-  const canStart = runtimeStatus === "stopped" || runtimeStatus === "error";
-  const canRestart = runtimeStatus === "running" || runtimeStatus === "error";
-  const canStop = runtimeStatus === "running" || runtimeStatus === "error";
+  const hasExistingDeployment =
+    Boolean(previewPath || publishedSubdomain || hasDeployment) ||
+    runtimeStatus === "running" ||
+    runtimeStatus === "starting";
+  const knownLifecycleState =
+    runtimeStatus === "running" ||
+    runtimeStatus === "stopped" ||
+    runtimeStatus === "error";
+  const showDeployPreview =
+    !hasExistingDeployment &&
+    (runtimeStatus === "stopped" || runtimeStatus === "error");
+  const showRebuild = hasExistingDeployment && knownLifecycleState;
+  const canStart =
+    hasExistingDeployment &&
+    (runtimeStatus === "stopped" || runtimeStatus === "error");
+  const canRestart =
+    hasExistingDeployment &&
+    (runtimeStatus === "running" || runtimeStatus === "error");
+  const canStop =
+    hasExistingDeployment &&
+    (runtimeStatus === "running" || runtimeStatus === "error");
 
   const actions = [
     ...(onOpen
@@ -144,18 +166,26 @@ export function WebgenLifecycleActions({
           },
         ]
       : []),
-    {
-      id: "deploy",
-      label: I18nKey.DCK$DEPLOY,
-      icon: Play,
-      run: () => runAction("deploy"),
-    },
-    {
-      id: "rebuild",
-      label: I18nKey.DCK$REBUILD,
-      icon: RotateCcw,
-      run: () => runAction("rebuild"),
-    },
+    ...(showDeployPreview
+      ? [
+          {
+            id: "deploy",
+            label: I18nKey.DCK$DEPLOY_PREVIEW,
+            icon: Play,
+            run: () => runAction("deploy"),
+          },
+        ]
+      : []),
+    ...(showRebuild
+      ? [
+          {
+            id: "rebuild",
+            label: I18nKey.DCK$REBUILD,
+            icon: RotateCcw,
+            run: () => runAction("rebuild"),
+          },
+        ]
+      : []),
     ...(canStart
       ? [
           {
@@ -186,12 +216,16 @@ export function WebgenLifecycleActions({
           },
         ]
       : []),
-    {
-      id: "publish",
-      label: I18nKey.DCK$PUBLISH,
-      icon: Globe,
-      run: openPublishDialog,
-    },
+    ...(!publishedSubdomain
+      ? [
+          {
+            id: "publish",
+            label: I18nKey.DCK$PUBLISH,
+            icon: Globe,
+            run: openPublishDialog,
+          },
+        ]
+      : []),
     ...(publishedSubdomain
       ? [
           {

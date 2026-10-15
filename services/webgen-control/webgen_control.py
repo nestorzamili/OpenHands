@@ -4,7 +4,7 @@ from __future__ import annotations
 import errno
 import logging
 import stat
-import base64, copy, json, os, re, secrets, shutil, socket, subprocess, tempfile, threading, time, uuid
+import base64, copy, hashlib, json, os, re, secrets, shutil, socket, subprocess, tempfile, threading, time, uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -12,15 +12,31 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError
-from urllib.parse import quote, urlparse
+from urllib.parse import quote, unquote, urlparse
 from urllib.request import Request, urlopen
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from webgen_migrations import MigrationError, MigrationRunner, collect_project_migrations
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives import hashes
 import yaml
 logger=logging.getLogger("webgen-control")
+
+def project_database_name(slug):
+    if not valid_slug(slug): raise ValueError("invalid project slug")
+    name="dck_"+slug
+    if len(name.encode("ascii"))<=63: return name
+    suffix=hashlib.sha256(slug.encode("ascii")).hexdigest()[:16]
+    return name[:63-len(suffix)-1]+"_"+suffix
+
+def runtime_database_role(slug):
+    if not valid_slug(slug): raise ValueError("invalid project slug")
+    return "dck_runtime_"+hashlib.sha256(slug.encode("ascii")).hexdigest()[:32]
+
+def migration_database_role(slug):
+    if not valid_slug(slug): raise ValueError("invalid project slug")
+    return "dck_migrate_"+hashlib.sha256(slug.encode("ascii")).hexdigest()[:32]
 
 SLUG_RE=re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 CONV_RE=re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
@@ -160,6 +176,13 @@ class RuntimeSecretStore:
                     if not isinstance(name,str) or not ENV_KEY_RE.fullmatch(name): raise RuntimeError("invalid runtime secret name")
                     if section=="secrets" and not isinstance(value,str): raise RuntimeError("invalid runtime secret value")
                     if section=="pending" and (not isinstance(value,dict) or not isinstance(value.get("source_name"),str) or not isinstance(value.get("value"),str)): raise RuntimeError("invalid runtime secret migration")
+            managed=record.get("managed_database")
+            if managed is not None:
+                if not isinstance(managed,dict) or set(managed)!={"database","runtime_role","migration_role","migration_url"}: raise RuntimeError("invalid managed database record")
+                if managed["database"]!=project_database_name(record["slug"]) or managed["runtime_role"]!=runtime_database_role(record["slug"]) or managed["migration_role"]!=migration_database_role(record["slug"]): raise RuntimeError("invalid managed database scope")
+                try: migration_url=urlparse(managed["migration_url"])
+                except (TypeError,ValueError): raise RuntimeError("invalid migration database URL")
+                if migration_url.scheme not in {"postgres","postgresql"} or migration_url.hostname!="postgres" or migration_url.port not in (None,5432) or unquote(migration_url.username or "")!=managed["migration_role"] or unquote(migration_url.path.lstrip("/"))!=managed["database"] or not re.fullmatch(r"[A-Za-z0-9_-]{32,128}",unquote(migration_url.password or "")): raise RuntimeError("invalid migration database URL")
         self.data=data
     def _atomic_write_blob(self,blob):
         tmp=self.path.with_name(self.path.name+".tmp-"+secrets.token_hex(8))
@@ -213,8 +236,8 @@ class RuntimeSecretStore:
             record=self.data.get(project_id)
             if record and record.get("slug")!=slug: raise WebgenOperationError("project_identity_conflict",409)
             if not record:
-                self._change(lambda: self.data.__setitem__(project_id,{"slug":slug,"secrets":{},"pending":{}}))
-    def _record(self,project_id): return self.data.setdefault(project_id,{"slug":None,"secrets":{},"pending":{}})
+                self._change(lambda: self.data.__setitem__(project_id,{"slug":slug,"secrets":{},"pending":{},"managed_database":None}))
+    def _record(self,project_id): return self.data.setdefault(project_id,{"slug":None,"secrets":{},"pending":{},"managed_database":None})
     def list(self,project_id):
         with self.lock:
             self._ensure_healthy()
@@ -224,6 +247,22 @@ class RuntimeSecretStore:
         with self.lock:
             self._ensure_healthy()
             return dict(self.data.get(project_id,{}).get("secrets",{}))
+    def managed_database(self,project_id):
+        with self.lock:
+            self._ensure_healthy()
+            value=self.data.get(project_id,{}).get("managed_database")
+            return copy.deepcopy(value) if value is not None else None
+    def configure_managed_database(self,project_id,database_url,managed):
+        with self.lock:
+            self._ensure_healthy()
+            r=self._record(project_id)
+            if not valid_slug(r.get("slug")) or not isinstance(database_url,str) or not isinstance(managed,dict): raise WebgenOperationError("invalid_project_scope",409)
+            if set(managed)!={"database","runtime_role","migration_role","migration_url"} or managed["database"]!=project_database_name(r["slug"]) or managed["runtime_role"]!=runtime_database_role(r["slug"]) or managed["migration_role"]!=migration_database_role(r["slug"]): raise WebgenOperationError("invalid_project_scope",409)
+            if "DATABASE_URL" not in r["secrets"] and len(r["secrets"])>=self.MAX_SECRETS: raise WebgenOperationError("too_many_runtime_secrets",422)
+            def update():
+                r["secrets"]["DATABASE_URL"]=database_url
+                r["managed_database"]=copy.deepcopy(managed)
+            self._change(update)
     def put(self,project_id,name,value):
         with self.lock:
             self._ensure_healthy()
@@ -586,7 +625,8 @@ class Service:
         domain=m.get("subdomain"); subdomain=None
         if isinstance(domain,str) and domain.endswith(".dckautoposting.com") and valid_subdomain(domain[:-len(".dckautoposting.com")]): subdomain=domain
         if subdomain: preview=None
-        return {"slug":slug,"path":f"/projects/webgen/{slug}","name":name,"port":port,"stack":stack,"auth_provider":auth,"preview_path":preview,"subdomain":subdomain,"status":status,"last_checked_at":checked,"containers":cs}
+        has_deployment=bool(subdomain or preview)
+        return {"slug":slug,"path":f"/projects/webgen/{slug}","name":name,"port":port,"stack":stack,"auth_provider":auth,"preview_path":preview,"subdomain":subdomain,"has_deployment":has_deployment,"status":status,"last_checked_at":checked,"containers":cs}
     def projects(self):
         groups=self.all_container_status(); out=[]
         if not self.root.is_dir(): return out
@@ -772,6 +812,175 @@ class Service:
     @staticmethod
     def _valid_runtime_secret_value(value):
         return isinstance(value,str) and len(value.encode("utf-8"))<=8192 and not any(ord(ch)<32 or ord(ch)==127 for ch in value)
+    # @spec WR-020 — Generate required app credentials only for explicit lifecycle operations.
+    @staticmethod
+    def _database_name(slug): return project_database_name(slug)
+    @staticmethod
+    def _runtime_database_role(slug): return runtime_database_role(slug)
+    @staticmethod
+    def _migration_database_role(slug): return migration_database_role(slug)
+    @staticmethod
+    def _pg_identifier(value): return '"'+value.replace('"','""')+'"'
+    @staticmethod
+    def _pg_literal(value): return "'"+value.replace("'","''")+"'"
+    def _matches_generated_database_url(self,value,slug):
+        try:
+            parsed=urlparse(value)
+            return parsed.scheme in {"postgres","postgresql"} and parsed.hostname=="postgres" and parsed.port in (None,5432) and unquote(parsed.username or "")==self._runtime_database_role(slug) and unquote(parsed.path.lstrip("/"))==self._database_name(slug)
+        except (TypeError,ValueError): return False
+    def _matches_project_database_url(self,value,slug):
+        return self._matches_generated_database_url(value,slug)
+    def ensure_generated_runtime_secrets(self,slug,p):
+        project_id=self._ensure_project_id(slug,p); metadata=self._strict_metadata(p); auth=metadata.get("authProvider")
+        needs_database=metadata.get("needsDatabase") is True or auth=="better-auth"
+        values=self.runtime_secrets.values(project_id); database_url=values.get("DATABASE_URL"); managed=self.runtime_secrets.managed_database(project_id)
+        managed_database=False
+        if needs_database and database_url is None:
+            runtime_role=self._runtime_database_role(slug); migration_role=self._migration_database_role(slug); database=self._database_name(slug)
+            runtime_password=secrets.token_urlsafe(48)
+            database_url=f"postgresql://{quote(runtime_role,safe='')}:{quote(runtime_password,safe='')}@postgres:5432/{quote(database,safe='')}"
+            if managed is None:
+                migration_password=secrets.token_urlsafe(48)
+                migration_url=f"postgresql://{quote(migration_role,safe='')}:{quote(migration_password,safe='')}@postgres:5432/{quote(database,safe='')}"
+                managed={"database":database,"runtime_role":runtime_role,"migration_role":migration_role,"migration_url":migration_url}
+            self.runtime_secrets.configure_managed_database(project_id,database_url,managed)
+            values["DATABASE_URL"]=database_url; managed_database=True
+        elif needs_database and self._matches_generated_database_url(database_url,slug):
+            if not managed:
+                # A database created by an older control-service version has no
+                # encrypted migration identity. Do not guess, adopt or alter it.
+                raise WebgenOperationError("database_migration_setup_required",503)
+            if managed.get("database")!=self._database_name(slug) or managed.get("runtime_role")!=self._runtime_database_role(slug) or managed.get("migration_role")!=self._migration_database_role(slug):
+                raise WebgenOperationError("database_provisioning_failed",503)
+            managed_database=True
+        if auth=="better-auth" and "BETTER_AUTH_SECRET" not in values:
+            self.runtime_secrets.put(project_id,"BETTER_AUTH_SECRET",secrets.token_urlsafe(48))
+        if managed_database:
+            runtime_parsed=urlparse(database_url); migration_parsed=urlparse(managed["migration_url"])
+            runtime_password=unquote(runtime_parsed.password or ""); migration_password=unquote(migration_parsed.password or "")
+            self._provision_project_database(slug,self._database_name(slug),self._runtime_database_role(slug),runtime_password,self._migration_database_role(slug),migration_password)
+    def _run_postgres_script(self,sql,database="postgres",timeout=30,tuples_only=False):
+        user=os.getenv("WEBGEN_POSTGRES_USER","dck")
+        container=os.getenv("WEBGEN_POSTGRES_CONTAINER","dck-postgres")
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]*",user) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}",container) or not re.fullmatch(r"[A-Za-z0-9_-]{1,63}",database):
+            raise WebgenOperationError("database_provisioning_failed",503)
+        command=["docker","exec","-i",container,"psql","-X","-q","-U",user,"-d",database,"-v","ON_ERROR_STOP=1"]
+        if tuples_only: command.extend(["-t","-A"])
+        try:
+            result=subprocess.run(command,input=sql,capture_output=True,text=True,timeout=timeout,check=False,env=self.docker_environment())
+        except (OSError,subprocess.TimeoutExpired): raise WebgenOperationError("database_provisioning_failed",503) from None
+        if result.returncode: raise WebgenOperationError("database_provisioning_failed",503)
+        return result
+    def _provision_project_database(self,slug,database,role,password,migration_role,migration_password):
+        owner=os.getenv("WEBGEN_POSTGRES_USER","dck")
+        if not valid_slug(slug) or database!=self._database_name(slug) or role!=self._runtime_database_role(slug) or migration_role!=self._migration_database_role(slug) or role==migration_role or role==owner or migration_role==owner or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]*",owner) or not re.fullmatch(r"[A-Za-z0-9_-]{32,128}",password) or not re.fullmatch(r"[A-Za-z0-9_-]{32,128}",migration_password):
+            raise WebgenOperationError("database_provisioning_failed",503)
+        db_ident=self._pg_identifier(database); role_ident=self._pg_identifier(role); migration_ident=self._pg_identifier(migration_role)
+        db_literal=self._pg_literal(database); role_literal=self._pg_literal(role); migration_literal=self._pg_literal(migration_role)
+        exists=self._run_postgres_script(f"SELECT 1 FROM pg_database WHERE datname={db_literal};",tuples_only=True).stdout.strip()
+        if exists:
+            actual_owner=self._run_postgres_script(f"SELECT r.rolname FROM pg_database d JOIN pg_roles r ON r.oid=d.datdba WHERE d.datname={db_literal};",tuples_only=True).stdout.strip()
+            if actual_owner!=migration_role:
+                raise WebgenOperationError("database_provisioning_failed",503)
+        def ensure_role(name,identifier,literal,secret,allow_database_owner):
+            role_exists=self._run_postgres_script(f"SELECT 1 FROM pg_roles WHERE rolname={literal};",tuples_only=True).stdout.strip()
+            if role_exists:
+                owner_clause=(f"AND NOT ((s.dbid=0 AND s.classid='pg_database'::regclass AND s.objid=(SELECT oid FROM pg_database WHERE datname={db_literal})) OR s.dbid=(SELECT oid FROM pg_database WHERE datname={db_literal}))" if allow_database_owner else "")
+                owned_check=(f"OR EXISTS (SELECT 1 FROM pg_shdepend s WHERE s.refclassid='pg_authid'::regclass AND s.refobjid=r.oid AND s.deptype='o' {owner_clause})")
+                unsafe=self._run_postgres_script(
+                    f"SELECT 1 FROM pg_roles r WHERE r.rolname={literal} AND (r.rolsuper OR r.rolcreatedb OR r.rolcreaterole OR r.rolreplication OR r.rolbypassrls OR EXISTS (SELECT 1 FROM pg_auth_members m WHERE m.member=r.oid OR m.roleid=r.oid) OR EXISTS (SELECT 1 FROM pg_tablespace t WHERE t.spcowner=r.oid) {owned_check});",
+                    tuples_only=True,
+                ).stdout.strip()
+                if unsafe: raise WebgenOperationError("database_provisioning_failed",503)
+                statement=f"ALTER ROLE {identifier} WITH LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD {self._pg_literal(secret)};"
+            else:
+                statement=f"CREATE ROLE {identifier} WITH LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD {self._pg_literal(secret)};"
+            self._run_postgres_script(statement)
+        ensure_role(migration_role,migration_ident,migration_literal,migration_password,True)
+        ensure_role(role,role_ident,role_literal,password,False)
+        if not exists:
+            self._run_postgres_script(f"CREATE DATABASE {db_ident} OWNER {migration_ident};")
+        actual_owner=self._run_postgres_script(f"SELECT r.rolname FROM pg_database d JOIN pg_roles r ON r.oid=d.datdba WHERE d.datname={db_literal};",tuples_only=True).stdout.strip()
+        if actual_owner!=migration_role: raise WebgenOperationError("database_provisioning_failed",503)
+        self._synchronize_runtime_database_access(slug,database,role,migration_role)
+    def _synchronize_runtime_database_access(self,slug,database,role,migration_role):
+        if database!=self._database_name(slug) or role!=self._runtime_database_role(slug) or migration_role!=self._migration_database_role(slug):
+            raise WebgenOperationError("database_provisioning_failed",503)
+        db_ident=self._pg_identifier(database); role_ident=self._pg_identifier(role); migration_ident=self._pg_identifier(migration_role)
+        role_literal=self._pg_literal(role); migration_literal=self._pg_literal(migration_role)
+        grant_sql=f"""REVOKE ALL PRIVILEGES ON DATABASE {db_ident} FROM PUBLIC;
+GRANT CONNECT ON DATABASE {db_ident} TO {role_ident};
+REVOKE ALL PRIVILEGES ON SCHEMA public FROM PUBLIC;
+REVOKE ALL PRIVILEGES ON SCHEMA public FROM {role_ident};
+GRANT USAGE ON SCHEMA public TO {role_ident};
+REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM PUBLIC;
+REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM {role_ident};
+REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM PUBLIC;
+REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM {role_ident};
+REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC;
+REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA public FROM {role_ident};
+ALTER DEFAULT PRIVILEGES FOR ROLE {migration_ident} IN SCHEMA public REVOKE ALL ON TABLES FROM PUBLIC;
+ALTER DEFAULT PRIVILEGES FOR ROLE {migration_ident} IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {role_ident};
+ALTER DEFAULT PRIVILEGES FOR ROLE {migration_ident} IN SCHEMA public REVOKE ALL ON SEQUENCES FROM PUBLIC;
+ALTER DEFAULT PRIVILEGES FOR ROLE {migration_ident} IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO {role_ident};
+ALTER DEFAULT PRIVILEGES FOR ROLE {migration_ident} IN SCHEMA public REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+ALTER DEFAULT PRIVILEGES FOR ROLE {migration_ident} IN SCHEMA public REVOKE EXECUTE ON FUNCTIONS FROM {role_ident};
+DO $webgen$
+DECLARE item record;
+BEGIN
+  FOR item IN
+    SELECT c.relname, c.relkind FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m','f')
+      AND lower(c.relname) NOT LIKE '%migration%'
+      AND lower(c.relname) NOT IN ('typeorm_metadata','alembic_version','flyway_schema_history','schema_version','schema_versions')
+  LOOP
+    IF item.relkind IN ('v','m','f') THEN
+      EXECUTE format('GRANT SELECT ON TABLE %I.%I TO %I','public',item.relname,{role_literal});
+    ELSE
+      EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE %I.%I TO %I','public',item.relname,{role_literal});
+    END IF;
+  END LOOP;
+  FOR item IN
+    SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m','f')
+      AND (lower(c.relname) LIKE '%migration%'
+        OR lower(c.relname) IN ('typeorm_metadata','alembic_version','flyway_schema_history','schema_version','schema_versions'))
+  LOOP
+    EXECUTE format('REVOKE ALL PRIVILEGES ON TABLE %I.%I FROM PUBLIC','public',item.relname);
+    EXECUTE format('REVOKE ALL PRIVILEGES ON TABLE %I.%I FROM %I','public',item.relname,{role_literal});
+  END LOOP;
+  FOR item IN
+    SELECT DISTINCT sn.nspname AS schema_name, s.relname AS sequence_name
+    FROM pg_class s JOIN pg_namespace sn ON sn.oid=s.relnamespace
+    JOIN pg_depend d ON d.classid='pg_class'::regclass AND d.objid=s.oid AND d.refclassid='pg_class'::regclass
+    JOIN pg_class t ON t.oid=d.refobjid JOIN pg_namespace tn ON tn.oid=t.relnamespace
+    WHERE s.relkind='S' AND tn.nspname='public' AND t.relkind IN ('r','p')
+      AND lower(t.relname) NOT LIKE '%migration%'
+      AND lower(t.relname) NOT IN ('typeorm_metadata','alembic_version','flyway_schema_history','schema_version','schema_versions')
+  LOOP
+    EXECUTE format('GRANT USAGE, SELECT ON SEQUENCE %I.%I TO %I',item.schema_name,item.sequence_name,{role_literal});
+  END LOOP;
+END
+$webgen$;
+ALTER SCHEMA public OWNER TO {migration_ident};"""
+        self._run_postgres_script(grant_sql,database=database)
+    def run_project_migrations(self,slug,p):
+        metadata=self._strict_metadata(p)
+        if metadata.get("needsDatabase") is not True and metadata.get("authProvider")!="better-auth": return
+        project_id=self._ensure_project_id(slug,p); managed=self.runtime_secrets.managed_database(project_id)
+        if not managed: return
+        runtime_url=self.runtime_secrets.values(project_id).get("DATABASE_URL")
+        if not self._matches_generated_database_url(runtime_url,slug): raise WebgenOperationError("database_migration_setup_required",503)
+        try:
+            migrations=collect_project_migrations(p)
+            if not migrations: return
+            migration_url=urlparse(managed["migration_url"])
+            password=unquote(migration_url.password or "")
+            runner=MigrationRunner(self.runtime_dir,self.docker_environment())
+            runner.apply(slug,managed["database"],managed["migration_role"],password,migrations)
+            self._synchronize_runtime_database_access(slug,managed["database"],managed["runtime_role"],managed["migration_role"])
+        except MigrationError:
+            raise WebgenOperationError("database_migration_failed",503) from None
     def runtime_secret_payload(self,slug,p,api_key):
         project_id=self._ensure_project_id(slug,p); payload=self.runtime_secrets.list(project_id)
         try: candidates=self._legacy_secret_candidates(slug,api_key)
@@ -841,10 +1050,16 @@ class Service:
         except OSError: raise SecretMaterializationError("invalid environment path") from None
         root=p.resolve()
         if resolved==root or root not in resolved.parents or (target.exists() and not target.is_file()): raise SecretMaterializationError("invalid environment path")
-        owner=target.stat() if target.exists() else p.stat(); tmp=target.with_name("."+target.name+".tmp-"+secrets.token_hex(8))
+        content=("\n".join(lines)+"\n").encode("utf-8")
+        owner=target.stat() if target.exists() else p.stat()
+        if target.exists() and owner.st_uid==os.geteuid() and owner.st_gid==os.getegid() and stat.S_IMODE(owner.st_mode)==0o600:
+            try:
+                if target.read_bytes()==content: return
+            except OSError: pass
+        tmp=target.with_name("."+target.name+".tmp-"+secrets.token_hex(8))
         try:
             with open(tmp,"w",encoding="utf-8",newline="\n") as output:
-                output.write("\n".join(lines)+"\n"); output.flush(); os.fsync(output.fileno())
+                output.write(content.decode("utf-8")); output.flush(); os.fsync(output.fileno())
             os.chown(tmp,owner.st_uid,owner.st_gid); os.chmod(tmp,0o600); os.replace(tmp,target)
         finally: tmp.unlink(missing_ok=True)
     @contextmanager
@@ -1026,6 +1241,8 @@ class Service:
                     if m.get("authProvider")=="better-auth" and self.owner_state(slug)!="owner_exists": raise OwnerSeedUnavailable()
                 oldmeta=(p/".dck.json").read_bytes(); oldroutes=self._snapshot_routes(slug); old_base="" if current else f"/preview/{slug}"; runtime_changed=False
                 try:
+                    self.ensure_generated_runtime_secrets(slug,p)
+                    self.run_project_migrations(slug,p)
                     with self.materialize_env(slug,p,"" if action=="publish" else f"/preview/{slug}") as runtime_env_file:
                         r=self.compose(slug,p,"rebuild",runtime_env_file)
                         if r.returncode: raise RuntimeError("rebuild failed")
@@ -1070,6 +1287,8 @@ class Service:
             current=self._published_label(m)
             target=current
             base="" if target else f"/preview/{slug}"
+            self.ensure_generated_runtime_secrets(slug,p)
+            self.run_project_migrations(slug,p)
             with self.materialize_env(slug,p,base) as runtime_env_file:
                 r=self.compose(slug,p,action,runtime_env_file)
             if r.returncode: self.update_meta(p,lastStatus="error",lastCheckedAt=now_iso()); raise RuntimeError("compose operation failed")
@@ -1089,12 +1308,28 @@ class Service:
             self.update_meta(p,lastStatus="running",lastCheckedAt=now_iso()); return self.project(slug,p)
     def postgres_command(self,sql):
         user=os.getenv("WEBGEN_POSTGRES_USER", "dck")
-        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]*",user): raise ValueError("invalid postgres user")
-        return ["docker","exec","dck-postgres","psql","-U",user,"-d","postgres","-v","ON_ERROR_STOP=1","-c",sql]
+        container=os.getenv("WEBGEN_POSTGRES_CONTAINER","dck-postgres")
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]*",user) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}",container): raise ValueError("invalid postgres target")
+        return ["docker","exec",container,"psql","-U",user,"-d","postgres","-v","ON_ERROR_STOP=1","-c",sql]
     def _delete(self,slug,p):
         meta=self.metadata(p)
         project_id=meta.get("projectId")
         needs_db=meta.get("needsDatabase") is not False or meta.get("authProvider")=="better-auth"
+        stored_values=self.runtime_secrets.values(project_id) if isinstance(project_id,str) else {}
+        database=self._database_name(slug); runtime_role=self._runtime_database_role(slug); migration_role=self._migration_database_role(slug)
+        managed=self.runtime_secrets.managed_database(project_id) if isinstance(project_id,str) else None
+        delete_project_database=needs_db and self._matches_project_database_url(stored_values.get("DATABASE_URL"),slug)
+        if delete_project_database:
+            if not managed or managed.get("database")!=database or managed.get("runtime_role")!=runtime_role or managed.get("migration_role")!=migration_role:
+                raise WebgenOperationError("database_cleanup_unverified",409)
+            db_literal=self._pg_literal(database); runtime_literal=self._pg_literal(runtime_role); migration_literal=self._pg_literal(migration_role)
+            actual_owner=self._run_postgres_script(f"SELECT r.rolname FROM pg_database d JOIN pg_roles r ON r.oid=d.datdba WHERE d.datname={db_literal};",tuples_only=True).stdout.strip()
+            if actual_owner and actual_owner!=migration_role: raise WebgenOperationError("database_cleanup_unverified",409)
+            unsafe=self._run_postgres_script(
+                f"SELECT 1 FROM pg_roles r WHERE r.rolname IN ({runtime_literal},{migration_literal}) AND (r.rolsuper OR r.rolcreatedb OR r.rolcreaterole OR r.rolreplication OR r.rolbypassrls OR EXISTS (SELECT 1 FROM pg_auth_members m WHERE m.member=r.oid OR m.roleid=r.oid) OR EXISTS (SELECT 1 FROM pg_tablespace t WHERE t.spcowner=r.oid) OR (r.rolname={runtime_literal} AND EXISTS (SELECT 1 FROM pg_shdepend s WHERE s.refclassid='pg_authid'::regclass AND s.refobjid=r.oid AND s.deptype='o')) OR (r.rolname={migration_literal} AND EXISTS (SELECT 1 FROM pg_shdepend s WHERE s.refclassid='pg_authid'::regclass AND s.refobjid=r.oid AND s.deptype='o' AND NOT ((s.dbid=0 AND s.classid='pg_database'::regclass AND s.objid=(SELECT oid FROM pg_database WHERE datname={db_literal})) OR s.dbid=(SELECT oid FROM pg_database WHERE datname={db_literal})))) LIMIT 1;",
+                tuples_only=True,
+            ).stdout.strip()
+            if unsafe: raise WebgenOperationError("database_cleanup_unverified",409)
         if needs_db:
             probe=subprocess.run(self.postgres_command("SELECT 1"),capture_output=True,text=True,timeout=10,check=False)
             if probe.returncode: raise WebgenOperationError("database_unavailable",503)
@@ -1105,11 +1340,16 @@ class Service:
             down=self.compose(slug,p,"delete")
             if down.returncode: raise RuntimeError("container cleanup failed")
             shutil.rmtree(p)
-            if needs_db:
-                db=subprocess.run(self.postgres_command(f'DROP DATABASE IF EXISTS "dck_{slug}" WITH (FORCE)'),capture_output=True,text=True,timeout=30,check=False)
+            if delete_project_database:
+                owner=self._run_postgres_script(f"SELECT r.rolname FROM pg_database d JOIN pg_roles r ON r.oid=d.datdba WHERE d.datname={self._pg_literal(database)};",tuples_only=True).stdout.strip()
+                if owner and owner!=migration_role: raise WebgenOperationError("database_cleanup_unverified",409)
+                db=self._run_postgres_script(f'DROP DATABASE IF EXISTS {self._pg_identifier(database)} WITH (FORCE);',timeout=30)
                 if db.returncode: raise WebgenOperationError("database_cleanup_failed")
+                for cleanup_role in (runtime_role,migration_role):
+                    role_cleanup=self._run_postgres_script(f'DROP ROLE IF EXISTS {self._pg_identifier(cleanup_role)}',timeout=30)
+                    if role_cleanup.returncode: raise WebgenOperationError("database_cleanup_failed")
             self.runtime_secrets.delete_project(project_id)
-            return {"slug":slug,"path":f"/projects/webgen/{slug}","name":None,"port":None,"stack":None,"auth_provider":None,"preview_path":None,"subdomain":None,"status":"stopped","last_checked_at":now_iso(),"containers":[]}
+            return {"slug":slug,"path":f"/projects/webgen/{slug}","name":None,"port":None,"stack":None,"auth_provider":None,"preview_path":None,"subdomain":None,"has_deployment":False,"status":"stopped","last_checked_at":now_iso(),"containers":[]}
         except Exception as failure:
             if not p.exists():
                 try:self.nginx_reload()
@@ -1127,6 +1367,7 @@ class Service:
             self.update_meta(p,lastStatus="error",lastCheckedAt=now_iso())
             if isinstance(failure,WebgenOperationError): raise failure
             raise WebgenOperationError("delete_failed")
+
 class Handler(BaseHTTPRequestHandler):
     server_version="webgen-control/1"
     def log_message(self,*a): pass

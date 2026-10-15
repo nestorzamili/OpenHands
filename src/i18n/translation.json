@@ -28223,6 +28223,24 @@
     "ca": "Desplega",
     "id": "Deploy"
   },
+  "DCK$DEPLOY_PREVIEW": {
+    "en": "Deploy preview",
+    "ja": "プレビューをデプロイ",
+    "zh-CN": "部署预览",
+    "zh-TW": "部署預覽",
+    "ko-KR": "미리보기 배포",
+    "no": "Distribuer forhåndsvisning",
+    "it": "Distribuisci anteprima",
+    "pt": "Implantar prévia",
+    "es": "Desplegar vista previa",
+    "ar": "نشر المعاينة",
+    "fr": "Déployer l’aperçu",
+    "tr": "Önizlemeyi dağıt",
+    "de": "Vorschau bereitstellen",
+    "uk": "Розгорнути попередній перегляд",
+    "ca": "Desplega la previsualització",
+    "id": "Deploy pratinjau"
+  },
   "DCK$START": {
     "en": "Start",
     "ja": "起動",

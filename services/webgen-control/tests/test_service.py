@@ -96,6 +96,20 @@ class TestWebgen(unittest.TestCase):
             self.assertEqual(project["status"], "starting")
             self.assertIsNone(project["preview_path"])
             self.assertEqual(project["subdomain"], "shop.dckautoposting.com")
+            self.assertTrue(project["has_deployment"])
+
+    # @spec WR-020 — Preserve deployment identity in status even when the app is stopped.
+    def test_runtime_reports_stopped_preview_as_existing_deployment(self):
+        with tempfile.TemporaryDirectory() as d:
+            project_path = Path(d)
+            (project_path / ".dck.json").write_text(json.dumps({
+                "port": 3000, "previewPath": "/preview/shop"
+            }))
+            project = self.make_service().project("shop", project_path, {"shop": []})
+        self.assertEqual(project["status"], "stopped")
+        self.assertIsNone(project["subdomain"])
+        self.assertEqual(project["preview_path"], "/preview/shop")
+        self.assertTrue(project["has_deployment"])
 
     def setUp(self):
         if not hasattr(os, "chown"):
@@ -203,6 +217,145 @@ class TestWebgen(unittest.TestCase):
             {"DATABASE_URL": "preserve-db-secret"},
         )
 
+    # @spec WR-020 — Project deletion never drops a custom/external database.
+    def test_delete_with_custom_database_url_does_not_drop_database_or_role(self):
+        from types import SimpleNamespace
+        service = self.make_service()
+        project_id = "00000000-0000-4000-8000-000000000009"
+        project = service.root / "shop"
+        project.mkdir()
+        (project / ".dck.json").write_text(json.dumps({
+            "port": 3000, "projectId": project_id, "needsDatabase": True
+        }))
+        service.runtime_secrets.bind(project_id, "shop")
+        service.runtime_secrets.put(
+            project_id, "DATABASE_URL", "postgresql://custom:secret@db.example:5432/external"
+        )
+        service._snapshot_routes = lambda slug: {}
+        service.nginx_reload = lambda: None
+        service.all_container_status = lambda: {}
+        service.project = lambda *args: {"status": "stopped"}
+        service.compose = lambda *args, **kwargs: SimpleNamespace(returncode=0)
+        with patch("webgen_control.subprocess.run", return_value=SimpleNamespace(returncode=0)) as run:
+            service._delete("shop", project)
+        self.assertEqual(run.call_count, 1)
+        self.assertIn("SELECT 1", run.call_args.args[0])
+        self.assertFalse(project.exists())
+
+    # @spec WR-020 — A custom role using the project's conventional DB name is not owned by WebGen.
+    def test_delete_custom_role_cannot_drop_same_name_database(self):
+        from types import SimpleNamespace
+        service = self.make_service()
+        project_id = "00000000-0000-4000-8000-000000000011"
+        project = service.root / "shop"
+        project.mkdir()
+        (project / ".dck.json").write_text(json.dumps({
+            "port": 3000, "projectId": project_id, "needsDatabase": True
+        }))
+        service.runtime_secrets.bind(project_id, "shop")
+        service.runtime_secrets.put(
+            project_id, "DATABASE_URL", "postgresql://custom:secret@postgres:5432/dck_shop"
+        )
+        service._snapshot_routes = lambda slug: {}
+        service.nginx_reload = lambda: None
+        service.all_container_status = lambda: {}
+        service.project = lambda *args: {"status": "stopped"}
+        service.compose = lambda *args, **kwargs: SimpleNamespace(returncode=0)
+        with patch("webgen_control.subprocess.run", return_value=SimpleNamespace(returncode=0)) as run:
+            service._delete("shop", project)
+        self.assertEqual(run.call_count, 1)
+        self.assertIn("SELECT 1", run.call_args.args[0])
+        self.assertFalse(project.exists())
+
+    # @spec WR-020 — Generated database deletion is limited to the project's deterministic names.
+    def test_delete_generated_database_and_role_is_project_scoped(self):
+        from types import SimpleNamespace
+        service = self.make_service()
+        project_id = "00000000-0000-4000-8000-000000000010"
+        project = service.root / "shop"
+        project.mkdir()
+        (project / ".dck.json").write_text(json.dumps({
+            "port": 3000, "projectId": project_id, "needsDatabase": True
+        }))
+        database = service._database_name("shop")
+        role = service._runtime_database_role("shop")
+        migration_role = service._migration_database_role("shop")
+        service.runtime_secrets.bind(project_id, "shop")
+        runtime_url = f"postgresql://{role}:{'r' * 64}@postgres:5432/{database}"
+        migration_url = f"postgresql://{migration_role}:{'m' * 64}@postgres:5432/{database}"
+        service.runtime_secrets.configure_managed_database(project_id, runtime_url, {
+            "database": database, "runtime_role": role, "migration_role": migration_role,
+            "migration_url": migration_url,
+        })
+        service._snapshot_routes = lambda slug: {}
+        service.nginx_reload = lambda: None
+        service.all_container_status = lambda: {}
+        service.project = lambda *args: {"status": "stopped"}
+        service.compose = lambda *args, **kwargs: SimpleNamespace(returncode=0)
+        with patch("webgen_control.subprocess.run", return_value=SimpleNamespace(returncode=0)) as run, \
+             patch.object(service, "_run_postgres_script", side_effect=[
+                 SimpleNamespace(stdout=migration_role), SimpleNamespace(stdout=""),
+                 SimpleNamespace(stdout=migration_role), SimpleNamespace(returncode=0),
+                 SimpleNamespace(returncode=0), SimpleNamespace(returncode=0),
+             ]) as postgres:
+            service._delete("shop", project)
+        self.assertEqual(run.call_args_list[0].args[0][run.call_args_list[0].args[0].index("-c") + 1], "SELECT 1")
+        sql = [call.args[0] for call in postgres.call_args_list]
+        self.assertIn(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE);', sql)
+        self.assertIn(f'DROP ROLE IF EXISTS "{role}"', sql)
+        self.assertIn(f'DROP ROLE IF EXISTS "{migration_role}"', sql)
+        self.assertTrue(all("secret" not in statement for statement in sql))
+        self.assertEqual(service.runtime_secrets.values(project_id), {})
+
+    # @spec WR-020 — Provisioning failures block Docker lifecycle execution.
+    def test_database_provisioning_failure_blocks_deploy(self):
+        from unittest.mock import Mock
+        service = self.make_service()
+        project = service.root / "shop"
+        project.mkdir()
+        self.make_project(project)
+        project_metadata = {"port": 3000, "needsDatabase": True}
+        (project / ".dck.json").write_text(json.dumps(project_metadata))
+        service.compose = Mock()
+        with patch.object(service, "_run_postgres_script", side_effect=WebgenOperationError("database_provisioning_failed", 503)):
+            with self.assertRaises(WebgenOperationError) as caught:
+                service.action("shop", {"action": "deploy"}, "session-key")
+        self.assertEqual(caught.exception.code, "database_provisioning_failed")
+        service.compose.assert_not_called()
+        project_id = json.loads((project / ".dck.json").read_text())["projectId"]
+        self.assertEqual(service.runtime_secrets.list(project_id)["secrets"], [
+            {"name": "DATABASE_URL", "configured": True},
+        ])
+        self.assertFalse((project / ".env").exists())
+
+    # @spec WR-020 — Never adopt a same-name database owned by another role.
+    def test_database_owned_by_another_role_blocks_deploy(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        service = self.make_service()
+        project = service.root / "shop"
+        project.mkdir()
+        self.make_project(project)
+        (project / ".dck.json").write_text(json.dumps({"port": 3000, "needsDatabase": True}))
+        statements = []
+
+        def run_sql(sql, database="postgres", timeout=30, tuples_only=False):
+            statements.append(sql)
+            if sql.startswith("SELECT 1 FROM pg_database WHERE datname="):
+                return SimpleNamespace(stdout="1")
+            if sql.startswith("SELECT 1 FROM pg_database d WHERE"):
+                return SimpleNamespace(stdout="1")
+            return SimpleNamespace(stdout="")
+
+        service.compose = Mock()
+        with patch.object(service, "_run_postgres_script", side_effect=run_sql):
+            with self.assertRaises(WebgenOperationError) as caught:
+                service.action("shop", {"action": "deploy"}, "session-key")
+        self.assertEqual(caught.exception.code, "database_provisioning_failed")
+        self.assertFalse(any(sql.startswith("CREATE ROLE ") for sql in statements))
+        self.assertFalse(any(sql.startswith("REVOKE ALL PRIVILEGES ON DATABASE") for sql in statements))
+        service.compose.assert_not_called()
+
     def test_database_preflight_failure_preserves_project_and_containers(self):
         from unittest.mock import Mock
         with tempfile.TemporaryDirectory() as d:
@@ -255,6 +408,31 @@ class TestWebgen(unittest.TestCase):
         config = self.make_service().config("shop", {"port": 3001}, True)
         self.assertIn("proxy_pass http://127.0.0.1:3001;", config)
         self.assertIn("location = /preview/shop", config)
+
+    def test_identical_secure_env_is_not_rewritten(self):
+        service = self.make_service()
+        with tempfile.TemporaryDirectory() as d:
+            project = Path(d) / "shop"
+            project.mkdir()
+            target = project / ".env"
+            target.write_bytes(b"SAFE_VALUE=kept\n")
+            target.chmod(0o600)
+            before = target.stat()
+            service._write_project_env(project, ["SAFE_VALUE=kept"])
+            after = target.stat()
+            self.assertEqual(target.read_bytes(), b"SAFE_VALUE=kept\n")
+            self.assertEqual(after.st_ino, before.st_ino)
+            self.assertEqual(after.st_mtime_ns, before.st_mtime_ns)
+            self.assertEqual(after.st_mode & 0o777, 0o600)
+
+    def test_postgres_commands_use_configured_container(self):
+        service = self.make_service()
+        with patch.dict(os.environ, {"WEBGEN_POSTGRES_CONTAINER": "dck-agentic-postgres"}), \
+             patch("webgen_control.subprocess.run", return_value=subprocess.CompletedProcess([], 0, stdout="")) as run:
+            service._run_postgres_script("SELECT 1")
+        self.assertEqual(run.call_args.args[0][3], "dck-agentic-postgres")
+        with patch.dict(os.environ, {"WEBGEN_POSTGRES_CONTAINER": "dck-agentic-postgres"}):
+            self.assertEqual(service.postgres_command("SELECT 1")[2], "dck-agentic-postgres")
 
     def make_service(self):
         service = Service.__new__(Service)
@@ -653,6 +831,158 @@ networks:
             with self.assertRaisesRegex(ValueError, "subdomain requires publish"):
                 service.action("shop", {"action": "deploy", "subdomain": "valid-domain"})
             service.compose.assert_not_called()
+
+    # @spec WR-020 — Automatically provision per-project runtime credentials without exposing values.
+    def test_explicit_lifecycle_generates_stable_encrypted_database_and_auth_credentials(self):
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d) / "projects"
+            project = root / "shop"
+            project.mkdir(parents=True)
+            (project / ".dck.json").write_text(json.dumps({
+                "port": 3000, "needsDatabase": True, "authProvider": "better-auth"
+            }))
+            service = self.make_service()
+            service.root = root
+            project_id = service._ensure_project_id("shop", project)
+            sql_calls = []
+            roles_created = set()
+            database_created = False
+
+            def run_sql(sql, database="postgres", timeout=30, tuples_only=False):
+                nonlocal database_created
+                sql_calls.append((sql, database, tuples_only))
+                if sql.startswith("SELECT 1 FROM pg_roles WHERE rolname="):
+                    queried_role = sql.split("rolname=", 1)[1].split(";", 1)[0].strip("'\"")
+                    return SimpleNamespace(stdout="1" if queried_role in roles_created else "")
+                if sql.startswith("CREATE ROLE "):
+                    roles_created.add(sql.split(" ", 2)[2].split(" WITH", 1)[0].strip('"'))
+                if sql.startswith("CREATE DATABASE "):
+                    database_created = True
+                if sql.startswith("SELECT 1 FROM pg_database WHERE datname="):
+                    return SimpleNamespace(stdout="1" if database_created else "")
+                if sql.startswith("SELECT r.rolname FROM pg_database"):
+                    return SimpleNamespace(stdout=service._migration_database_role("shop") if database_created else "")
+                return SimpleNamespace(stdout="")
+
+            with patch.object(service, "_run_postgres_script", side_effect=run_sql), \
+                 patch("webgen_control.secrets.token_urlsafe", side_effect=["r" * 64, "m" * 64, "a" * 64]):
+                service.ensure_generated_runtime_secrets("shop", project)
+                first_values = service.runtime_secrets.values(project_id)
+                service.ensure_generated_runtime_secrets("shop", project)
+
+            second_values = service.runtime_secrets.values(project_id)
+            role = service._runtime_database_role("shop")
+            database = service._database_name("shop")
+            self.assertEqual(first_values, second_values)
+            self.assertEqual(set(second_values), {"DATABASE_URL", "BETTER_AUTH_SECRET"})
+            self.assertIn(f"postgresql://{role}:", second_values["DATABASE_URL"])
+            self.assertIn(f"@postgres:5432/{database}", second_values["DATABASE_URL"])
+            self.assertEqual(service.runtime_secrets.list(project_id)["secrets"], [
+                {"name": "BETTER_AUTH_SECRET", "configured": True},
+                {"name": "DATABASE_URL", "configured": True},
+            ])
+            encrypted = service.runtime_secrets.path.read_bytes()
+            self.assertNotIn(second_values["DATABASE_URL"].encode(), encrypted)
+            self.assertNotIn(second_values["BETTER_AUTH_SECRET"].encode(), encrypted)
+            managed = service.runtime_secrets.managed_database(project_id)
+            self.assertIsNotNone(managed)
+            self.assertNotIn(managed["migration_url"].encode(), encrypted)
+            self.assertNotIn("migration_url", service.runtime_secrets.values(project_id))
+            self.assertNotIn("migration_url", service.runtime_secrets.list(project_id))
+            self.assertFalse((project / ".env").exists())
+            role_sql = next(sql for sql, _, _ in sql_calls if sql.startswith("CREATE ROLE ") and "dck_runtime_" in sql)
+            migration_sql = next(sql for sql, _, _ in sql_calls if sql.startswith("CREATE ROLE ") and "dck_migrate_" in sql)
+            self.assertIn("NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS", role_sql)
+            self.assertIn("NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS", migration_sql)
+            self.assertNotIn("CREATE DATABASE", role_sql)
+            self.assertNotIn("CREATE DATABASE", migration_sql)
+            grant_sql = next(sql for sql, db, _ in sql_calls if db == database and sql.startswith("REVOKE ALL PRIVILEGES ON DATABASE"))
+            self.assertTrue(any("pg_shdepend" in sql for sql, _, _ in sql_calls))
+            self.assertIn("GRANT CONNECT ON DATABASE", grant_sql)
+            self.assertIn("GRANT USAGE ON SCHEMA public", grant_sql)
+            self.assertIn("GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE", grant_sql)
+            self.assertIn("NOT LIKE '%migration%'", grant_sql)
+            self.assertIn("REVOKE ALL PRIVILEGES ON TABLE %I.%I FROM PUBLIC", grant_sql)
+            self.assertIn("REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM PUBLIC", grant_sql)
+            self.assertIn("ALTER DEFAULT PRIVILEGES FOR ROLE", grant_sql)
+            self.assertIn("REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA public FROM", grant_sql)
+            self.assertNotIn("GRANT CREATE", grant_sql)
+            self.assertFalse(any("DROP" in sql for sql, _, _ in sql_calls))
+            self.assertTrue(any(sql.startswith("ALTER ROLE ") for sql, _, _ in sql_calls))
+
+    # @spec WR-020 — Exercise the deploy journey through provisioning, env materialization, and Compose.
+    def test_deploy_provisions_database_before_materialization_and_compose(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        service = self.make_service()
+        project = service.root / "shop"
+        project.mkdir()
+        self.make_project(project)
+        (project / ".dck.json").write_text(json.dumps({"port": 3000, "needsDatabase": True}))
+        events = []
+        roles_created = set()
+        database_created = False
+
+        def run_sql(sql, database="postgres", timeout=30, tuples_only=False):
+            nonlocal database_created
+            events.append("postgres")
+            if sql.startswith("SELECT 1 FROM pg_roles WHERE rolname="):
+                queried_role = sql.split("rolname=", 1)[1].split(";", 1)[0].strip("'\"")
+                return SimpleNamespace(stdout="1" if queried_role in roles_created else "")
+            if sql.startswith("CREATE ROLE "):
+                roles_created.add(sql.split(" ", 2)[2].split(" WITH", 1)[0].strip('"'))
+            if sql.startswith("CREATE DATABASE "):
+                database_created = True
+            if sql.startswith("SELECT 1 FROM pg_database WHERE datname="):
+                return SimpleNamespace(stdout="1" if database_created else "")
+            if sql.startswith("SELECT r.rolname FROM pg_database"):
+                return SimpleNamespace(stdout=service._migration_database_role("shop") if database_created else "")
+            return SimpleNamespace(stdout="")
+
+        runtime_env = Path("/host/state/runtime.env")
+        service.materialize_env = Mock(side_effect=lambda *args: (events.append("environment"), nullcontext(runtime_env))[1])
+        service.compose = Mock(side_effect=lambda *args: (events.append("compose"), SimpleNamespace(returncode=0))[1])
+        service.wait_ready = Mock()
+        service._snapshot_routes = Mock(return_value={})
+        service._set_route = Mock()
+        service.project = Mock(return_value={"slug": "shop", "status": "running"})
+        with patch.object(service, "_run_postgres_script", side_effect=run_sql):
+            result = service.action("shop", {"action": "deploy"}, "session-key")
+
+        self.assertEqual(result["status"], "running")
+        self.assertLess(events.index("postgres"), events.index("environment"))
+        self.assertLess(events.index("environment"), events.index("compose"))
+        service.materialize_env.assert_called_once_with("shop", project, "/preview/shop")
+        service.compose.assert_called_once_with("shop", project, "deploy", runtime_env)
+        project_id = json.loads((project / ".dck.json").read_text())["projectId"]
+        self.assertEqual(service.runtime_secrets.list(project_id)["secrets"], [
+            {"name": "DATABASE_URL", "configured": True},
+        ])
+
+    # @spec WR-020 — Preserve user-provided database credentials instead of replacing them.
+    def test_custom_database_url_is_not_reprovisioned_or_overwritten(self):
+        with tempfile.TemporaryDirectory() as d:
+            project = Path(d) / "projects" / "shop"
+            project.mkdir(parents=True)
+            (project / ".dck.json").write_text(json.dumps({"port": 3000, "needsDatabase": True}))
+            service = self.make_service()
+            service.root = project.parent
+            project_id = service._ensure_project_id("shop", project)
+            custom_url = "postgresql://custom:private@db.example:5432/external"
+            service.runtime_secrets.put(project_id, "DATABASE_URL", custom_url)
+            with patch.object(service, "_run_postgres_script") as run_sql:
+                service.ensure_generated_runtime_secrets("shop", project)
+            run_sql.assert_not_called()
+            self.assertEqual(service.runtime_secrets.values(project_id)["DATABASE_URL"], custom_url)
+
+    # @spec WR-020 — Keep PostgreSQL identifiers within the server's 63-byte limit.
+    def test_long_project_database_names_are_deterministic_and_bounded(self):
+        name = "a" * 64
+        first = Service._database_name(name)
+        self.assertEqual(first, Service._database_name(name))
+        self.assertLessEqual(len(first.encode("ascii")), 63)
+        self.assertNotEqual(first, Service._database_name(name[:-1] + "b"))
 
     def test_runtime_secrets_are_encrypted_off_workspace_and_injected_only_for_app(self):
         with tempfile.TemporaryDirectory() as d:

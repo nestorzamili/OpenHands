@@ -142,6 +142,8 @@ function WebgenProjectTableRow({
             projectPath={entry.path}
             authProvider={meta?.authProvider ?? null}
             publishedSubdomain={meta?.subdomain ?? null}
+            previewPath={meta?.previewPath ?? null}
+            hasDeployment={runtime?.has_deployment}
             runtimeStatus={runtime?.status}
             onDispatch={dispatchLifecycle}
             disabled={isBusy}

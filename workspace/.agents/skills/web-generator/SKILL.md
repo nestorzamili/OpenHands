@@ -91,37 +91,40 @@ explicitly asks for that separate action.
 
   Do not use `localhost` in the container's `DATABASE_URL`/`REDIS_URL` — inside
   the container `localhost` is the app itself, not Postgres or the host.
-- Secrets live in gitignored `.env`; commit only `.env.example` with placeholders. Never commit real credentials.
+- `.env` may contain non-secret app configuration; commit only `.env.example` with placeholders. Store credentials in the project's Environment UI and never commit real credentials.
 
-## 3. Secrets Are the Source of Truth
+## 3. App Runtime Secrets Are Separate From Agent Secrets
 
-The portal Secret Manager (`/settings/secrets`, server-side encrypted) is the
-single source of truth for app credentials. `.env` is a generated runtime
-artifact, never the source and never hand-maintained. Apply the same rule in dev
-and prod:
+The host WebGen control service owns the encrypted, per-project app runtime
+secret store. It is deliberately separate from the portal Agent Secret Manager:
+app credentials must never be requested through `LookupSecret`, entered into an
+agent prompt, copied into workspace files, or exposed to the agent. The user
+manages them from that project's **Environment** action in the Web Generator list.
 
-- Derive a strict secret suffix from the app slug: uppercase ASCII and replace
-  each hyphen with `_` (`catatan-uang` → `CATATAN_UANG`). Reject slugs outside
-  `[a-z0-9]+(?:-[a-z0-9]+)*`; do not silently discard or normalize other
-  characters. Secret names must match `[a-zA-Z][a-zA-Z0-9_]{0,63}`.
-- Keep app secrets isolated by name. Map `DATABASE_URL_<SUFFIX>` to runtime
-  `DATABASE_URL`, `BETTER_AUTH_SECRET_<SUFFIX>` to `BETTER_AUTH_SECRET`, and,
-  when needed, `REDIS_URL_<SUFFIX>` to `REDIS_URL`. Give other per-app provider
-  credentials the same suffix. Reuse an unsuffixed secret only when the
-  operator explicitly confirms it is intentionally shared.
-- Prefer the conversation's server-resolved `LookupSecret` references or the
-  portal's authenticated secret flow. At deploy/rebuild time, resolve each
-  required secret and generate `.env` from the mapped names. Use a restrictive
-  umask, write atomically, and set mode `600`; never append blindly, print a
-  secret, enable shell tracing, or include values in logs/chat.
-- If a required value is missing in the portal, stop and ask the operator to
-  add it there. Do not recover a value from an old `.env`, invent one, or commit
-  a credential.
+- Configure app credentials only in the project-scoped Environment UI. The
+  control service injects them into that app container during an explicit
+  lifecycle action. Saving or editing a value does not deploy or restart; tell
+  the user it takes effect on the next Deploy, Rebuild, Start, Restart, Publish,
+  or Unpublish.
+- `.env` may contain only non-secret defaults copied from `.env.example` and
+  `APP_BASE_PATH`. Do not write credentials or secret values to `.env`,
+  `.env.example`, Compose YAML, source code, build args, Docker build context,
+  shell output, logs, prompts, chat, transcripts, telemetry, or Git.
+- Keep `env_file: .env` for ordinary app configuration when needed. Do not copy
+  secret values into Compose `environment` or `build.args`; the host injects
+  runtime secrets only as a protected, temporary `app` service env file.
 - `.env.example` contains placeholders only. It is the only environment file
   committed; `.env` and every other `.env.*` file are ignored except
   `.env.example`. Verify the ignored file is not in the Git index.
-- Rotate values in the Secret Manager; the next explicitly requested
-  materialization/rebuild regenerates `.env`.
+- Existing `<ENV_NAME>_<PROJECT_SLUG>` entries in Agent Secret Manager may be
+  shown as migration candidates by name only. Never look up or copy their value
+  yourself. The user must choose **Prepare move** in Environment; ambiguous
+  suffixes require explicit confirmation. The user then removes the source in
+  Settings → Secrets and chooses **Verify source removal**. The service never
+  deletes the Agent Secret entry automatically. Unsuffixed values are not
+  auto-migrated.
+- If a required runtime value is missing, direct the user to that project's
+  Environment action. Never ask them to put it in Agent Secret Manager.
 
 ## 4. Port Allocation
 

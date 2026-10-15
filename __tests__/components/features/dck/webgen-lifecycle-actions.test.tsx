@@ -5,6 +5,29 @@ import { renderWithProviders } from "test-utils";
 import { WebgenLifecycleActions } from "#/components/features/dck/webgen-lifecycle-actions";
 
 describe("WebgenLifecycleActions", () => {
+  it("opens the Environment action from the three-dot menu before a runtime exists", async () => {
+    const user = userEvent.setup();
+    const onOpenRuntimeSecrets = vi.fn();
+    const onDispatch = vi.fn();
+    renderWithProviders(
+      <WebgenLifecycleActions
+        appName="shop"
+        projectPath="/projects/webgen/shop"
+        authProvider={null}
+        publishedSubdomain={null}
+        lifecycleDisabled
+        onDispatch={onDispatch}
+        onOpenRuntimeSecrets={onOpenRuntimeSecrets}
+      />,
+    );
+
+    await user.click(screen.getByTestId("dck-lifecycle-menu"));
+    await user.click(screen.getByTestId("dck-lifecycle-environment"));
+
+    expect(onOpenRuntimeSecrets).toHaveBeenCalledOnce();
+    expect(onDispatch).not.toHaveBeenCalled();
+  });
+
   it.each([null, "current-shop.dckautoposting.com"])(
     "deploys without a domain dialog or publication change for %s",
     async (publishedSubdomain) => {

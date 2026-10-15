@@ -90,8 +90,44 @@ if [[ "$1" == "status" ]]; then printf 'Status: %s\\n' "\${UFW_STATE:-inactive}"
     path.join(bin, "chown"),
     '#!/usr/bin/env bash\nprintf \'%s\\n\' "$*" >> "$CHOWN_LOG"\nexit 0\n',
   );
-  await writeFile(path.join(bin, "systemctl"), "#!/bin/sh\nexit 0\n");
-  await writeFile(path.join(bin, "install"), "#!/bin/sh\nexit 0\n");
+  await writeFile(
+    path.join(bin, "systemctl"),
+    `#!/usr/bin/env bash
+set -e
+if [[ "$1 $2" == "restart webgen-control.service" && ! -e "$WEBGEN_STATE_DIR/webgen-control.key" ]]; then
+  mkdir -p "$WEBGEN_STATE_DIR"
+  head -c 32 /dev/zero > "$WEBGEN_STATE_DIR/webgen-control.key"
+  chmod 600 "$WEBGEN_STATE_DIR/webgen-control.key"
+fi
+`,
+  );
+  await writeFile(
+    path.join(bin, "install"),
+    `#!/usr/bin/env bash
+set -e
+target="\${@: -1}"
+if [[ "$1" == "-d" ]]; then
+  for argument in "$@"; do
+    if [[ "$argument" == "$WEBGEN_STATE_DIR" ]]; then mkdir -p "$argument"; chmod 700 "$argument"; fi
+  done
+  exit 0
+fi
+if [[ "$target" == "$WEBGEN_STATE_DIR"/* ]]; then
+  source="\${@: -2:1}"
+  cp "$source" "$target"
+  chmod 600 "$target"
+fi
+exit 0
+`,
+  );
+  await writeFile(
+    path.join(bin, "stat"),
+    `#!/usr/bin/env bash
+if [[ "$1" == "-c" && "$2" == "%a:%u" && "$3" == "$WEBGEN_STATE_DIR/webgen-control.key" ]]; then echo 600:0; exit 0; fi
+if [[ "$1" == "-c" && "$2" == "%s" && "$3" == "$WEBGEN_STATE_DIR/webgen-control.key" ]]; then wc -c < "$3"; exit 0; fi
+exec /usr/bin/stat "$@"
+`,
+  );
   await writeFile(
     path.join(bin, "python3"),
     `#!/usr/bin/env bash
@@ -114,6 +150,7 @@ exit 2
       "chown",
       "systemctl",
       "install",
+      "stat",
       "python3",
       "ufw",
       "sleep",
@@ -145,6 +182,9 @@ afterEach(async () => {
 describe("DCK production deploy bootstrap", () => {
   it("installs the private WebGen service without chowning the project workspace recursively", async () => {
     const { stage, target, bin, root } = await createFixture();
+    await mkdir(path.join(target, "config"), { recursive: true });
+    const legacyKey = Buffer.alloc(32, 23);
+    await writeFile(path.join(target, "config", "webgen-control.key"), legacyKey);
     const chownLog = path.join(root, "chown.log");
     await writeFile(
       path.join(stage, ".env.production.sample"),
@@ -168,6 +208,7 @@ describe("DCK production deploy bootstrap", () => {
           ...process.env,
           PATH: `${bin}:${process.env.PATH}`,
           TARGET_DIR: target,
+          WEBGEN_STATE_DIR: path.join(root, "webgen-state"),
           CHOWN_LOG: chownLog,
           UFW_STATE: "active",
         },
@@ -184,6 +225,10 @@ describe("DCK production deploy bootstrap", () => {
     expect(env.CANVAS_IMAGE).toBe("ghcr.io/example/dck-agentic");
     expect(env.WEBGEN_CONTROL_HOST_IP).toBe("172.17.0.1");
     expect(env.POSTGRES_PASSWORD).toMatch(/^[A-Za-z0-9]{32}$/);
+    const migratedKey = path.join(root, "webgen-state", "webgen-control.key");
+    expect(await readFile(migratedKey)).toEqual(legacyKey);
+    expect((await stat(migratedKey)).mode & 0o777).toBe(0o600);
+    await expect(readFile(path.join(target, "config", "webgen-control.key"))).rejects.toMatchObject({ code: "ENOENT" });
     const envStat = await stat(path.join(target, ".env"));
     expect(envStat.mode & 0o777).toBe(0o600);
     expect(`${stdout}${stderr}`).not.toContain(env.POSTGRES_PASSWORD);
@@ -214,6 +259,7 @@ describe("DCK production deploy bootstrap", () => {
           ...process.env,
           PATH: `${bin}:${process.env.PATH}`,
           TARGET_DIR: target,
+          WEBGEN_STATE_DIR: path.join(root, "webgen-state"),
           CHOWN_LOG: chownLog,
           UFW_STATE: "active",
         },
@@ -228,6 +274,41 @@ describe("DCK production deploy bootstrap", () => {
     expect(chownCommands).toContain(`${target}/workspace/.agents`);
     expect(chownCommands).not.toMatch(/-R [^\n]*\/workspace(?:\s|$)/);
   });
+});
+
+it("stops before Canvas config ownership changes when legacy and private keys conflict", async () => {
+  const { stage, target, bin, root } = await createFixture();
+  const state = path.join(root, "webgen-state");
+  const config = path.join(target, "config");
+  await Promise.all([
+    mkdir(config, { recursive: true }),
+    mkdir(state, { recursive: true }),
+  ]);
+  const privateKey = Buffer.alloc(32, 1);
+  const legacyKey = Buffer.alloc(32, 2);
+  await Promise.all([
+    writeFile(path.join(state, "webgen-control.key"), privateKey),
+    writeFile(path.join(config, "webgen-control.key"), legacyKey),
+  ]);
+
+  await expect(
+    execFileAsync(
+      "bash",
+      [path.join(repositoryRoot, "scripts/dck-deploy.sh"), "sha-test", stage],
+      {
+        env: {
+          ...process.env,
+          PATH: `${bin}:${process.env.PATH}`,
+          TARGET_DIR: target,
+          WEBGEN_STATE_DIR: state,
+          CHOWN_LOG: path.join(root, "chown.log"),
+        },
+      },
+    ),
+  ).rejects.toMatchObject({ code: 1 });
+  expect(await readFile(path.join(state, "webgen-control.key"))).toEqual(privateKey);
+  expect(await readFile(path.join(config, "webgen-control.key"))).toEqual(legacyKey);
+  expect(await readFile(path.join(root, "chown.log"), "utf8")).not.toContain(config);
 });
 
 it("rolls back when Canvas cannot reach WebGen even though host health checks pass", async () => {
@@ -246,6 +327,7 @@ it("rolls back when Canvas cannot reach WebGen even though host health checks pa
           ...process.env,
           PATH: `${bin}:${process.env.PATH}`,
           TARGET_DIR: target,
+          WEBGEN_STATE_DIR: path.join(root, "webgen-state"),
           CHOWN_LOG: path.join(root, "chown.log"),
           UFW_STATE: "inactive",
           WEBGEN_PROBE_EXIT: "1",

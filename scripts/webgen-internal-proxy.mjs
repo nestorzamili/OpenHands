@@ -8,12 +8,12 @@ export function createWebgenInternalProxy(upstream) {
   }
   return createServer((req, res) => {
     const path = req.url ?? "";
-    if (
-      req.method !== "GET" ||
-      !/^\/api\/(?:workspaces|settings\/secrets(?:\/[A-Za-z][A-Za-z0-9_]{0,63})?)$/.test(
+    const readAllowed =
+      req.method === "GET" &&
+      /^\/api\/(?:workspaces|settings\/secrets(?:\/[A-Za-z][A-Za-z0-9_]{0,63})?)$/.test(
         path,
-      )
-    ) {
+      );
+    if (!readAllowed) {
       res.writeHead(404).end();
       return;
     }

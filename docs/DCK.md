@@ -19,7 +19,7 @@ Apps tersemat menggunakan Customize → Apps (`/apps`). Penjadwalan memakai fitu
 
 1. New Project memvalidasi slug dan memulai percakapan pada workspace proyek individual. Scaffold menulis sumber, `.env.example`, Compose, dan `.dck.json`; scaffold tidak menjalankan deployment.
 2. Jika memakai Better Auth, dialog owner-seed mengirim kredensial terpisah dari chat. Seed sementara dapat diminta ulang ketika kedaluwarsa. Agent hanya menerima public verification key.
-3. Deploy memanggil API host control melalui proxy Canvas. Layanan memvalidasi Compose, membentuk `.env` dari Secret Manager, menjalankan Docker, menunggu readiness, dan memasang route.
+3. Runtime secrets aplikasi dikelola dari aksi **Environment** pada tiap baris proyek. Nilainya disimpan terenkripsi di host, terpisah dari Agent Secret Manager. Deploy memanggil API host control melalui proxy Canvas; layanan memvalidasi Compose dan menginjeksikan nilai hanya ke service app, lalu menunggu readiness dan memasang route. Menyimpan secret tidak memulai deployment; perubahan berlaku pada Deploy/Rebuild/Start/Restart/Publish/Unpublish berikutnya.
 4. Preview berada pada domain Canvas: `https://agent.dckautoposting.com/preview/<slug>`. Publish secara eksplisit membangun ulang aplikasi untuk subdomain; Unpublish membangun ulang untuk preview. Satu aplikasi memiliki satu mode aktif.
 5. Badge, link, dan metadata lifecycle berasal dari runtime API. Link tampil hanya ketika running. Percakapan dibuka berdasarkan ID yang diklik; pencarian percakapan proyek menyelesaikan pagination sebelum membuat percakapan baru.
 

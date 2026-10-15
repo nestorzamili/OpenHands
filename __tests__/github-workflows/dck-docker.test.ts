@@ -59,4 +59,21 @@ describe("package and DCK Docker configuration", () => {
     expect(workflow).toContain("AGENT_CANVAS_VERSION");
     expect(packageJson.version).toMatch(/^\d+\.\d+\.\d+/);
   });
+
+  it("keeps the WebGen master key outside the writable Canvas config mount", () => {
+    const compose = read("docker-compose.yml");
+    const service = read("services/webgen-control/webgen-control.service");
+    const deploy = read("scripts/dck-deploy.sh");
+
+    expect(compose).toContain("./config:/home/openhands/.openhands");
+    expect(compose).not.toContain("webgen-control.key");
+    expect(service).toContain(
+      "WEBGEN_CONTROL_KEY=/var/lib/dck-webgen-control/webgen-control.key",
+    );
+    expect(service).toContain("RuntimeDirectory=dck-webgen-control");
+    expect(service).not.toContain("/opt/dck-agentic/config");
+    expect(deploy).toContain('LEGACY_WEBGEN_KEY="$TARGET_DIR/config/webgen-control.key"');
+    expect(deploy).toContain('cmp -s "$KEY_TMP" "$LEGACY_WEBGEN_KEY"');
+    expect(deploy).toContain('chmod 600 "$WEBGEN_KEY"');
+  });
 });

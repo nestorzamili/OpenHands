@@ -2,6 +2,7 @@ import React from "react";
 import {
   CirclePlay,
   Globe,
+  KeyRound,
   Loader2,
   MoreVertical,
   MessageSquare,
@@ -51,6 +52,7 @@ export function WebgenLifecycleActions({
   disabled = false,
   lifecycleDisabled = false,
   onOpen,
+  onOpenRuntimeSecrets,
 }: {
   appName: string;
   projectPath: string;
@@ -67,6 +69,7 @@ export function WebgenLifecycleActions({
   disabled?: boolean;
   lifecycleDisabled?: boolean;
   onOpen?: () => void;
+  onOpenRuntimeSecrets?: () => void;
 }) {
   const { t } = useTranslation("openhands");
   const [showPublishDialog, setShowPublishDialog] = React.useState(false);
@@ -128,6 +131,16 @@ export function WebgenLifecycleActions({
             label: I18nKey.DCK$CHAT_WITH_WEBSITE,
             icon: MessageSquare,
             run: onOpen,
+          },
+        ]
+      : []),
+    ...(onOpenRuntimeSecrets
+      ? [
+          {
+            id: "environment",
+            label: I18nKey.DCK$RUNTIME_SECRETS_ACTION,
+            icon: KeyRound,
+            run: onOpenRuntimeSecrets,
           },
         ]
       : []),
@@ -219,7 +232,11 @@ export function WebgenLifecycleActions({
           aria-label={t(I18nKey.DCK$LIFECYCLE_ACTIONS)}
           disabledKeys={actions
             .filter(
-              (action) => busy || (lifecycleDisabled && action.id !== "chat"),
+              (action) =>
+                busy ||
+                (lifecycleDisabled &&
+                  action.id !== "chat" &&
+                  action.id !== "environment"),
             )
             .map((action) => action.id)}
           onAction={(key) => actions.find((action) => action.id === key)?.run()}

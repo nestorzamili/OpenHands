@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ExternalLink } from "lucide-react";
 import { I18nKey } from "#/i18n/declaration";
@@ -10,6 +11,7 @@ import type { WebgenProjectStatus } from "#/dck/webgen-service";
 import { DckProjectStatusBadge } from "./dck-project-status-badge";
 import type { ProjectEntry } from "./project-row";
 import { WebgenLifecycleActions } from "./webgen-lifecycle-actions";
+import { WebgenRuntimeSecretsDialog } from "./webgen-runtime-secrets-dialog";
 import {
   getBrowserOrigin,
   getDckProjectLinks,
@@ -64,6 +66,7 @@ function WebgenProjectTableRow({
   ) => Promise<boolean>;
 }) {
   const { t, i18n } = useTranslation("openhands");
+  const [runtimeSecretsOpen, setRuntimeSecretsOpen] = useState(false);
   const meta = runtime ? metaFromRuntime(runtime) : null;
   const status: DckProjectStatus = runtime?.status ?? "unknown";
   const lastTouched = projectLastTouched(conversations, entry.path);
@@ -133,17 +136,27 @@ function WebgenProjectTableRow({
         )}
       </td>
       <td className={`${CELL} text-right`}>
-        <WebgenLifecycleActions
-          appName={entry.name}
-          projectPath={entry.path}
-          authProvider={meta?.authProvider ?? null}
-          publishedSubdomain={meta?.subdomain ?? null}
-          runtimeStatus={runtime?.status}
-          onDispatch={dispatchLifecycle}
-          disabled={isBusy}
-          lifecycleDisabled={!runtime}
-          onOpen={() => onOpen(entry.path)}
-        />
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <WebgenLifecycleActions
+            appName={entry.name}
+            projectPath={entry.path}
+            authProvider={meta?.authProvider ?? null}
+            publishedSubdomain={meta?.subdomain ?? null}
+            runtimeStatus={runtime?.status}
+            onDispatch={dispatchLifecycle}
+            disabled={isBusy}
+            lifecycleDisabled={!runtime}
+            onOpen={() => onOpen(entry.path)}
+            onOpenRuntimeSecrets={() => setRuntimeSecretsOpen(true)}
+          />
+        </div>
+        {runtimeSecretsOpen && (
+          <WebgenRuntimeSecretsDialog
+            projectSlug={entry.name}
+            projectName={entry.name}
+            onClose={() => setRuntimeSecretsOpen(false)}
+          />
+        )}
       </td>
     </tr>
   );
@@ -181,7 +194,7 @@ export function WebgenProjectTable({
     <div className="overflow-x-auto rounded-lg border border-border">
       <table
         data-testid="dck-webgen-project-table"
-        className="w-full min-w-[640px] border-collapse text-sm"
+        className="w-full min-w-160 border-collapse text-sm"
       >
         <thead>
           <tr className="bg-surface">

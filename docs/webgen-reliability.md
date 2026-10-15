@@ -23,10 +23,12 @@ WebGen uses the host runtime API for project status and lifecycle actions. Modul
 | WR-017 | Failed publication recovery is explicit; readiness and recovery messages are localized. |
 | WR-018 | Preview lives at the Canvas origin under `/preview/<slug>`; only Publish accepts a subdomain. One deployment exposes one active mode and link. |
 | WR-019 | WebGen badges and lifecycle metadata use the runtime API; no file fallback. Links are visible only while running. |
+| WR-020 | App runtime secrets use a distinct encrypted per-project store and host-private master key; values never enter Agent Secret Manager, agent-readable workspace, prompts, logs, status/list responses, Git, or builds. Migration is explicit, never deletes the source automatically, and activates only after a user removes it and an authenticated read confirms absence. |
 
 ## Runtime configuration
 
-- DCK enables `WEBGEN_INTERNAL_PROXY=true`. Container port 18002 is published only as `127.0.0.1:8012`. It forwards GET workspace/secret requests to the loopback Agent Server, retaining upstream API-key validation. Never publish it to a public interface.
+- DCK enables `WEBGEN_INTERNAL_PROXY=true`. Container port 18002 is published only as `127.0.0.1:8012`. It forwards only GET workspace/secret requests to the loopback Agent Server, retaining upstream API-key validation. Legacy migration has no proxy write/delete capability. Never publish it to a public interface.
+- `/var/lib/dck-webgen-control` contains the master key and encrypted store, is root-only, and is never mounted into Canvas. Plaintext runtime env files exist only under the systemd-managed volatile `/run/dck-webgen-control` directory.
 - `WEBGEN_CANVAS_AUTH_URL` uses `http://127.0.0.1:8012/api/workspaces`. Deploy the image, Compose file, and systemd unit together.
 - `WEBGEN_READINESS_TIMEOUT` defaults to 120 seconds, maximum 300. Proxy/client lifecycle timeouts are 45 minutes to cover build, readiness, and rollback.
 - Deployment propagates `POSTGRES_USER` as `WEBGEN_POSTGRES_USER`; cleanup uses database `postgres`.
@@ -50,7 +52,7 @@ Run focused portal/ingress, DCK settings, skill, module-detail, and scaffold tes
 
 Run `python -m unittest discover -s services/webgen-control/tests -v` with pinned requirements on Linux. When nginx is installed, the suite starts real nginx and verifies preview page/asset/owner URIs and query preservation. Both bare and trailing-slash preview paths are proxied so Next.js can canonicalize URLs without a redirect loop. Filesystem ownership and symlink checks must run on Linux.
 
-Before production rollout, back up configuration, skills, metadata, and PostgreSQL. Verify the actual unit on staging, then exercise a disposable Next.js app through preview, owner bootstrap, publish, unpublish, restart, and delete. The HTTP fixture test is not a full Next.js deployment test.
+Before production rollout, back up configuration, skills, metadata, PostgreSQL, and `/var/lib/dck-webgen-control` with its master key and encrypted store as one root-only pair. Verify the actual unit on staging, then exercise a disposable Next.js app through preview, owner bootstrap, publish, unpublish, restart, and delete. The HTTP fixture test is not a full Next.js deployment test.
 
 DCK persistence and scaffold changes affect local backends. Enumeration retains Local/Cloud service routing and backend/organization cache isolation. Shared standard/planning/delegated and OpenHands/ACP conversation builders are unchanged. Code comments/spec tags are omitted at the user's request.
 

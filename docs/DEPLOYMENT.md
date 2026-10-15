@@ -199,10 +199,16 @@ WebGen lifecycle uses a root-run host service bound only to Docker's private
 bridge gateway on port `8769`. Canvas reaches it through the authenticated
 same-origin proxy; the proxy adds the existing session API key, which the host
 service validates through `http://127.0.0.1:8012/api/workspaces`. The service
-accepts only typed lifecycle operations, validates Compose policy, serializes
-image builds, and retrieves only `<SECRET_NAME>_<PROJECT_SLUG>` values from
-Secret Manager into a mode-`0600` project `.env`. The Canvas container never
-receives or mounts `/var/run/docker.sock`; do not expose port `8769` publicly.
+accepts typed lifecycle and project-scoped runtime-secret operations, validates
+Compose policy, and serializes image builds. App runtime values are AES-GCM
+encrypted in `/var/lib/dck-webgen-control/runtime-secrets.enc`, using the
+root-only `/var/lib/dck-webgen-control/webgen-control.key`. Neither file is in
+the Canvas `config` bind mount. Only during an explicit lifecycle action are
+values placed in a temporary mode-`0600` file under volatile, root-only
+`/run/dck-webgen-control` and attached to the app service (not the image build).
+Project `.env` files retain safe non-secret configuration and contain no
+recognized secret entries. The Canvas container never receives or mounts
+`/var/run/docker.sock`; do not expose port `8769` publicly.
 
 If WebGen shows `Unknown` while host-side checks pass, check the container path:
 `docker compose exec -T canvas python -c 'import urllib.request; print(urllib.request.urlopen("http://webgen-control.internal:8769/healthz", timeout=5).status)'`.
@@ -251,18 +257,53 @@ while module definitions remain in the workspace `.dck/modules.json`; the
 nginx/TLS configuration and application external storage; those are outside
 these directories.
 
+The WebGen ciphertext and its master key are a matched pair: always back up and
+restore both together. Treat the archive as a root secret because it contains
+the master key as well as encrypted runtime data. Stop the WebGen control
+service while taking the file snapshot so no secret-store write can race the
+backup. Keep the resulting files root-owned and mode `0600`; copy them only to a
+protected backup destination.
+
 ```bash
+set -euo pipefail
 cd /opt/dck-agentic
 umask 077
-docker compose exec -T postgres sh -c 'pg_dumpall -U "$POSTGRES_USER"' > backup-$(date +%F)-pg.sql
-sudo tar czf backup-$(date +%F)-files.tgz .env docker-compose.yml config workspace services scripts webgen-control.env
+STAMP="$(date +%F)"
+sudo systemctl stop webgen-control.service
+docker compose exec -T postgres sh -c 'pg_dumpall -U "$POSTGRES_USER"' > "backup-${STAMP}-pg.sql"
+sudo tar --numeric-owner -czf "backup-${STAMP}-files.tgz" -C / \
+  opt/dck-agentic/.env opt/dck-agentic/docker-compose.yml \
+  opt/dck-agentic/config opt/dck-agentic/workspace \
+  opt/dck-agentic/services opt/dck-agentic/scripts \
+  opt/dck-agentic/webgen-control.env var/lib/dck-webgen-control
+sudo chown root:root "backup-${STAMP}-pg.sql" "backup-${STAMP}-files.tgz"
+sudo chmod 600 "backup-${STAMP}-pg.sql" "backup-${STAMP}-files.tgz"
+sudo systemctl start webgen-control.service
 ```
+
+If a command fails, start `webgen-control.service` after resolving the backup
+error. Store the archive somewhere protected before deleting local copies.
 
 Restore one selected SQL backup through `docker compose exec -T postgres sh -c
 'psql -U "$POSTGRES_USER" -d postgres'`; do not concatenate multiple backups.
-Restore files: stop the stack, extract over `config/` and `workspace/`,
-re-chown Canvas-owned directories to 10001, then start. Move VMs by copying
-`/opt/dck-agentic/` (with `pgdata/` while stopped) and re-pointing DNS.
+Restore files with the control service stopped, extracting the archive from `/`
+so both `/opt/dck-agentic` and `/var/lib/dck-webgen-control` land at their
+original paths. Re-establish private state permissions before starting:
+
+```bash
+set -euo pipefail
+sudo systemctl stop webgen-control.service
+sudo tar --numeric-owner --same-owner -xzf /protected/backup-files.tgz -C /
+sudo chown -R root:root /var/lib/dck-webgen-control
+sudo find /var/lib/dck-webgen-control -type d -exec chmod 700 {} +
+sudo find /var/lib/dck-webgen-control -type f -exec chmod 600 {} +
+sudo chown -R 10001:10001 /opt/dck-agentic/config /opt/dck-agentic/workspace
+sudo systemctl start webgen-control.service
+```
+
+Never copy the master key into `config/` or chown it to Canvas. If moving VMs,
+copy `/opt/dck-agentic/` and `/var/lib/dck-webgen-control/` as one backup set
+(and include `pgdata/` only while PostgreSQL is stopped), then re-point DNS.
 
 ## Security notes
 
@@ -271,9 +312,11 @@ re-chown Canvas-owned directories to 10001, then start. Move VMs by copying
   the private bridge described above; keep that service private and portal
   login mandatory behind the TLS proxy.
 - The systemd host control service owns generated nginx blocks and reloads.
-  Its sandbox grants writable access to the project/config directories,
-  `/etc/nginx/dck-apps`, and `/var/log/nginx` for validation. The agent has no
-  nginx sudo access. Keep port `8012` on loopback.
+  Its sandbox grants writable access to WebGen project directories, its
+  root-only `/var/lib/dck-webgen-control` state and volatile
+  `/run/dck-webgen-control`, `/etc/nginx/dck-apps`, and `/var/log/nginx` for
+  validation. It must not receive writable access to Canvas `config/`. The
+  agent has no nginx sudo access. Keep port `8012` on loopback.
 
 ## Development
 

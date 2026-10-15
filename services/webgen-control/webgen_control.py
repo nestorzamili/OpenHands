@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """Root-run WebGen control service.  All external commands use fixed argv vectors."""
 from __future__ import annotations
-import base64, json, os, re, secrets, shutil, socket, subprocess, tempfile, threading, time
+import errno
+import logging
+import stat
+import base64, copy, json, os, re, secrets, shutil, socket, subprocess, tempfile, threading, time, uuid
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -16,6 +20,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives import hashes
 import yaml
+logger=logging.getLogger("webgen-control")
 
 SLUG_RE=re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 CONV_RE=re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
@@ -37,6 +42,16 @@ class OwnerSeedUnavailable(WebgenOperationError):
 class SecretMaterializationError(RuntimeError):
     def __init__(self,message,status=422,code="secrets_required"):
         super().__init__(message); self.status=status; self.code=code
+
+class EnvironmentReviewRequired(WebgenOperationError):
+    def __init__(self,source):
+        super().__init__("environment_manual_review_required",409); self.source=source
+
+class RuntimeSecretStoreUnavailable(RuntimeError):
+    """Raised after persistence becomes uncertain and the store is locked."""
+
+class QuarantineDurabilityError(OSError):
+    """The workspace unlink happened, but its directory entry was not synced."""
 
 def valid_slug(s): return isinstance(s,str) and bool(SLUG_RE.fullmatch(s))
 def valid_conversation(s): return isinstance(s,str) and bool(CONV_RE.fullmatch(s))
@@ -66,18 +81,21 @@ def command_for(slug,action,compose_file,project_dir=None):
     if project_dir is not None: base.extend(["--project-directory",str(project_dir)])
     return base+{"deploy":["up","-d","--build"],"rebuild":["up","-d","--build"],"start":["up","-d"],"restart":["up","-d"],"stop":["down","--remove-orphans"],"delete":["down","-v","--rmi","local"]}[action]
 def _master_key(path):
-    path=Path(path); path.parent.mkdir(parents=True,exist_ok=True)
+    path=Path(path); path.parent.mkdir(parents=True,exist_ok=True,mode=0o700); os.chmod(path.parent,0o700)
+    if path.is_symlink(): raise RuntimeError("invalid master key")
     try:
         fd=os.open(path,os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600); os.write(fd,secrets.token_bytes(32)); os.fsync(fd); os.close(fd)
     except FileExistsError: pass
-    os.chmod(path,0o600); key=path.read_bytes()
+    os.chmod(path,0o600)
+    if path.stat().st_uid!=os.geteuid() or path.stat().st_mode & 0o077: raise RuntimeError("invalid master key permissions")
+    key=path.read_bytes()
     if len(key)!=32: raise RuntimeError("invalid master key")
     return key
 @dataclass
 class StoredSeed: slug:str; conversation:str; nonce:str; issued:int; expires:int; blob:bytes; authorized_until:int=0
 class SeedStore:
     def __init__(self,ttl=900,max_records=128,master_path=None):
-        self.ttl=min(max(1,int(ttl)),900); self.max_records=max_records; self.aead=AESGCM(AESGCM.generate_key(256)); self.master=_master_key(master_path or os.getenv("WEBGEN_CONTROL_KEY","/opt/dck-agentic/config/webgen-control.key")); self.lock=threading.Lock(); self.records={}
+        self.ttl=min(max(1,int(ttl)),900); self.max_records=max_records; self.aead=AESGCM(AESGCM.generate_key(256)); self.master=_master_key(master_path or os.getenv("WEBGEN_CONTROL_KEY","/var/lib/dck-webgen-control/webgen-control.key")); self.lock=threading.Lock(); self.records={}
     def private_for(self,slug): return Ed25519PrivateKey.from_private_bytes(HKDF(algorithm=hashes.SHA256(),length=32,salt=b"webgen-control-ed25519",info=("slug:"+slug).encode()).derive(self.master))
     def public_key(self,slug): return base64.b64encode(self.private_for(slug).public_key().public_bytes(Encoding.DER,PublicFormat.SubjectPublicKeyInfo)).decode()
     def _drop(self):
@@ -108,9 +126,164 @@ class SeedStore:
             if not r or r.expires<int(time.time()) or r.authorized_until<int(time.time()): raise OwnerSeedUnavailable()
             plain=self.aead.decrypt(r.blob[:12],r.blob[12:],(slug+"\0"+conversation).encode()); e,u,p=json.loads(plain.decode())
             self.records.pop((slug,conversation),None); return r,e,u,p
+
+class RuntimeSecretStore:
+    """Encrypted host-side store; values are never returned by its list API."""
+    MAGIC=b"WGRS1"; AAD=b"webgen-runtime-secrets-v1"; MAX_BYTES=8*1024*1024; MAX_SECRETS=128
+    def __init__(self,path,master):
+        self.path=Path(path); self.path.parent.mkdir(parents=True,exist_ok=True,mode=0o700); os.chmod(self.path.parent,0o700)
+        self.aead=AESGCM(HKDF(algorithm=hashes.SHA256(),length=32,salt=b"webgen-runtime-secrets",info=b"v1").derive(master)); self.lock=threading.RLock(); self.data={}; self._failed_closed=False
+        self._load()
+    @property
+    def healthy(self): return not self._failed_closed
+    def _ensure_healthy(self):
+        if self._failed_closed: raise RuntimeSecretStoreUnavailable("runtime secret store is unavailable; restart after operator review")
+    def _load(self):
+        if self.path.is_symlink(): raise RuntimeError("invalid runtime secret store")
+        if not self.path.exists(): return
+        if not self.path.is_file(): raise RuntimeError("invalid runtime secret store")
+        stat=self.path.stat()
+        if stat.st_uid!=os.geteuid() or stat.st_mode & 0o077: raise RuntimeError("invalid runtime secret store permissions")
+        blob=self.path.read_bytes()
+        if len(blob)>self.MAX_BYTES or not blob.startswith(self.MAGIC) or len(blob)<len(self.MAGIC)+12+16: raise RuntimeError("invalid runtime secret store")
+        try: data=json.loads(self.aead.decrypt(blob[5:17],blob[17:],self.AAD).decode("utf-8"))
+        except Exception as e: raise RuntimeError("unable to decrypt runtime secret store") from e
+        if not isinstance(data,dict): raise RuntimeError("invalid runtime secret store")
+        for project_id,record in data.items():
+            try: canonical=str(uuid.UUID(project_id))
+            except (ValueError,TypeError,AttributeError): raise RuntimeError("invalid runtime secret project id")
+            if canonical!=project_id or not isinstance(record,dict) or not valid_slug(record.get("slug")): raise RuntimeError("invalid runtime secret record")
+            for section in ("secrets","pending"):
+                entries=record.get(section,{})
+                if not isinstance(entries,dict) or len(entries)>self.MAX_SECRETS: raise RuntimeError("invalid runtime secret record")
+                for name,value in entries.items():
+                    if not isinstance(name,str) or not ENV_KEY_RE.fullmatch(name): raise RuntimeError("invalid runtime secret name")
+                    if section=="secrets" and not isinstance(value,str): raise RuntimeError("invalid runtime secret value")
+                    if section=="pending" and (not isinstance(value,dict) or not isinstance(value.get("source_name"),str) or not isinstance(value.get("value"),str)): raise RuntimeError("invalid runtime secret migration")
+        self.data=data
+    def _atomic_write_blob(self,blob):
+        tmp=self.path.with_name(self.path.name+".tmp-"+secrets.token_hex(8))
+        try:
+            fd=os.open(tmp,os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600)
+            with os.fdopen(fd,"wb") as output: output.write(blob); output.flush(); os.fsync(output.fileno())
+            os.replace(tmp,self.path)
+        finally: tmp.unlink(missing_ok=True)
+    def _fsync_directory(self):
+        directory=os.open(self.path.parent,os.O_RDONLY)
+        try: os.fsync(directory)
+        finally: os.close(directory)
+    def _save(self):
+        self._ensure_healthy()
+        plain=json.dumps(self.data,ensure_ascii=False,separators=(",",":")).encode("utf-8")
+        if len(plain)>self.MAX_BYTES-64: raise RuntimeError("runtime secret store is full")
+        old_blob=self.path.read_bytes() if self.path.exists() else None
+        iv=secrets.token_bytes(12); blob=self.MAGIC+iv+self.aead.encrypt(iv,plain,self.AAD)
+        self._atomic_write_blob(blob)
+        try: self._fsync_directory()
+        except OSError:
+            try:
+                if old_blob is None: self.path.unlink(missing_ok=True)
+                else: self._atomic_write_blob(old_blob)
+                self._fsync_directory()
+            except Exception as rollback_error:
+                self._failed_closed=True
+                raise RuntimeSecretStoreUnavailable("runtime secret store persistence rollback failed; service locked") from rollback_error
+            raise
+    def _change(self,operation):
+        self._ensure_healthy()
+        snapshot=copy.deepcopy(self.data)
+        try:
+            result=operation()
+            self._save()
+            return result
+        except BaseException:
+            self.data=snapshot
+            raise
+    def identity_for_slug(self,slug):
+        with self.lock:
+            self._ensure_healthy()
+            matches=[project_id for project_id,record in self.data.items() if record.get("slug")==slug]
+            if len(matches)>1: raise WebgenOperationError("project_identity_conflict",409)
+            return matches[0] if matches else None
+    def bind(self,project_id,slug):
+        with self.lock:
+            self._ensure_healthy()
+            for other_id,record in self.data.items():
+                if record.get("slug")==slug and other_id!=project_id: raise WebgenOperationError("project_identity_conflict",409)
+            record=self.data.get(project_id)
+            if record and record.get("slug")!=slug: raise WebgenOperationError("project_identity_conflict",409)
+            if not record:
+                self._change(lambda: self.data.__setitem__(project_id,{"slug":slug,"secrets":{},"pending":{}}))
+    def _record(self,project_id): return self.data.setdefault(project_id,{"slug":None,"secrets":{},"pending":{}})
+    def list(self,project_id):
+        with self.lock:
+            self._ensure_healthy()
+            r=self.data.get(project_id,{})
+            return {"secrets":[{"name":name,"configured":True} for name in sorted(r.get("secrets",{}))],"pending_migrations":[{"name":name,"source_name":v["source_name"]} for name,v in sorted(r.get("pending",{}).items())]}
+    def values(self,project_id):
+        with self.lock:
+            self._ensure_healthy()
+            return dict(self.data.get(project_id,{}).get("secrets",{}))
+    def put(self,project_id,name,value):
+        with self.lock:
+            self._ensure_healthy()
+            r=self._record(project_id)
+            if not valid_slug(r.get("slug")): raise WebgenOperationError("invalid_project_scope",409)
+            if name in r["pending"]: raise WebgenOperationError("migration_pending",409)
+            if name not in r["secrets"] and len(r["secrets"])>=self.MAX_SECRETS: raise WebgenOperationError("too_many_runtime_secrets",422)
+            if value=="":
+                if name not in r["secrets"]: raise WebgenOperationError("secret_value_required",422)
+                return {"name":name,"configured":True,"unchanged":True}
+            def update():
+                r["secrets"][name]=value
+                return {"name":name,"configured":True,"unchanged":False}
+            return self._change(update)
+    def delete(self,project_id,name):
+        with self.lock:
+            self._ensure_healthy()
+            r=self.data.get(project_id,{"secrets":{},"pending":{}})
+            if not valid_slug(r.get("slug")): raise WebgenOperationError("invalid_project_scope",409)
+            if name in r.get("pending",{}): raise WebgenOperationError("migration_pending",409)
+            if name not in r.get("secrets",{}): raise WebgenOperationError("runtime_secret_not_found",404)
+            return self._change(lambda: r["secrets"].pop(name))
+    def stage_migration(self,project_id,name,source_name,value):
+        with self.lock:
+            self._ensure_healthy()
+            r=self._record(project_id)
+            if not valid_slug(r.get("slug")): raise WebgenOperationError("invalid_project_scope",409)
+            if name not in r["pending"] and len(r["pending"])>=self.MAX_SECRETS: raise WebgenOperationError("too_many_pending_migrations",422)
+            if name in r["secrets"]: raise WebgenOperationError("runtime_secret_exists",409)
+            existing=r["pending"].get(name)
+            if existing and existing.get("source_name")!=source_name: raise WebgenOperationError("migration_pending",409)
+            self._change(lambda: r["pending"].__setitem__(name,{"source_name":source_name,"value":value}))
+    def commit_migration(self,project_id,name,source_name):
+        with self.lock:
+            self._ensure_healthy()
+            r=self.data.get(project_id,{"secrets":{},"pending":{}}); pending=r.get("pending",{}).get(name)
+            if not valid_slug(r.get("slug")): raise WebgenOperationError("invalid_project_scope",409)
+            if not pending or pending.get("source_name")!=source_name: raise WebgenOperationError("migration_pending",409)
+            if name in r.get("secrets",{}): raise WebgenOperationError("runtime_secret_exists",409)
+            def activate():
+                r["secrets"][name]=pending["value"]
+                del r["pending"][name]
+            self._change(activate)
+    def delete_project(self,project_id):
+        self._ensure_healthy()
+        if not isinstance(project_id,str): return
+        with self.lock:
+            if project_id in self.data:
+                self._change(lambda: self.data.pop(project_id))
 class Service:
     def __init__(self):
-        self.workspace=Path(os.getenv("WEBGEN_WORKSPACE_ROOT","/opt/dck-agentic/workspace")).resolve(); self.root=self.workspace/"webgen"; self.nginx=Path(os.getenv("WEBGEN_NGINX_DIR","/etc/nginx/dck-apps")); self.canvas=os.getenv("WEBGEN_CANVAS_AUTH_URL","http://127.0.0.1:8012/api/workspaces"); self.seed=SeedStore(); self.locks={}; self.guard=threading.Lock(); self.build_lock=threading.RLock(); self._validate_canvas()
+        self.workspace=Path(os.getenv("WEBGEN_WORKSPACE_ROOT","/opt/dck-agentic/workspace")).resolve(); self.root=self.workspace/"webgen"; self.nginx=Path(os.getenv("WEBGEN_NGINX_DIR","/etc/nginx/dck-apps")); self.canvas=os.getenv("WEBGEN_CANVAS_AUTH_URL","http://127.0.0.1:8012/api/workspaces"); self.seed=SeedStore(); configured_state=Path(os.getenv("WEBGEN_CONTROL_STATE_DIR","/var/lib/dck-webgen-control"));
+        if configured_state.is_symlink(): raise RuntimeError("invalid WebGen state directory")
+        self.state=configured_state.resolve()
+        if self.state.is_symlink(): raise RuntimeError("invalid WebGen state directory")
+        self.state.mkdir(parents=True,exist_ok=True,mode=0o700); os.chmod(self.state,0o700)
+        self.runtime_dir=Path(os.getenv("WEBGEN_RUNTIME_DIR",str(self.state/"runtime")))
+        if self.runtime_dir.is_symlink(): raise RuntimeError("invalid WebGen runtime directory")
+        self.runtime_dir.mkdir(parents=True,exist_ok=True,mode=0o700); os.chmod(self.runtime_dir,0o700)
+        self.runtime_secrets=RuntimeSecretStore(self.state/"runtime-secrets.enc",self.seed.master); self.migration_lock=threading.Lock(); self.locks={}; self.guard=threading.Lock(); self.build_lock=threading.RLock(); self._validate_canvas(); self._scrub_legacy_workspace_envs()
     def _validate_canvas(self):
         u=urlparse(self.canvas)
         if u.scheme!="http" or u.hostname not in {"127.0.0.1","localhost"} or (u.port or 80)!=8012 or u.path!="/api/workspaces": raise RuntimeError("invalid canvas auth URL")
@@ -123,6 +296,235 @@ class Service:
             m=json.loads(path.read_text())
             return m if isinstance(m,dict) else {}
         except (OSError,ValueError): return {}
+    def _strict_metadata(self,p):
+        path=p/".dck.json"
+        if path.is_symlink() or not path.is_file(): raise WebgenOperationError("invalid_project_metadata",409)
+        try: value=json.loads(path.read_text(encoding="utf-8"))
+        except (OSError,UnicodeError,ValueError): raise WebgenOperationError("invalid_project_metadata",409)
+        if not isinstance(value,dict): raise WebgenOperationError("invalid_project_metadata",409)
+        return value
+    def _ensure_project_id(self,slug,p):
+        if not safe_project(self.root,slug) or p.resolve()!=safe_project(self.root,slug): raise KeyError
+        metadata_path=p/".dck.json"
+        meta=self._strict_metadata(p); project_id=meta.get("projectId"); bound_id=self.runtime_secrets.identity_for_slug(slug)
+        if project_id is None:
+            project_id=bound_id or str(uuid.uuid4()); self.update_meta(p,projectId=project_id)
+        else:
+            try: canonical=str(uuid.UUID(project_id)) if isinstance(project_id,str) else ""
+            except (ValueError,AttributeError): canonical=""
+            if not canonical or canonical!=project_id: raise WebgenOperationError("invalid_project_id",409)
+            if bound_id and bound_id!=project_id: raise WebgenOperationError("project_identity_conflict",409)
+        if self.root.is_dir():
+            for other in self.root.iterdir():
+                if other.name==slug or not other.is_dir() or other.is_symlink(): continue
+                if self.metadata(other).get("projectId")==project_id: raise WebgenOperationError("project_identity_conflict",409)
+        self.runtime_secrets.bind(project_id,slug)
+        return project_id
+    def _safe_env_lines(self,p,base_path,require_manual_review=False):
+        lines=[]; example=p/".env.example"; current=p/".env"; runtime_names=set()
+        if require_manual_review and valid_slug(p.name) and self._has_manual_review_archive(p.name):
+            raise EnvironmentReviewRequired("quarantine")
+        if valid_slug(p.name):
+            project_id=self.runtime_secrets.identity_for_slug(p.name)
+            if project_id:
+                runtime_names.update(self.runtime_secrets.values(project_id))
+                runtime_names.update(item["name"] for item in self.runtime_secrets.list(project_id)["pending_migrations"])
+        seen=set()
+        def safe_lines(path,include_comments):
+            if path.is_symlink(): raise SecretMaterializationError("invalid environment path")
+            if not path.exists(): return []
+            try: source=self._local_project_path(p,path.name).read_text(encoding="utf-8").splitlines()
+            except (OSError,UnicodeError,ValueError): raise EnvironmentReviewRequired(path.name) from None
+            kept=[]
+            for line in source:
+                match=ENV_LINE_RE.match(line)
+                if match:
+                    key=match.group(1)
+                    if key=="APP_BASE_PATH" or key in runtime_names or self._secret_environment_key(key): continue
+                    if path==example and key in seen: continue
+                    kept.append(line)
+                    seen.add(key)
+                elif not line.strip() or line.lstrip().startswith("#"):
+                    if include_comments: kept.append(line)
+                else:
+                    raise EnvironmentReviewRequired(path.name)
+            return kept
+        lines.extend(safe_lines(current,True))
+        lines.extend(safe_lines(example,False))
+        lines.append("APP_BASE_PATH="+self._dotenv_quote(base_path))
+        return lines
+    def _safe_env_file_lines(self,p,path):
+        path=Path(path)
+        if path.is_symlink(): raise SecretMaterializationError("invalid environment path")
+        runtime_names=set(); project_id=self.runtime_secrets.identity_for_slug(p.name)
+        if project_id:
+            runtime_names.update(self.runtime_secrets.values(project_id))
+            runtime_names.update(item["name"] for item in self.runtime_secrets.list(project_id)["pending_migrations"])
+        try:
+            source_path=self._local_project_path(p,path.relative_to(p).as_posix())
+            if source_path.stat().st_size>256*1024: raise EnvironmentReviewRequired(path.name)
+            source=source_path.read_text(encoding="utf-8").splitlines()
+        except (OSError,UnicodeError,ValueError): raise EnvironmentReviewRequired(path.name) from None
+        kept=[]; keys=set()
+        for line in source:
+            match=ENV_LINE_RE.match(line)
+            if match:
+                key=match.group(1)
+                keys.add(key)
+                if key=="APP_BASE_PATH" or key in runtime_names or self._secret_environment_key(key): continue
+                kept.append(line)
+            elif not line.strip():
+                kept.append(line)
+            elif line.lstrip().startswith("#"):
+                comment=ENV_LINE_RE.match(line.lstrip()[1:].lstrip())
+                if comment and (comment.group(1) in runtime_names or self._secret_environment_key(comment.group(1))): continue
+                kept.append(line)
+            else:
+                raise EnvironmentReviewRequired(path.name)
+        return kept,keys
+    def _secure_private_directory(self,path):
+        path=Path(path)
+        if path.is_symlink(): raise OSError("private directory is a symlink")
+        path.mkdir(parents=True,exist_ok=True,mode=0o700)
+        uid=os.geteuid(); gid=os.getegid()
+        os.chown(path,uid,gid); os.chmod(path,0o700)
+        info=path.stat()
+        resolved=path.resolve(); workspace=self.root.resolve()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid!=uid or info.st_gid!=gid or stat.S_IMODE(info.st_mode)!=0o700:
+            raise OSError("private directory permissions are invalid")
+        if resolved==workspace or workspace in resolved.parents:
+            raise OSError("private directory is inside the agent workspace")
+        return resolved
+    @staticmethod
+    def _sync_directory(path):
+        fd=os.open(path,os.O_RDONLY|getattr(os,"O_DIRECTORY",0))
+        try: os.fsync(fd)
+        finally: os.close(fd)
+    @staticmethod
+    def _secure_quarantine_file(path):
+        fd=os.open(path,os.O_RDONLY|getattr(os,"O_NOFOLLOW",0))
+        try:
+            os.fchown(fd,os.geteuid(),os.getegid()); os.fchmod(fd,0o600); os.fsync(fd)
+            info=os.fstat(fd)
+            if not stat.S_ISREG(info.st_mode) or info.st_uid!=os.geteuid() or info.st_gid!=os.getegid() or stat.S_IMODE(info.st_mode)!=0o600:
+                raise OSError("quarantine file permissions are invalid")
+        finally: os.close(fd)
+    def _copy_env_to_private(self,source,destination):
+        source_fd=os.open(source,os.O_RDONLY|getattr(os,"O_NOFOLLOW",0)); destination_fd=None; removed=False
+        try:
+            before=os.fstat(source_fd)
+            if not stat.S_ISREG(before.st_mode): raise OSError("environment source is not a regular file")
+            destination_fd=os.open(destination,os.O_CREAT|os.O_EXCL|os.O_WRONLY|getattr(os,"O_NOFOLLOW",0),0o600)
+            os.fchown(destination_fd,os.geteuid(),os.getegid())
+            while True:
+                chunk=os.read(source_fd,65536)
+                if not chunk: break
+                view=memoryview(chunk)
+                while view:
+                    written=os.write(destination_fd,view)
+                    if written<=0: raise OSError("quarantine copy failed")
+                    view=view[written:]
+            after=os.fstat(source_fd)
+            if (before.st_dev,before.st_ino,before.st_size,before.st_mtime_ns)!=(after.st_dev,after.st_ino,after.st_size,after.st_mtime_ns):
+                raise OSError("environment source changed during quarantine")
+            os.fchmod(destination_fd,0o600); os.fsync(destination_fd)
+            path_info=Path(source).lstat()
+            if not stat.S_ISREG(path_info.st_mode) or (path_info.st_dev,path_info.st_ino)!=(before.st_dev,before.st_ino):
+                raise OSError("environment source changed during quarantine")
+            os.unlink(source); removed=True
+            try: self._sync_directory(Path(source).parent)
+            except OSError as error: raise QuarantineDurabilityError("workspace environment removal durability is uncertain") from error
+        except Exception:
+            if not removed and Path(destination).exists(): Path(destination).unlink(missing_ok=True)
+            raise
+        finally:
+            if destination_fd is not None: os.close(destination_fd)
+            os.close(source_fd)
+    def _move_env_to_private(self,source,destination):
+        source=Path(source); destination=Path(destination)
+        if source.is_symlink() or not source.is_file() or destination.exists() or destination.is_symlink():
+            raise OSError("invalid quarantine source or destination")
+        try: os.replace(source,destination)
+        except OSError as error:
+            if error.errno!=errno.EXDEV: raise
+            self._copy_env_to_private(source,destination)
+        self._secure_quarantine_file(destination)
+        self._sync_directory(source.parent)
+        self._sync_directory(destination.parent)
+    def _quarantine_legacy_env(self,p,target):
+        archive_name=f"manual-review-{p.name}-{int(time.time())}-{secrets.token_hex(8)}.env"
+        destinations=[]
+        for directory in (self.state/"legacy-env-quarantine",self.state):
+            try: private=self._secure_private_directory(directory)
+            except OSError: continue
+            destinations.append(private/archive_name)
+        for destination in destinations:
+            try:
+                self._move_env_to_private(target,destination)
+            except QuarantineDurabilityError:
+                try:
+                    if target.exists() or target.is_symlink(): target.unlink()
+                    self._sync_directory(target.parent)
+                except OSError: pass
+                logger.error("WebGen startup blocked: removal durability for ambiguous .env in project %s is uncertain.",p.name)
+                raise RuntimeError("legacy environment removal durability uncertain; service startup blocked") from None
+            except Exception:
+                if not target.exists():
+                    if destination.exists():
+                        try:
+                            self._secure_quarantine_file(destination)
+                            self._sync_directory(destination.parent)
+                        except Exception:
+                            raise RuntimeError("legacy environment quarantine permissions could not be verified; service startup blocked") from None
+                        logger.warning("Quarantined ambiguous legacy .env for project %s at protected path %s; operator review is required before lifecycle actions.",p.name,destination)
+                        return destination
+                    raise RuntimeError("legacy environment quarantine state could not be verified; service startup blocked") from None
+                continue
+            logger.warning("Quarantined ambiguous legacy .env for project %s at protected path %s; operator review is required before lifecycle actions.",p.name,destination)
+            return destination
+        try:
+            if target.exists() and not target.is_symlink() and target.is_file():
+                target.unlink(); self._sync_directory(target.parent)
+        except OSError:
+            logger.error("WebGen startup blocked: ambiguous .env for project %s could not be quarantined or removed from the agent workspace.",p.name)
+            raise RuntimeError("legacy environment file remains exposed; service startup blocked") from None
+        if target.exists() or target.is_symlink():
+            logger.error("WebGen startup blocked: ambiguous .env for project %s could not be removed from the agent workspace.",p.name)
+            raise RuntimeError("legacy environment file remains exposed; service startup blocked")
+        logger.error("WebGen startup blocked: ambiguous .env for project %s was removed from the workspace but no secure archive could be created; restore from backup before service recovery.",p.name)
+        raise RuntimeError("legacy environment quarantine failed; workspace copy removed and service startup blocked")
+    def _has_manual_review_archive(self,slug):
+        pattern=f"manual-review-{slug}-*.env"
+        for directory in (self.state/"legacy-env-quarantine",self.state):
+            try: candidates=directory.glob(pattern)
+            except OSError: continue
+            for candidate in candidates:
+                try:
+                    info=candidate.lstat()
+                    if stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode): return True
+                except OSError: continue
+        return False
+    def _scrub_legacy_workspace_envs(self):
+        """Scrub safe legacy values and quarantine ambiguous files outside agent access."""
+        if not self.root.is_dir(): return
+        for p in self.root.iterdir():
+            if not p.is_dir() or p.is_symlink() or not valid_slug(p.name) or not safe_project(self.root,p.name): continue
+            targets=[p/".env"]
+            try: _,_,_,env_files=self._source_compose(p)
+            except (OSError,ValueError): env_files=[]
+            targets.extend(path for path in env_files if path!=(p/".env").resolve())
+            base="" if self._published_label(self.metadata(p)) else f"/preview/{p.name}"
+            for target in dict.fromkeys(targets):
+                if not target.exists() or target.is_symlink() or not target.is_file(): continue
+                try:
+                    if target==(p/".env"):
+                        self._write_project_env(p,self._safe_env_lines(p,base))
+                    else:
+                        lines,_=self._safe_env_file_lines(p,target)
+                        self._write_project_env(p,lines,target)
+                except EnvironmentReviewRequired:
+                    self._quarantine_legacy_env(p,target)
+                except (WebgenOperationError,SecretMaterializationError): continue
     def port(self,m):
         v=m.get("port")
         if isinstance(v,bool) or not isinstance(v,int) or not 3000<=v<=65535: raise ValueError("invalid port")
@@ -284,7 +686,7 @@ class Service:
     def compose_config(self,slug,p,compose_file=None,source_bytes=None):
         cf,source,app,env_files=self._source_compose(p,source_bytes); compose_file=compose_file or cf; m=self.metadata(p); port=self.port(m)
         clean_env=self.docker_environment()
-        try:r=subprocess.run(["docker","compose","-f",str(compose_file),"-p",slug,"--project-directory",str(p),"config","--format","json"],cwd=str(p),capture_output=True,text=True,timeout=30,check=False,env=clean_env)
+        try:r=subprocess.run(["docker","compose","-f",str(compose_file),"-p",slug,"--project-directory",str(p),"config","--no-env-resolution","--format","json"],cwd=str(p),capture_output=True,text=True,timeout=30,check=False,env=clean_env)
         except (OSError,subprocess.TimeoutExpired): raise RuntimeError("compose validation failed")
         if r.returncode: raise RuntimeError("compose validation failed")
         try:cfg=json.loads(r.stdout)
@@ -305,7 +707,7 @@ class Service:
             except (TypeError,ValueError): raise ValueError("unsafe compose ports")
             if target!=3000 or pub!=port or host!="127.0.0.1": raise ValueError("unsafe compose ports")
         return cfg
-    def compose(self,slug,p,action):
+    def compose(self,slug,p,action,runtime_env_file=None):
         clean_env=self.docker_environment()
         source=p/"docker-compose.yml"
         if not source.is_file() or source.is_symlink() or source.stat().st_size>1024*1024: raise ValueError("invalid compose")
@@ -314,10 +716,24 @@ class Service:
             with tempfile.TemporaryDirectory(prefix="webgen-compose-") as temporary:
                 snapshot=Path(temporary)/"docker-compose.yml"; snapshot.write_bytes(source_bytes); os.chmod(snapshot,0o400)
                 self.compose_config(slug,p,compose_file=snapshot,source_bytes=source_bytes)
-                base=["docker","compose","-p",slug,"-f",str(snapshot),"--project-directory",str(p)]
+                overlay=None
+                if runtime_env_file is not None:
+                    env_path=Path(runtime_env_file)
+                    try: resolved=env_path.resolve(strict=True)
+                    except OSError: raise SecretMaterializationError("invalid runtime environment")
+                    runtime_root=Path(getattr(self,"runtime_dir",self.state/"runtime")).resolve()
+                    if env_path.is_symlink() or not env_path.is_file() or runtime_root not in resolved.parents or env_path.stat().st_mode & 0o077: raise SecretMaterializationError("invalid runtime environment")
+                    overlay=Path(temporary)/"runtime-overlay.yml"
+                    overlay.write_text("services:\n  app:\n    env_file:\n      - "+json.dumps(str(resolved))+"\n",encoding="utf-8")
+                    os.chmod(overlay,0o400)
+                base=["docker","compose","-p",slug,"-f",str(snapshot)]
+                if overlay is not None: base.extend(["-f",str(overlay)])
+                base.extend(["--project-directory",str(p)])
                 commands=[]
                 if action in {"rebuild","restart"}: commands.append(base+["down","--remove-orphans"])
-                commands.append(command_for(slug,action,snapshot,p))
+                command=command_for(slug,action,snapshot,p)
+                if overlay is not None: command[command.index("--project-directory"):command.index("--project-directory")]=["-f",str(overlay)]
+                commands.append(command)
                 for command in commands:
                     result=subprocess.run(command,cwd=str(p),capture_output=True,text=True,timeout=900,check=False,env=clean_env)
                     if result.returncode: return result
@@ -325,7 +741,8 @@ class Service:
     @staticmethod
     def _secret_environment_key(name):
         upper=name.upper()
-        return upper in {"DATABASE_URL","REDIS_URL","BETTER_AUTH_SECRET"} or any(term in upper for term in ("_SECRET","PASSWORD","_TOKEN","API_KEY","PRIVATE_KEY"))
+        parts=upper.split("_")
+        return upper in {"DATABASE_URL","REDIS_URL","BETTER_AUTH_SECRET","TOKEN","SECRET","PASSWORD","CREDENTIALS"} or any(part in {"SECRET","PASSWORD","TOKEN","CREDENTIAL","CREDENTIALS"} for part in parts) or any("_".join(parts[index:index+2]) in {"API_KEY","PRIVATE_KEY","ACCESS_KEY"} for index in range(len(parts)-1))
     @staticmethod
     def _dotenv_quote(value):
         if any(ord(ch)<32 or ord(ch)==127 for ch in value): raise SecretMaterializationError("invalid secret value")
@@ -336,41 +753,117 @@ class Service:
         try:
             with urlopen(Request(base+path,headers={"X-Session-API-Key":api_key}),timeout=5) as response:
                 data=response.read(max_bytes+1)
+        except HTTPError as e:
+            if e.code==404: raise WebgenOperationError("agent_secret_not_found",404)
+            raise SecretMaterializationError("secret manager unavailable",503,"secret_manager_unavailable")
         except Exception: raise SecretMaterializationError("secret manager unavailable",503,"secret_manager_unavailable")
         if len(data)>max_bytes: raise SecretMaterializationError("secret response too large",502,"invalid_secret_response")
         return data
-    def _project_secret_values(self,slug,api_key):
-        suffix="_"+slug.upper().replace("-","_")
+    def _agent_secret_names(self,api_key):
         raw=self._secret_request(api_key,"/api/settings/secrets",1024*1024)
         try: items=json.loads(raw.decode("utf-8")).get("secrets",[])
         except (UnicodeError,ValueError,AttributeError): raise SecretMaterializationError("invalid secret list",502,"invalid_secret_response")
         if not isinstance(items,list): raise SecretMaterializationError("invalid secret list",502,"invalid_secret_response")
-        names=[]
-        for item in items:
-            name=item.get("name") if isinstance(item,dict) else None
-            if isinstance(name,str) and SECRET_NAME_RE.fullmatch(name) and name.endswith(suffix): names.append(name)
-        if len(names)>128: raise SecretMaterializationError("too many project secrets",422,"too_many_project_secrets")
-        values={}
-        for name in sorted(set(names)):
-            key=name[:-len(suffix)]
-            if not ENV_KEY_RE.fullmatch(key) or key=="APP_BASE_PATH" or key.startswith("WEBGEN_") or key in {"PATH","HOME","COMPOSE_PARALLEL_LIMIT"}: raise SecretMaterializationError("invalid project secret name")
-            try: value=self._secret_request(api_key,"/api/settings/secrets/"+quote(name,safe=""),65536).decode("utf-8")
-            except UnicodeError: raise SecretMaterializationError("invalid secret encoding")
-            values[key]=value
-        return values
-    def _write_project_env(self,p,lines):
-        target=p/".env"
+        names={item.get("name") for item in items if isinstance(item,dict) and isinstance(item.get("name"),str) and SECRET_NAME_RE.fullmatch(item["name"])}
+        return sorted(names)
+    @staticmethod
+    def _valid_runtime_secret_name(name):
+        return isinstance(name,str) and bool(ENV_KEY_RE.fullmatch(name)) and name!="APP_BASE_PATH" and not name.startswith("WEBGEN_") and name not in {"PATH","HOME","COMPOSE_PARALLEL_LIMIT"}
+    @staticmethod
+    def _valid_runtime_secret_value(value):
+        return isinstance(value,str) and len(value.encode("utf-8"))<=8192 and not any(ord(ch)<32 or ord(ch)==127 for ch in value)
+    def runtime_secret_payload(self,slug,p,api_key):
+        project_id=self._ensure_project_id(slug,p); payload=self.runtime_secrets.list(project_id)
+        try: candidates=self._legacy_secret_candidates(slug,api_key)
+        except (SecretMaterializationError,WebgenOperationError): candidates=[]; payload["migration_available"]=False
+        else: payload["migration_available"]=True
+        known={item["source_name"] for item in candidates}
+        pending_by_source={item["source_name"]:item for item in payload["pending_migrations"]}
+        for candidate in candidates:
+            if candidate["source_name"] in pending_by_source:
+                candidate["pending"]=True
+                candidate["ambiguous"]=False
+        for pending in payload["pending_migrations"]:
+            if pending["source_name"] not in known: candidates.append({"source_name":pending["source_name"],"runtime_name":pending["name"],"ambiguous":False,"pending":True})
+        payload.update({"project_id":project_id,"migration_candidates":candidates})
+        return payload
+    def _legacy_secret_candidates(self,slug,api_key):
+        suffix="_"+slug.upper().replace("-","_"); names=self._agent_secret_names(api_key); slugs=[]
+        if self.root.is_dir(): slugs=[p.name for p in self.root.iterdir() if p.is_dir() and not p.is_symlink() and valid_slug(p.name) and safe_project(self.root,p.name)]
+        candidates=[]
+        for name in names:
+            if not name.endswith(suffix): continue
+            runtime_name=name[:-len(suffix)]
+            if not self._valid_runtime_secret_name(runtime_name): continue
+            matches=[other for other in slugs if name.endswith("_"+other.upper().replace("-","_"))]
+            if slug in matches: candidates.append({"source_name":name,"runtime_name":runtime_name,"ambiguous":len(matches)>1})
+        return candidates
+    def migrate_runtime_secret(self,slug,p,api_key,source_name,confirm_ambiguous=False):
+        with self.migration_lock:
+            project_id=self._ensure_project_id(slug,p)
+            if not isinstance(source_name,str) or not SECRET_NAME_RE.fullmatch(source_name): raise ValueError("invalid source secret")
+            store_list=self.runtime_secrets.list(project_id); pending=next((x for x in store_list["pending_migrations"] if x["source_name"]==source_name),None)
+            if pending:
+                name=pending["name"]
+                try: raw=self._secret_request(api_key,"/api/settings/secrets/"+quote(source_name,safe=""),65536)
+                except WebgenOperationError as error:
+                    if error.code!="agent_secret_not_found": raise
+                    self.runtime_secrets.commit_migration(project_id,name,source_name)
+                    return {"name":name,"configured":True,"source_removed":True,"pending":False}
+                except SecretMaterializationError as error:
+                    raise SecretMaterializationError("migration source could not be verified",503,"migration_pending") from error
+                else:
+                    try: value=raw.decode("utf-8")
+                    except UnicodeError: raise SecretMaterializationError("invalid secret encoding")
+                    if not self._valid_runtime_secret_value(value): raise SecretMaterializationError("invalid secret value")
+                    if value!=self.runtime_secrets.data[project_id]["pending"][name]["value"]:
+                        self.runtime_secrets.stage_migration(project_id,name,source_name,value)
+                    raise WebgenOperationError("migration_source_still_exists",409)
+            else:
+                candidates=self._legacy_secret_candidates(slug,api_key); candidate=next((item for item in candidates if item["source_name"]==source_name),None)
+                if not candidate: raise WebgenOperationError("migration_candidate_not_found",404)
+                if candidate["ambiguous"] and confirm_ambiguous is not True: raise WebgenOperationError("migration_confirmation_required",409)
+                name=candidate["runtime_name"]
+                if name in {x["name"] for x in self.runtime_secrets.list(project_id)["secrets"]}: raise WebgenOperationError("runtime_secret_exists",409)
+                try: raw=self._secret_request(api_key,"/api/settings/secrets/"+quote(source_name,safe=""),65536)
+                except WebgenOperationError as error:
+                    if error.code=="agent_secret_not_found": raise WebgenOperationError("migration_candidate_not_found",404) from error
+                    raise
+                try: value=raw.decode("utf-8")
+                except UnicodeError: raise SecretMaterializationError("invalid secret encoding")
+                if not self._valid_runtime_secret_value(value): raise SecretMaterializationError("invalid secret value")
+                self.runtime_secrets.stage_migration(project_id,name,source_name,value)
+                return {"name":name,"configured":False,"source_removed":False,"pending":True}
+    def _write_project_env(self,p,lines,target=None):
+        target=Path(target) if target is not None else p/".env"
         if target.is_symlink(): raise SecretMaterializationError("invalid environment path")
-        owner=p.stat(); tmp=target.with_name(".env.tmp-"+secrets.token_hex(8))
+        try: resolved=target.resolve()
+        except OSError: raise SecretMaterializationError("invalid environment path") from None
+        root=p.resolve()
+        if resolved==root or root not in resolved.parents or (target.exists() and not target.is_file()): raise SecretMaterializationError("invalid environment path")
+        owner=target.stat() if target.exists() else p.stat(); tmp=target.with_name("."+target.name+".tmp-"+secrets.token_hex(8))
         try:
             with open(tmp,"w",encoding="utf-8",newline="\n") as output:
                 output.write("\n".join(lines)+"\n"); output.flush(); os.fsync(output.fileno())
             os.chown(tmp,owner.st_uid,owner.st_gid); os.chmod(tmp,0o600); os.replace(tmp,target)
         finally: tmp.unlink(missing_ok=True)
-    def materialize_env(self,slug,p,api_key,base_path):
+    @contextmanager
+    def materialize_env(self,slug,p,base_path):
+        project_id=self._ensure_project_id(slug,p)
         _,source,app,env_files=self._source_compose(p)
+        default_env=(p/".env").resolve(); env_file_keys=set()
+        for env_file in env_files:
+            if env_file==default_env: continue
+            try: lines,keys=self._safe_env_file_lines(p,env_file)
+            except EnvironmentReviewRequired:
+                self._quarantine_legacy_env(p,env_file)
+                raise EnvironmentReviewRequired(env_file.name) from None
+            self._write_project_env(p,lines,env_file)
+            env_file_keys.update(keys)
         env_keys=self.project_env_keys(p,source,app,env_files)
-        values=self._project_secret_values(slug,api_key)
+        env_keys.update(env_file_keys)
+        values=self.runtime_secrets.values(project_id)
+        if any(not self._valid_runtime_secret_name(k) or not self._valid_runtime_secret_value(v) for k,v in values.items()): raise SecretMaterializationError("invalid runtime secret")
         required={key for key in env_keys if self._secret_environment_key(key)}
         metadata=self.metadata(p)
         auth=metadata.get("authProvider")
@@ -378,17 +871,24 @@ class Service:
         if auth=="better-auth": required.add("BETTER_AUTH_SECRET")
         missing=required-set(values)
         if missing: raise SecretMaterializationError("required project secrets are missing")
-        lines=[]; example=p/".env.example"
-        if example.exists():
-            for line in self._local_project_path(p,".env.example").read_text(encoding="utf-8").splitlines():
-                match=ENV_LINE_RE.match(line)
-                if not match: continue
-                key=match.group(1)
-                if key=="APP_BASE_PATH" or self._secret_environment_key(key) or key in values: continue
-                lines.append(line.strip())
-        for key,value in sorted(values.items()): lines.append(key+"="+self._dotenv_quote(value))
-        lines.append("APP_BASE_PATH="+self._dotenv_quote(base_path))
-        self._write_project_env(p,lines)
+        environment=app.get("environment",{})
+        environment_names=set(environment) if isinstance(environment,dict) else {item.split("=",1)[0] for item in environment if isinstance(item,str)} if isinstance(environment,list) else set()
+        if environment_names.intersection(values): raise SecretMaterializationError("remove_runtime_secrets_from_compose_environment",422,"runtime_secret_compose_conflict")
+        build=app.get("build") or {}; build=build if isinstance(build,dict) else {}
+        args=build.get("args",{}); arg_names=set(args) if isinstance(args,dict) else {item.split("=",1)[0] for item in args if isinstance(item,str)} if isinstance(args,list) else set()
+        if arg_names.intersection(values): raise SecretMaterializationError("runtime_secrets_cannot_be_build_args",422,"runtime_secret_build_arg")
+        self._write_project_env(p,self._safe_env_lines(p,base_path,require_manual_review=True))
+        runtime_dir=Path(getattr(self,"runtime_dir",self.state/"runtime"))
+        runtime_dir.mkdir(parents=True,exist_ok=True,mode=0o700); os.chmod(runtime_dir,0o700)
+        with tempfile.TemporaryDirectory(prefix="webgen-runtime-",dir=runtime_dir) as temporary:
+            target=Path(temporary)/"runtime.env"; owner=self.state.stat()
+            try:
+                with open(target,"w",encoding="utf-8",newline="\n") as output:
+                    for key,value in sorted(values.items()): output.write(key+"="+self._dotenv_quote(value)+"\n")
+                    output.flush(); os.fsync(output.fileno())
+                os.chown(target,owner.st_uid,owner.st_gid); os.chmod(target,0o600)
+                yield target
+            finally: target.unlink(missing_ok=True)
     def active_base_path(self,slug):
         p=safe_project(self.root,slug)
         return "" if p and self._published_label(self.metadata(p)) else f"/preview/{slug}"
@@ -514,6 +1014,7 @@ class Service:
         if action not in ACTIONS: raise ValueError("invalid action")
         if "subdomain" in body and action!="publish": raise ValueError("subdomain requires publish")
         with self.lock_for(slug):
+            if action in {"publish","unpublish","deploy","rebuild","start","restart","delete"}: self._ensure_project_id(slug,p)
             m=self.metadata(p); port=self.port(m)
             if action in {"publish","unpublish"}:
                 current=self._published_label(m)
@@ -523,29 +1024,27 @@ class Service:
                 if action=="publish":
                     self._ensure_unique_subdomain(slug,sub)
                     if m.get("authProvider")=="better-auth" and self.owner_state(slug)!="owner_exists": raise OwnerSeedUnavailable()
-                oldenv=(p/".env").read_bytes() if (p/".env").is_file() and not (p/".env").is_symlink() else None
                 oldmeta=(p/".dck.json").read_bytes(); oldroutes=self._snapshot_routes(slug); old_base="" if current else f"/preview/{slug}"; runtime_changed=False
                 try:
-                    self.materialize_env(slug,p,session_api_key,"" if action=="publish" else f"/preview/{slug}")
-                    r=self.compose(slug,p,"rebuild")
-                    if r.returncode: raise RuntimeError("rebuild failed")
-                    runtime_changed=True
-                    path="/" if action=="publish" else f"/preview/{slug}/"
-                    self.wait_ready(slug,port,path)
-                    self._set_route(slug,p,m,sub if action=="publish" else None)
-                    self.update_meta(p,lastStatus="running",lastCheckedAt=now_iso())
+                    with self.materialize_env(slug,p,"" if action=="publish" else f"/preview/{slug}") as runtime_env_file:
+                        r=self.compose(slug,p,"rebuild",runtime_env_file)
+                        if r.returncode: raise RuntimeError("rebuild failed")
+                        runtime_changed=True
+                        path="/" if action=="publish" else f"/preview/{slug}/"
+                        self.wait_ready(slug,port,path)
+                        self._set_route(slug,p,m,sub if action=="publish" else None)
+                        self.update_meta(p,lastStatus="running",lastCheckedAt=now_iso())
                 except SecretMaterializationError: raise
                 except Exception as failure:
                     self._restore_routes(oldroutes)
-                    if oldenv is None: (p/".env").unlink(missing_ok=True)
-                    else: self._atomic_bytes(p/".env",oldenv,0o600)
                     self._atomic_bytes(p/".dck.json",oldmeta,0o644)
                     restored=not runtime_changed
                     if runtime_changed:
                         try:
-                            rollback=self.compose(slug,p,"rebuild")
-                            restored=rollback.returncode==0
-                            if restored: self.wait_ready(slug,port,old_base+"/" if old_base else "/")
+                            with self.materialize_env(slug,p,old_base) as runtime_env_file:
+                                rollback=self.compose(slug,p,"rebuild",runtime_env_file)
+                                restored=rollback.returncode==0
+                                if restored: self.wait_ready(slug,port,old_base+"/" if old_base else "/")
                         except Exception: restored=False
                     if restored:
                         try:self.update_meta(p,lastStatus="running",lastCheckedAt=now_iso())
@@ -571,8 +1070,8 @@ class Service:
             current=self._published_label(m)
             target=current
             base="" if target else f"/preview/{slug}"
-            self.materialize_env(slug,p,session_api_key,base)
-            r=self.compose(slug,p,action)
+            with self.materialize_env(slug,p,base) as runtime_env_file:
+                r=self.compose(slug,p,action,runtime_env_file)
             if r.returncode: self.update_meta(p,lastStatus="error",lastCheckedAt=now_iso()); raise RuntimeError("compose operation failed")
             try:
                 self.wait_ready(slug,port,base+"/" if base else "/")
@@ -594,6 +1093,7 @@ class Service:
         return ["docker","exec","dck-postgres","psql","-U",user,"-d","postgres","-v","ON_ERROR_STOP=1","-c",sql]
     def _delete(self,slug,p):
         meta=self.metadata(p)
+        project_id=meta.get("projectId")
         needs_db=meta.get("needsDatabase") is not False or meta.get("authProvider")=="better-auth"
         if needs_db:
             probe=subprocess.run(self.postgres_command("SELECT 1"),capture_output=True,text=True,timeout=10,check=False)
@@ -604,18 +1104,28 @@ class Service:
             self.nginx_reload()
             down=self.compose(slug,p,"delete")
             if down.returncode: raise RuntimeError("container cleanup failed")
+            shutil.rmtree(p)
             if needs_db:
                 db=subprocess.run(self.postgres_command(f'DROP DATABASE IF EXISTS "dck_{slug}" WITH (FORCE)'),capture_output=True,text=True,timeout=30,check=False)
                 if db.returncode: raise WebgenOperationError("database_cleanup_failed")
-            shutil.rmtree(p); return {"slug":slug,"path":f"/projects/webgen/{slug}","name":None,"port":None,"stack":None,"auth_provider":None,"preview_path":None,"subdomain":None,"status":"stopped","last_checked_at":now_iso(),"containers":[]}
-        except Exception:
+            self.runtime_secrets.delete_project(project_id)
+            return {"slug":slug,"path":f"/projects/webgen/{slug}","name":None,"port":None,"stack":None,"auth_provider":None,"preview_path":None,"subdomain":None,"status":"stopped","last_checked_at":now_iso(),"containers":[]}
+        except Exception as failure:
+            if not p.exists():
+                try:self.nginx_reload()
+                except Exception:pass
+                raise WebgenOperationError("delete_recovery_required",503) from failure
             self._restore_routes(old)
             if was_running and p.exists():
-                try:self.compose(slug,p,"deploy")
+                try:
+                    base="" if self._published_label(self.metadata(p)) else f"/preview/{slug}"
+                    with self.materialize_env(slug,p,base) as runtime_env_file:
+                        self.compose(slug,p,"deploy",runtime_env_file)
                 except Exception:pass
             try:self.nginx_reload()
             except Exception:pass
             self.update_meta(p,lastStatus="error",lastCheckedAt=now_iso())
+            if isinstance(failure,WebgenOperationError): raise failure
             raise WebgenOperationError("delete_failed")
 class Handler(BaseHTTPRequestHandler):
     server_version="webgen-control/1"
@@ -623,7 +1133,7 @@ class Handler(BaseHTTPRequestHandler):
     @property
     def svc(self): return self.server.service
     def send(self,c,o):
-        b=json.dumps(o,ensure_ascii=False,separators=(",",":")).encode(); self.send_response(c); self.send_header("Content-Type","application/json"); self.send_header("Content-Length",str(len(b))); self.end_headers(); self.wfile.write(b)
+        b=json.dumps(o,ensure_ascii=False,separators=(",",":")).encode(); self.send_response(c); self.send_header("Content-Type","application/json"); self.send_header("Cache-Control","no-store"); self.send_header("X-Content-Type-Options","nosniff"); self.send_header("Content-Length",str(len(b))); self.end_headers(); self.wfile.write(b)
     def auth(self):
         key=self.headers.get("X-Session-API-Key")
         if not isinstance(key,str) or not key:return self.send(401,{"error":"unauthorized"}) or False
@@ -631,6 +1141,10 @@ class Handler(BaseHTTPRequestHandler):
             with urlopen(Request(self.svc.canvas,headers={"X-Session-API-Key":key}),timeout=3) as r:r.read(1024); return True
         except HTTPError as e:self.send(e.code if e.code==401 else 503,{"error":"unauthorized" if e.code==401 else "auth_unavailable"}); return False
         except Exception:self.send(503,{"error":"auth_unavailable"}); return False
+    def runtime_store_ready(self):
+        if self.svc.runtime_secrets.healthy: return True
+        self.send(503,{"error":"runtime_secret_store_unavailable"})
+        return False
     def body(self):
         if self.headers.get_content_type()!="application/json": raise ValueError("json required")
         raw=self.headers.get("Content-Length")
@@ -639,13 +1153,29 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(d,dict): raise ValueError("object required")
         return d
     def do_GET(self):
-        if self.path=="/healthz": return self.send(200,{"status":"ok"})
+        if self.path=="/healthz":
+            if not self.runtime_store_ready(): return
+            return self.send(200,{"status":"ok"})
         if self.path=="/api/webgen/projects":
             if not self.auth(): return
+            if not self.runtime_store_ready(): return
             return self.send(200,{"projects":self.svc.projects()})
+        m=re.fullmatch(r"/api/webgen/projects/([^/]+)/runtime-secrets",self.path)
+        if m:
+            if not self.auth(): return
+            if not self.runtime_store_ready(): return
+            slug=m.group(1)
+            if not valid_slug(slug): return self.send(400,{"error":"invalid_identifier"})
+            p=safe_project(self.svc.root,slug)
+            if not p: return self.send(404,{"error":"not_found"})
+            try:
+                with self.svc.lock_for(slug): return self.send(200,self.svc.runtime_secret_payload(slug,p,self.headers.get("X-Session-API-Key")))
+            except (SecretMaterializationError,WebgenOperationError) as e: return self.send(e.status,{"error":e.code})
+            except Exception: return self.send(500,{"error":"operation_failed"})
         self.send(404,{"error":"not_found"})
     def do_POST(self):
         if not self.auth():return
+        if not self.runtime_store_ready(): return
         try:
             d=self.body(); m=re.fullmatch(r"/api/webgen-provisioning/projects/([^/]+)/conversations/([^/]+)/(seed|authorize-deploy)",self.path)
             if m:
@@ -656,11 +1186,54 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200,self.svc.seed.authorize(slug,conv))
             m=re.fullmatch(r"/api/webgen/projects/([^/]+)/actions",self.path)
             if m:return self.send(200,{"project":self.svc.action(m.group(1),d,self.headers.get("X-Session-API-Key"))})
+            m=re.fullmatch(r"/api/webgen/projects/([^/]+)/runtime-secrets/migrations",self.path)
+            if m:
+                slug=m.group(1)
+                if not valid_slug(slug):return self.send(400,{"error":"invalid_identifier"})
+                p=safe_project(self.svc.root,slug)
+                if not p:return self.send(404,{"error":"not_found"})
+                if set(d)-{"source_name","confirm_ambiguous"} or not isinstance(d.get("confirm_ambiguous",False),bool):return self.send(400,{"error":"invalid_request"})
+                with self.svc.lock_for(slug): result=self.svc.migrate_runtime_secret(slug,p,self.headers.get("X-Session-API-Key"),d.get("source_name"),d.get("confirm_ambiguous",False))
+                return self.send(200,result)
             self.send(404,{"error":"not_found"})
         except (SecretMaterializationError,WebgenOperationError) as e:self.send(e.status,{"error":e.code})
         except (ValueError,KeyError,json.JSONDecodeError):self.send(400,{"error":"invalid_request"})
         except OverflowError:self.send(429,{"error":"capacity"})
         except RuntimeError as e:self.send(410 if "authorization" in str(e) else 500,{"error":"owner_authorization_required" if "authorization" in str(e) else "operation_failed"})
+        except Exception:self.send(500,{"error":"operation_failed"})
+    def do_PUT(self):
+        if not self.auth(): return
+        if not self.runtime_store_ready(): return
+        try:
+            d=self.body(); m=re.fullmatch(r"/api/webgen/projects/([^/]+)/runtime-secrets",self.path)
+            if not m:return self.send(404,{"error":"not_found"})
+            slug=m.group(1)
+            if not valid_slug(slug):return self.send(400,{"error":"invalid_identifier"})
+            if set(d)!={"name","value"} or not self.svc._valid_runtime_secret_name(d.get("name")):return self.send(400,{"error":"invalid_secret_name"})
+            if not isinstance(d.get("value"),str) or not self.svc._valid_runtime_secret_value(d["value"]):return self.send(422,{"error":"invalid_secret_value"})
+            p=safe_project(self.svc.root,slug)
+            if not p:return self.send(404,{"error":"not_found"})
+            with self.svc.lock_for(slug):
+                project_id=self.svc._ensure_project_id(slug,p); result=self.svc.runtime_secrets.put(project_id,d["name"],d["value"])
+            return self.send(200,result)
+        except (SecretMaterializationError,WebgenOperationError) as e:self.send(e.status,{"error":e.code})
+        except (ValueError,KeyError,json.JSONDecodeError):self.send(400,{"error":"invalid_request"})
+        except Exception:self.send(500,{"error":"operation_failed"})
+    def do_DELETE(self):
+        if not self.auth(): return
+        if not self.runtime_store_ready(): return
+        try:
+            m=re.fullmatch(r"/api/webgen/projects/([^/]+)/runtime-secrets/([A-Za-z][A-Za-z0-9_]{0,63})",self.path)
+            if not m:return self.send(404,{"error":"not_found"})
+            slug,name=m.groups()
+            if not valid_slug(slug) or not self.svc._valid_runtime_secret_name(name):return self.send(400,{"error":"invalid_identifier"})
+            p=safe_project(self.svc.root,slug)
+            if not p:return self.send(404,{"error":"not_found"})
+            with self.svc.lock_for(slug):
+                project_id=self.svc._ensure_project_id(slug,p); self.svc.runtime_secrets.delete(project_id,name)
+            return self.send(200,{"deleted":True})
+        except (SecretMaterializationError,WebgenOperationError) as e:self.send(e.status,{"error":e.code})
+        except (ValueError,KeyError,json.JSONDecodeError):self.send(400,{"error":"invalid_request"})
         except Exception:self.send(500,{"error":"operation_failed"})
 def main():
     host=os.getenv("WEBGEN_BIND_HOST","172.17.0.1"); import ipaddress

@@ -20,7 +20,9 @@ describe("ingress portal auth", () => {
   let nextPort = 42000;
 
   it("limits internal reads and delegates API-key authentication to the upstream", async () => {
+    const forwarded: string[] = [];
     const upstream = createServer((req, res) => {
+      forwarded.push(`${req.method} ${req.url}`);
       if (req.headers["x-session-api-key"] !== "valid-key")
         res.writeHead(401).end();
       else res.writeHead(200).end("authenticated");
@@ -39,10 +41,13 @@ describe("ingress portal auth", () => {
       ["/api/workspaces", "valid-key", "GET", 200],
       ["/api/settings/secrets", "valid-key", "GET", 200],
       ["/api/settings/secrets/DATABASE_URL_SHOP", "valid-key", "GET", 200],
+      ["/api/settings/secrets/DATABASE_URL_SHOP", "valid-key", "DELETE", 404],
       ["/api/workspaces", "invalid-key", "GET", 401],
       ["/api/workspaces", "", "GET", 401],
       ["/api/settings", "valid-key", "GET", 404],
       ["/api/settings/secrets", "valid-key", "POST", 404],
+      ["/api/settings/secrets", "valid-key", "DELETE", 404],
+      ["/api/settings/secrets/DATABASE_URL_SHOP?force=true", "valid-key", "DELETE", 404],
     ] as const) {
       const actual = await new Promise<number>((resolve, reject) => {
         const req = request(
@@ -58,6 +63,8 @@ describe("ingress portal auth", () => {
       });
       expect(actual, `${method} ${pathName}`).toBe(status);
     }
+    expect(forwarded).not.toContain("DELETE /api/settings/secrets/DATABASE_URL_SHOP");
+    expect(forwarded).not.toContain("DELETE /api/settings/secrets");
   });
 
   function startPortalIngress() {

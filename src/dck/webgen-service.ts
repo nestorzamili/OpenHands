@@ -48,6 +48,38 @@ export interface WebgenLifecycleResponse {
   project: WebgenProjectStatus;
 }
 
+export interface WebgenRuntimeSecret {
+  name: string;
+  configured: true;
+}
+
+export interface WebgenLegacySecretCandidate {
+  source_name: string;
+  runtime_name: string;
+  ambiguous: boolean;
+  pending?: boolean;
+}
+
+export interface WebgenPendingSecretMigration {
+  name: string;
+  source_name: string;
+}
+
+export interface WebgenRuntimeSecretMigrationResponse {
+  name: string;
+  configured: boolean;
+  source_removed: boolean;
+  pending?: boolean;
+}
+
+export interface WebgenRuntimeSecretsResponse {
+  project_id: string;
+  secrets: WebgenRuntimeSecret[];
+  pending_migrations: WebgenPendingSecretMigration[];
+  migration_available: boolean;
+  migration_candidates: WebgenLegacySecretCandidate[];
+}
+
 export class WebgenServiceError extends Error {
   readonly status: number | null;
   readonly code: string | null;
@@ -56,15 +88,20 @@ export class WebgenServiceError extends Error {
     super(
       code === "readiness_timeout" || code === "application_exited"
         ? i18n.t(I18nKey.DCK$WEBGEN_READINESS_FAILED)
-        : code === "rollback_failed"
-          ? i18n.t(I18nKey.DCK$WEBGEN_RECOVERY_FAILED)
-          : status === 410
-            ? "Owner credentials need to be entered again before deployment."
-            : status === 409
-              ? "This WebGen project is busy or its publish configuration conflicts."
-              : status === 422
-                ? "Check Settings → Secrets and add the required credentials for this app before deploying."
-                : "The WebGen operation could not be completed. Please try again.",
+        : code === "environment_manual_review_required"
+          ? i18n.t(I18nKey.DCK$WEBGEN_ENVIRONMENT_REVIEW_REQUIRED)
+          : code === "delete_recovery_required" ||
+              code === "database_cleanup_failed"
+            ? i18n.t(I18nKey.DCK$WEBGEN_DELETE_RECOVERY_REQUIRED)
+            : code === "rollback_failed"
+              ? i18n.t(I18nKey.DCK$WEBGEN_RECOVERY_FAILED)
+              : status === 410
+                ? "Owner credentials need to be entered again before deployment."
+                : status === 409
+                  ? "This WebGen project is busy or its publish configuration conflicts."
+                  : status === 422
+                    ? "Check Settings → Secrets and add the required credentials for this app before deploying."
+                    : "The WebGen operation could not be completed. Please try again.",
     );
     this.name = "WebgenServiceError";
     this.status = status;
@@ -114,6 +151,73 @@ export async function runWebgenLifecycleAction(
     return await client.post<WebgenLifecycleResponse>(
       `/api/webgen/projects/${encodeURIComponent(projectSlug)}/actions`,
       request,
+    );
+  } catch (error) {
+    throw new WebgenServiceError(statusFromError(error), codeFromError(error));
+  } finally {
+    client.close();
+  }
+}
+
+export async function fetchWebgenRuntimeSecrets(
+  projectSlug: string,
+): Promise<WebgenRuntimeSecretsResponse> {
+  const client = getClient();
+  try {
+    return await client.get<WebgenRuntimeSecretsResponse>(
+      `/api/webgen/projects/${encodeURIComponent(projectSlug)}/runtime-secrets`,
+    );
+  } catch (error) {
+    throw new WebgenServiceError(statusFromError(error), codeFromError(error));
+  } finally {
+    client.close();
+  }
+}
+
+export async function saveWebgenRuntimeSecret(
+  projectSlug: string,
+  name: string,
+  value: string,
+): Promise<void> {
+  const client = getClient();
+  try {
+    await client.put(
+      `/api/webgen/projects/${encodeURIComponent(projectSlug)}/runtime-secrets`,
+      { name, value },
+    );
+  } catch (error) {
+    throw new WebgenServiceError(statusFromError(error), codeFromError(error));
+  } finally {
+    client.close();
+  }
+}
+
+export async function deleteWebgenRuntimeSecret(
+  projectSlug: string,
+  name: string,
+): Promise<void> {
+  const client = getClient();
+  try {
+    await client.delete(
+      `/api/webgen/projects/${encodeURIComponent(projectSlug)}/runtime-secrets/${encodeURIComponent(name)}`,
+    );
+  } catch (error) {
+    throw new WebgenServiceError(statusFromError(error), codeFromError(error));
+  } finally {
+    client.close();
+  }
+}
+
+export async function migrateWebgenRuntimeSecret(
+  projectSlug: string,
+  sourceName: string,
+  confirmAmbiguous = false,
+): Promise<WebgenRuntimeSecretMigrationResponse> {
+  const client = getClient();
+  try {
+    return await client.post<WebgenRuntimeSecretMigrationResponse>(
+      `/api/webgen/projects/${encodeURIComponent(projectSlug)}/runtime-secrets/migrations`,
+      { source_name: sourceName, confirm_ambiguous: confirmAmbiguous },
     );
   } catch (error) {
     throw new WebgenServiceError(statusFromError(error), codeFromError(error));

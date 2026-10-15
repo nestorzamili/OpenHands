@@ -37,6 +37,29 @@ command -v docker >/dev/null 2>&1 || die "docker not found"
 docker compose version >/dev/null 2>&1 || die "docker compose v2 not available"
 
 mkdir -p "$TARGET_DIR"/{config,workspace,pgdata}
+WEBGEN_STATE_DIR="${WEBGEN_STATE_DIR:-/var/lib/dck-webgen-control}"
+WEBGEN_KEY="$WEBGEN_STATE_DIR/webgen-control.key"
+LEGACY_WEBGEN_KEY="$TARGET_DIR/config/webgen-control.key"
+install -d -o root -g root -m 0700 "$WEBGEN_STATE_DIR"
+if [ -L "$WEBGEN_KEY" ] || [ -L "$LEGACY_WEBGEN_KEY" ]; then
+  die "WebGen master key must not be a symlink"
+fi
+if [ -e "$WEBGEN_KEY" ]; then
+  [ -f "$WEBGEN_KEY" ] && [ "$(stat -c '%s' "$WEBGEN_KEY")" = "32" ] || die "invalid WebGen master key"
+  chown root:root "$WEBGEN_KEY"
+  chmod 600 "$WEBGEN_KEY"
+  if [ -e "$LEGACY_WEBGEN_KEY" ]; then
+    cmp -s "$WEBGEN_KEY" "$LEGACY_WEBGEN_KEY" || die "conflicting legacy WebGen key; resolve manually before deployment"
+    rm -f "$LEGACY_WEBGEN_KEY"
+  fi
+elif [ -e "$LEGACY_WEBGEN_KEY" ]; then
+  [ -f "$LEGACY_WEBGEN_KEY" ] && [ "$(stat -c '%s' "$LEGACY_WEBGEN_KEY")" = "32" ] || die "invalid legacy WebGen master key"
+  KEY_TMP="$(mktemp "$WEBGEN_KEY.XXXXXX")"
+  install -o root -g root -m 0600 "$LEGACY_WEBGEN_KEY" "$KEY_TMP"
+  cmp -s "$KEY_TMP" "$LEGACY_WEBGEN_KEY" || { rm -f "$KEY_TMP"; die "legacy WebGen key migration verification failed"; }
+  mv "$KEY_TMP" "$WEBGEN_KEY"
+  rm -f "$LEGACY_WEBGEN_KEY"
+fi
 
 # Refresh deploy files from staging — compose, scripts, skills, env template.
 # Never touch .env, config/, pgdata/, or agent-authored projects.
@@ -96,6 +119,7 @@ fi
 # and Docker build contexts. Only persistent Canvas config and shipped skills
 # are managed here; project folders are created by Canvas with the right owner.
 chown -R "$CANVAS_UID" "$TARGET_DIR/config"
+if [ -e "$LEGACY_WEBGEN_KEY" ]; then die "WebGen master key must not remain in Canvas config"; fi
 chown "$CANVAS_UID" "$TARGET_DIR/workspace" "$TARGET_DIR/workspace/AGENTS.md"
 chown -R "$CANVAS_UID" "$TARGET_DIR/workspace/.agents"
 mkdir -p "$TARGET_DIR/workspace/webgen"
@@ -132,6 +156,8 @@ for _ in $(seq 1 20); do
   sleep 1
 done
 [ "$service_ok" = "1" ] || die "WebGen control service health check failed; Canvas deployment was not started"
+[ -f "$WEBGEN_KEY" ] && [ ! -L "$WEBGEN_KEY" ] || die "WebGen master key was not created securely"
+[ "$(stat -c '%a:%u' "$WEBGEN_KEY")" = "600:0" ] || die "WebGen master key permissions are not root-only"
 
 cd "$TARGET_DIR"
 

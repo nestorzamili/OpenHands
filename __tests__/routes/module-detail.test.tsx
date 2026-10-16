@@ -36,6 +36,7 @@ const mockRuntimeProjects = vi.hoisted(() => ({
       auth_provider: null as string | null,
       preview_path: null as string | null,
       subdomain: null as string | null,
+      has_deployment: false,
       status: "stopped" as WebgenRuntimeStatus,
       last_checked_at: null,
       containers: [],
@@ -226,6 +227,7 @@ beforeEach(() => {
   mockRuntimeProjects.projects[0].subdomain = null;
   mockRuntimeProjects.projects[0].status = "stopped";
   mockRuntimeProjects.projects[0].preview_path = null;
+  mockRuntimeProjects.projects[0].has_deployment = false;
   mockSetMessageToSend.mockClear();
   vi.mocked(
     AgentServerConversationService.searchConversations,
@@ -378,10 +380,12 @@ describe("ModuleDetailView projects list", () => {
       { navigation: { navigate } },
     );
     await user.click(await screen.findByTestId("dck-lifecycle-menu"));
-    expect(screen.getByTestId("dck-lifecycle-deploy")).toHaveAttribute(
-      "aria-disabled",
-      "true",
-    );
+    expect(
+      screen.queryByTestId("dck-lifecycle-deploy"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("dck-lifecycle-rebuild"),
+    ).not.toBeInTheDocument();
     await user.click(screen.getByTestId("dck-lifecycle-chat"));
     await waitFor(() =>
       expect(navigate).toHaveBeenCalledWith("/conversations/conv-web"),
@@ -823,6 +827,7 @@ describe("ModuleDetailView webgen lifecycle actions", () => {
   });
 
   it("sends rebuild as a typed API operation", async () => {
+    mockRuntimeProjects.projects[0].has_deployment = true;
     renderWithProviders(
       <ModuleDetailView dckModule={getDckModuleById("webgen")} />,
     );
@@ -838,6 +843,7 @@ describe("ModuleDetailView webgen lifecycle actions", () => {
   });
 
   it("starts a stopped app through the typed API without rebuilding", async () => {
+    mockRuntimeProjects.projects[0].has_deployment = true;
     renderWithProviders(
       <ModuleDetailView dckModule={getDckModuleById("webgen")} />,
     );

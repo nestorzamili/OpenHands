@@ -34,7 +34,10 @@ async function createFixture() {
     mkdir(bin, { recursive: true }),
   ]);
   await Promise.all([
-    writeFile(path.join(stage, "docker-compose.yml"), "services: {}\n"),
+    writeFile(
+      path.join(stage, "docker-compose.yml"),
+      "services:\n  postgres:\n    container_name: dck-postgres\n",
+    ),
     writeFile(path.join(stage, ".env.production.sample"), ""),
     writeFile(path.join(stage, "workspace", "AGENTS.md"), "# Workspace\n"),
     writeFile(
@@ -46,6 +49,10 @@ async function createFixture() {
     writeFile(
       path.join(stage, "services", "webgen-control", "webgen_control.py"),
       "# service\n",
+    ),
+    writeFile(
+      path.join(stage, "services", "webgen-control", "webgen_migrations.py"),
+      "# migrations\n",
     ),
     writeFile(
       path.join(stage, "services", "webgen-control", "requirements.txt"),
@@ -184,7 +191,10 @@ describe("DCK production deploy bootstrap", () => {
     const { stage, target, bin, root } = await createFixture();
     await mkdir(path.join(target, "config"), { recursive: true });
     const legacyKey = Buffer.alloc(32, 23);
-    await writeFile(path.join(target, "config", "webgen-control.key"), legacyKey);
+    await writeFile(
+      path.join(target, "config", "webgen-control.key"),
+      legacyKey,
+    );
     const chownLog = path.join(root, "chown.log");
     await writeFile(
       path.join(stage, ".env.production.sample"),
@@ -228,7 +238,9 @@ describe("DCK production deploy bootstrap", () => {
     const migratedKey = path.join(root, "webgen-state", "webgen-control.key");
     expect(await readFile(migratedKey)).toEqual(legacyKey);
     expect((await stat(migratedKey)).mode & 0o777).toBe(0o600);
-    await expect(readFile(path.join(target, "config", "webgen-control.key"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(
+      readFile(path.join(target, "config", "webgen-control.key")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
     const envStat = await stat(path.join(target, ".env"));
     expect(envStat.mode & 0o777).toBe(0o600);
     expect(`${stdout}${stderr}`).not.toContain(env.POSTGRES_PASSWORD);
@@ -306,9 +318,15 @@ it("stops before Canvas config ownership changes when legacy and private keys co
       },
     ),
   ).rejects.toMatchObject({ code: 1 });
-  expect(await readFile(path.join(state, "webgen-control.key"))).toEqual(privateKey);
-  expect(await readFile(path.join(config, "webgen-control.key"))).toEqual(legacyKey);
-  expect(await readFile(path.join(root, "chown.log"), "utf8")).not.toContain(config);
+  expect(await readFile(path.join(state, "webgen-control.key"))).toEqual(
+    privateKey,
+  );
+  expect(await readFile(path.join(config, "webgen-control.key"))).toEqual(
+    legacyKey,
+  );
+  expect(await readFile(path.join(root, "chown.log"), "utf8")).not.toContain(
+    config,
+  );
 });
 
 it("rolls back when Canvas cannot reach WebGen even though host health checks pass", async () => {

@@ -208,7 +208,7 @@ jobs:
           cp scripts/dck-deploy.sh "$STAGE/scripts/"
           cp scripts/sync-managed-skills.py "$STAGE/scripts/"
           cp scripts/dck-deploy-remote.sh "$STAGE/scripts/"
-          cp services/webgen-control/webgen_control.py services/webgen-control/requirements.txt services/webgen-control/webgen-control.service "$STAGE/services/webgen-control/"
+          cp services/webgen-control/webgen_control.py services/webgen-control/webgen_migrations.py services/webgen-control/requirements.txt services/webgen-control/webgen-control.service "$STAGE/services/webgen-control/"
           tar -czf deploy.tar.gz -C "$STAGE" .
 
       - name: Parse SSH target

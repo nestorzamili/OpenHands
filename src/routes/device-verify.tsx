@@ -70,8 +70,8 @@ export default function DeviceVerify() {
               className={cn(
                 "mb-4",
                 verificationResult.success
-                  ? "text-status-success"
-                  : "text-status-error",
+                  ? "text-feedback-success"
+                  : "text-feedback-error",
               )}
             >
               {verificationResult.success ? (
@@ -156,11 +156,11 @@ export default function DeviceVerify() {
                 {userCode}
               </p>
             </div>
-            <div className="mb-6 p-4 bg-amber-950/50 border-l-2 border-warning rounded-r-lg">
-              <p className="text-sm font-medium text-warning mb-1">
+            <div className="mb-6 p-4 bg-warning/5 border-l-2 border-feedback-warning rounded-r-lg">
+              <p className="text-sm font-medium text-feedback-warning mb-1">
                 {t(I18nKey.DEVICE$SECURITY_NOTICE)}
               </p>
-              <p className="text-sm text-muted">
+              <p className="text-sm text-contrast">
                 {t(I18nKey.DEVICE$SECURITY_WARNING)}
               </p>
             </div>
@@ -178,7 +178,7 @@ export default function DeviceVerify() {
               <button
                 type="button"
                 onClick={() => processDeviceVerification(userCode)}
-                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                className="flex-1 px-4 py-2 bg-contrast text-contrast-foreground rounded-md hover:bg-contrast/90"
               >
                 {t(I18nKey.DEVICE$AUTHORIZE)}
               </button>

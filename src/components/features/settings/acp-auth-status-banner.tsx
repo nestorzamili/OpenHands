@@ -60,7 +60,7 @@ export function AcpAuthStatusBanner({
         data-testid={`${testIdPrefix}-detected`}
         // Matches the onboarding "backend connected" success banner
         // (check-backend-step.tsx) for a consistent look.
-        className="flex items-start gap-2 rounded-xl border border-status-success/40 bg-status-success/10 px-4 py-3 text-sm text-status-success"
+        className="flex items-start gap-2 rounded-xl border border-status-success/40 bg-status-success/5 px-4 py-3 text-sm text-feedback-success"
       >
         <Check
           className="mt-0.5 size-4 shrink-0 text-status-success"
@@ -91,12 +91,12 @@ export function AcpAuthStatusBanner({
     return (
       <div
         data-testid={`${testIdPrefix}-configured`}
-        // Neutral/info tone — deliberately NOT the green "signed in" look, since
-        // a stored credential is not a verified host login.
-        className="flex items-start gap-2 rounded-xl border border-blue-500/40 bg-blue-500/10 px-4 py-3 text-sm text-blue-200"
+        // Neutral/info tone — deliberately not the green "signed in" look,
+        // since a stored credential is not a verified host login.
+        className="flex items-start gap-2 rounded-xl border border-border-subtle bg-surface-raised px-4 py-3 text-sm text-contrast"
       >
         <KeyRound
-          className="mt-0.5 size-4 shrink-0 text-blue-400"
+          className="mt-0.5 size-4 shrink-0 text-text-secondary"
           aria-hidden
         />
         <span>

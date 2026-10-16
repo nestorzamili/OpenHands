@@ -5,6 +5,7 @@ import {
   ACP_PROVIDERS,
   ACP_VERTEX_SAFE_MODEL,
   buildAcpAgentSettingsDiff,
+  getAcpAgentProfileDefaultModel,
   getAcpCredentialConflicts,
   getAcpPreferredDefaultModel,
   getAcpProviderDisplayName,
@@ -191,6 +192,23 @@ describe("getAcpPreferredDefaultModel", () => {
     expect(getAcpPreferredDefaultModel("openhands")).toBeNull();
     expect(getAcpPreferredDefaultModel(ACP_CUSTOM_PRESET_KEY)).toBeNull();
     expect(getAcpPreferredDefaultModel("future-acp-server")).toBeNull();
+  });
+});
+
+describe("getAcpAgentProfileDefaultModel", () => {
+  it("prefers Muse Spark 1.3 Contributor Free for a newly selected OpenCode profile", () => {
+    expect(getAcpAgentProfileDefaultModel("opencode")).toBe(
+      "opencode/muse-spark-1.3-contributor-free",
+    );
+  });
+
+  it("keeps existing defaults for all other ACP providers", () => {
+    expect(getAcpAgentProfileDefaultModel("gemini-cli")).toBe(
+      ACP_VERTEX_SAFE_MODEL,
+    );
+    for (const key of ["claude-code", "codex", "pi"]) {
+      expect(getAcpAgentProfileDefaultModel(key), key).toBeNull();
+    }
   });
 });
 

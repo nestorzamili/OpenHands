@@ -360,6 +360,18 @@ export function getAcpPreferredDefaultModel(
 }
 
 /**
+ * Preferred model when a provider is newly selected in the Agent Profile
+ * editor. This intentionally does not affect the backend-wide ACP settings
+ * default or an existing profile's saved model.
+ */
+export function getAcpAgentProfileDefaultModel(
+  key: string | null | undefined,
+): string | null {
+  if (key === "opencode") return "opencode/muse-spark-1.3-contributor-free";
+  return getAcpPreferredDefaultModel(key);
+}
+
+/**
  * List the credentials Canvas should prompt for when onboarding the given ACP
  * provider. The API-key and base-URL field *names* track the SDK registry's
  * ``api_key_env_var`` / ``base_url_env_var`` (mirrored via

@@ -26,6 +26,7 @@ import {
 } from "#/utils/sdk-settings-schema";
 import {
   ACP_CUSTOM_PRESET_KEY,
+  getAcpAgentProfileDefaultModel,
   getAcpPreferredDefaultModel,
   getAcpProvider,
   getAcpProvidersForBackend,
@@ -97,6 +98,16 @@ function detectPreset(
     }
   }
   return ACP_CUSTOM_PRESET_KEY;
+}
+
+function getAcpDefaultForEditor(
+  providerKey: string | null | undefined,
+  isAgentProfileEditor: boolean,
+): string {
+  const model = isAgentProfileEditor
+    ? getAcpAgentProfileDefaultModel(providerKey)
+    : getAcpPreferredDefaultModel(providerKey);
+  return model ?? "";
 }
 
 export type SystemPromptMode = "standard" | "append" | "custom";
@@ -307,12 +318,15 @@ interface AgentSettingsScreenProps {
   onSaveControlChange: (control: AgentSettingsSaveControl) => void;
   /** Local launches route the `default` profile around its stored prompt and tools. */
   isDefaultProfile?: boolean;
+  /** Apply Agent Profile-specific model defaults only on a provider change. */
+  isAgentProfileEditor?: boolean;
 }
 
 export function AgentSettingsScreen({
   agentSettingsOverride = null,
   onSaveControlChange,
   isDefaultProfile = false,
+  isAgentProfileEditor = false,
 }: AgentSettingsScreenProps) {
   const { t } = useTranslation("openhands");
   const { data: settings, isLoading } = useSettings();
@@ -841,7 +855,9 @@ export function AgentSettingsScreen({
             const preferred = acpProviders[0];
             if (preferred) {
               setCommandText(formatCommand(preferred.default_command));
-              setAcpModel(getAcpPreferredDefaultModel(preferred.key) ?? "");
+              setAcpModel(
+                getAcpDefaultForEditor(preferred.key, isAgentProfileEditor),
+              );
               setIsCustomAcpModel(false);
               if (secretsMode === "custom") addProviderSecrets(preferred.key);
             }
@@ -1209,7 +1225,9 @@ export function AgentSettingsScreen({
               const provider = getAcpProvider(preset);
               if (provider) {
                 setCommandText(formatCommand(provider.default_command));
-                setAcpModel(getAcpPreferredDefaultModel(preset) ?? "");
+                setAcpModel(
+                  getAcpDefaultForEditor(preset, isAgentProfileEditor),
+                );
                 setIsCustomAcpModel(false);
                 if (secretsMode === "custom" && preset !== selectedPreset) {
                   addProviderSecrets(preset);
@@ -1252,7 +1270,9 @@ export function AgentSettingsScreen({
                 const prevPreset = detectPreset(commandText, acpProviders);
                 const nextPreset = detectPreset(nextCommandText, acpProviders);
                 if (nextPreset !== prevPreset) {
-                  setAcpModel(getAcpPreferredDefaultModel(nextPreset) ?? "");
+                  setAcpModel(
+                    getAcpDefaultForEditor(nextPreset, isAgentProfileEditor),
+                  );
                   setIsCustomAcpModel(false);
                   if (secretsMode === "custom") addProviderSecrets(nextPreset);
                 }

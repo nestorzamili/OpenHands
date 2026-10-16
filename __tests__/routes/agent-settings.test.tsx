@@ -298,10 +298,30 @@ describe("AgentSettingsScreen", () => {
     });
   });
 
+  it("preselects Muse Spark 1.3 Contributor Free only in the Agent Profile editor", async () => {
+    const user = userEvent.setup();
+    const { control } = renderAgentSettingsScreen({
+      isAgentProfileEditor: true,
+      agentSettingsOverride: CLAUDE_PROFILE,
+    });
+    await screen.findByTestId("agent-command-input");
+    await user.click(screen.getByTestId("agent-preset-selector"));
+    await user.click(await screen.findByRole("option", { name: "OpenCode" }));
+
+    expect(screen.getByLabelText("SETTINGS$AGENT_MODEL")).toHaveValue(
+      "opencode/muse-spark-1.3-contributor-free",
+    );
+    expect(control().buildAgentProfileFields()).toMatchObject({
+      acp_server: "opencode",
+      acp_model: "opencode/muse-spark-1.3-contributor-free",
+    });
+  });
+
   it.each([null, [...OPENCODE_PROVIDER.default_command]])(
     "reloads OpenCode with command %j without losing its preset or model",
     async (command) => {
       const { control } = renderAgentSettingsScreen({
+        isAgentProfileEditor: true,
         agentSettingsOverride: {
           agent_kind: "acp",
           acp_server: "opencode",

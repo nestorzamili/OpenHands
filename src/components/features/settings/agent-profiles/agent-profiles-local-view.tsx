@@ -331,6 +331,7 @@ export function AgentProfilesLocalView() {
         key={viewMode === "edit" ? `edit-${editingProfile?.id}` : "new-profile"}
         agentSettingsOverride={override}
         onSaveControlChange={setSaveControl}
+        isAgentProfileEditor
         isDefaultProfile={
           profileName.trim() === WELL_KNOWN_DEFAULT_AGENT_PROFILE_NAME
         }

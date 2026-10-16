@@ -7,10 +7,7 @@ import { ModalBackdrop } from "#/components/shared/modals/modal-backdrop";
 import {
   deleteWebgenRuntimeSecret,
   fetchWebgenRuntimeSecrets,
-  migrateWebgenRuntimeSecret,
   saveWebgenRuntimeSecret,
-  WebgenServiceError,
-  type WebgenLegacySecretCandidate,
   type WebgenRuntimeSecretsResponse,
 } from "#/dck/webgen-service";
 
@@ -36,8 +33,6 @@ export function WebgenRuntimeSecretsDialog({
   const [editingName, setEditingName] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   const [deleteName, setDeleteName] = useState<string | null>(null);
-  const [confirmCandidate, setConfirmCandidate] = useState<string | null>(null);
-  const [ambiguousConfirmed, setAmbiguousConfirmed] = useState(false);
   const [feedback, setFeedback] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
 
@@ -129,48 +124,6 @@ export function WebgenRuntimeSecretsDialog({
     }
   };
 
-  const moveCandidate = async (candidate: WebgenLegacySecretCandidate) => {
-    clearFeedback();
-    setBusy(true);
-    try {
-      const result = await migrateWebgenRuntimeSecret(
-        projectSlug,
-        candidate.source_name,
-        candidate.ambiguous && ambiguousConfirmed,
-      );
-      setConfirmCandidate(null);
-      setAmbiguousConfirmed(false);
-      setFeedback(
-        result.pending
-          ? t(I18nKey.DCK$RUNTIME_SECRET_MOVE_PENDING)
-          : t(I18nKey.DCK$RUNTIME_SECRET_MOVED),
-      );
-      await refreshAfterMutation();
-    } catch (error) {
-      if (
-        error instanceof WebgenServiceError &&
-        (error.code === "migration_pending" ||
-          error.code === "migration_source_still_exists")
-      ) {
-        setFeedback(t(I18nKey.DCK$RUNTIME_SECRET_MOVE_PENDING));
-      } else if (
-        error instanceof WebgenServiceError &&
-        error.code === "migration_confirmation_required"
-      ) {
-        setErrorMessage(t(I18nKey.DCK$RUNTIME_SECRET_AMBIGUOUS_WARNING));
-      } else {
-        setErrorMessage(t(I18nKey.DCK$RUNTIME_SECRET_OPERATION_ERROR));
-      }
-      await refreshAfterMutation();
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const pendingSources = new Set(
-    (data?.pending_migrations ?? []).map((item) => item.source_name),
-  );
-
   return (
     <ModalBackdrop
       onClose={onClose}
@@ -190,9 +143,6 @@ export function WebgenRuntimeSecretsDialog({
               <h2 className="text-lg font-semibold text-contrast">
                 {t(I18nKey.DCK$RUNTIME_SECRETS_TITLE, { name: projectName })}
               </h2>
-              <p className="mt-1 text-sm text-text-secondary">
-                {t(I18nKey.DCK$RUNTIME_SECRETS_DESCRIPTION)}
-              </p>
             </div>
           </div>
           <button
@@ -416,146 +366,6 @@ export function WebgenRuntimeSecretsDialog({
                   {t(I18nKey.DCK$RUNTIME_SECRET_ADD)}
                 </button>
               </form>
-
-              <section
-                className="mt-5 border-t border-border pt-4"
-                aria-labelledby="runtime-secret-migration-title"
-              >
-                <h3
-                  id="runtime-secret-migration-title"
-                  className="text-sm font-semibold text-contrast"
-                >
-                  {t(I18nKey.DCK$RUNTIME_SECRET_MIGRATION_TITLE)}
-                </h3>
-                <p className="mt-2 text-sm text-text-secondary">
-                  {t(I18nKey.DCK$RUNTIME_SECRET_MIGRATION_DESCRIPTION)}
-                </p>
-                {!data.migration_available && (
-                  <p className="mt-2 text-sm text-warning" role="status">
-                    {t(I18nKey.DCK$RUNTIME_SECRET_MIGRATION_UNAVAILABLE)}
-                  </p>
-                )}
-                {data.migration_candidates.length === 0 ? (
-                  <p className="mt-2 text-sm text-text-secondary">
-                    {t(I18nKey.DCK$RUNTIME_SECRET_MIGRATION_EMPTY)}
-                  </p>
-                ) : (
-                  <ul className="mt-2 divide-y divide-border rounded-md border border-border">
-                    {data.migration_candidates.map((candidate) => {
-                      const isPending =
-                        Boolean(candidate.pending) ||
-                        pendingSources.has(candidate.source_name);
-                      return (
-                        <li key={candidate.source_name} className="px-3 py-3">
-                          <div className="flex flex-wrap items-start justify-between gap-3">
-                            <div className="min-w-0 text-sm">
-                              <p className="break-all">
-                                <span className="text-text-secondary">
-                                  {t(I18nKey.DCK$RUNTIME_SECRET_AGENT_NAME)}:
-                                </span>{" "}
-                                <code>{candidate.source_name}</code>
-                              </p>
-                              <p className="mt-1 break-all">
-                                <span className="text-text-secondary">
-                                  {t(I18nKey.DCK$RUNTIME_SECRET_APP_NAME)}:
-                                </span>{" "}
-                                <code>{candidate.runtime_name}</code>
-                              </p>
-                              {isPending && (
-                                <p className="mt-1 text-xs text-warning">
-                                  {t(I18nKey.DCK$RUNTIME_SECRET_MOVE_PENDING)}
-                                </p>
-                              )}
-                              {candidate.ambiguous && (
-                                <p className="mt-1 text-xs text-warning">
-                                  {t(
-                                    I18nKey.DCK$RUNTIME_SECRET_AMBIGUOUS_WARNING,
-                                  )}
-                                </p>
-                              )}
-                            </div>
-                            <button
-                              data-testid={`dck-webgen-runtime-secret-move-${candidate.source_name}`}
-                              type="button"
-                              disabled={busy}
-                              onClick={() => {
-                                clearFeedback();
-                                setConfirmCandidate(
-                                  confirmCandidate === candidate.source_name
-                                    ? null
-                                    : candidate.source_name,
-                                );
-                                setAmbiguousConfirmed(false);
-                              }}
-                              className="shrink-0 rounded border border-border px-3 py-2 text-sm font-medium text-contrast hover:bg-surface disabled:opacity-50"
-                            >
-                              {isPending
-                                ? t(I18nKey.DCK$RUNTIME_SECRET_VERIFY_REMOVAL)
-                                : t(I18nKey.DCK$RUNTIME_SECRET_MOVE)}
-                            </button>
-                          </div>
-                          {confirmCandidate === candidate.source_name && (
-                            <div className="mt-3 rounded-md border border-border bg-surface p-3">
-                              <p className="text-sm text-text-secondary">
-                                {t(I18nKey.DCK$RUNTIME_SECRET_MOVE_CONFIRM, {
-                                  source: candidate.source_name,
-                                  target: candidate.runtime_name,
-                                })}
-                              </p>
-                              {candidate.ambiguous && (
-                                <label className="mt-3 flex items-start gap-2 text-sm text-text-secondary">
-                                  <input
-                                    data-testid="dck-webgen-runtime-secret-ambiguous-confirm"
-                                    type="checkbox"
-                                    checked={ambiguousConfirmed}
-                                    onChange={(event) =>
-                                      setAmbiguousConfirmed(
-                                        event.target.checked,
-                                      )
-                                    }
-                                    className="mt-1"
-                                  />
-                                  <span>
-                                    {t(
-                                      I18nKey.DCK$RUNTIME_SECRET_AMBIGUOUS_WARNING,
-                                    )}
-                                  </span>
-                                </label>
-                              )}
-                              <div className="mt-3 flex justify-end gap-2">
-                                <button
-                                  type="button"
-                                  disabled={busy}
-                                  onClick={() => setConfirmCandidate(null)}
-                                  className="rounded border border-border px-3 py-2 text-sm text-contrast disabled:opacity-50"
-                                >
-                                  {t(I18nKey.BUTTON$CANCEL)}
-                                </button>
-                                <button
-                                  data-testid="dck-webgen-runtime-secret-move-confirm"
-                                  type="button"
-                                  disabled={
-                                    busy ||
-                                    (candidate.ambiguous && !ambiguousConfirmed)
-                                  }
-                                  onClick={() => void moveCandidate(candidate)}
-                                  className="rounded bg-accent px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
-                                >
-                                  {isPending
-                                    ? t(
-                                        I18nKey.DCK$RUNTIME_SECRET_VERIFY_REMOVAL,
-                                      )
-                                    : t(I18nKey.DCK$RUNTIME_SECRET_MOVE)}
-                                </button>
-                              </div>
-                            </div>
-                          )}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-              </section>
             </>
           )}
 

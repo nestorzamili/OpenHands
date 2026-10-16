@@ -10,7 +10,6 @@ vi.mock("#/dck/webgen-service", () => ({
   fetchWebgenRuntimeSecrets: api.fetch,
   saveWebgenRuntimeSecret: vi.fn(),
   deleteWebgenRuntimeSecret: vi.fn(),
-  migrateWebgenRuntimeSecret: vi.fn(),
 }));
 
 describe("WebgenProjectTable runtime secret entry point", () => {
@@ -19,9 +18,6 @@ describe("WebgenProjectTable runtime secret entry point", () => {
     api.fetch.mockResolvedValue({
       project_id: "00000000-0000-4000-8000-000000000001",
       secrets: [],
-      pending_migrations: [],
-      migration_available: true,
-      migration_candidates: [],
     });
     renderWithProviders(
       <WebgenProjectTable

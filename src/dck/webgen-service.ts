@@ -54,31 +54,9 @@ export interface WebgenRuntimeSecret {
   configured: true;
 }
 
-export interface WebgenLegacySecretCandidate {
-  source_name: string;
-  runtime_name: string;
-  ambiguous: boolean;
-  pending?: boolean;
-}
-
-export interface WebgenPendingSecretMigration {
-  name: string;
-  source_name: string;
-}
-
-export interface WebgenRuntimeSecretMigrationResponse {
-  name: string;
-  configured: boolean;
-  source_removed: boolean;
-  pending?: boolean;
-}
-
 export interface WebgenRuntimeSecretsResponse {
   project_id: string;
   secrets: WebgenRuntimeSecret[];
-  pending_migrations: WebgenPendingSecretMigration[];
-  migration_available: boolean;
-  migration_candidates: WebgenLegacySecretCandidate[];
 }
 
 export class WebgenServiceError extends Error {
@@ -201,24 +179,6 @@ export async function deleteWebgenRuntimeSecret(
   try {
     await client.delete(
       `/api/webgen/projects/${encodeURIComponent(projectSlug)}/runtime-secrets/${encodeURIComponent(name)}`,
-    );
-  } catch (error) {
-    throw new WebgenServiceError(statusFromError(error), codeFromError(error));
-  } finally {
-    client.close();
-  }
-}
-
-export async function migrateWebgenRuntimeSecret(
-  projectSlug: string,
-  sourceName: string,
-  confirmAmbiguous = false,
-): Promise<WebgenRuntimeSecretMigrationResponse> {
-  const client = getClient();
-  try {
-    return await client.post<WebgenRuntimeSecretMigrationResponse>(
-      `/api/webgen/projects/${encodeURIComponent(projectSlug)}/runtime-secrets/migrations`,
-      { source_name: sourceName, confirm_ambiguous: confirmAmbiguous },
     );
   } catch (error) {
     throw new WebgenServiceError(statusFromError(error), codeFromError(error));

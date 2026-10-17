@@ -630,6 +630,7 @@ async function main() {
     join(config.stateDir, "workspaces"),
     join(config.stateDir, "bash_events"),
     join(config.stateDir, "storage"),
+    config.tmuxTmpDir,
   ]) {
     mkdirSync(dir, { recursive: true });
   }

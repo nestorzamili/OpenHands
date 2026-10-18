@@ -1228,6 +1228,10 @@ describe("dev-with-automation CLI", () => {
           OH_CANVAS_SAFE_BACKEND_PORT: String(agentServerPort),
           OH_CANVAS_SAFE_AUTOMATION_PORT: String(automationPort),
           OH_AUTOMATION_LOCAL_PATH: checkout,
+          // The automation process is a stub, but the launcher still validates
+          // its DB URL. Never inherit a developer's real database for this test.
+          AUTOMATION_DB_URL:
+            "postgresql+asyncpg://test:test@127.0.0.1:1/automation_startup_test",
         },
         stdio: ["ignore", "pipe", "pipe"],
       },

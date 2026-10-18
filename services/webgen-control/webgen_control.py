@@ -144,7 +144,7 @@ class SeedStore:
             self.records.pop((slug,conversation),None); return r,e,u,p
 
 class RuntimeSecretStore:
-    """Encrypted host-side store; values are never returned by its list API."""
+    """Encrypted host-side store; list metadata never contains values."""
     MAGIC=b"WGRS1"; AAD=b"webgen-runtime-secrets-v1"; MAX_BYTES=8*1024*1024; MAX_SECRETS=128
     def __init__(self,path,master):
         self.path=Path(path); self.path.parent.mkdir(parents=True,exist_ok=True,mode=0o700); os.chmod(self.path.parent,0o700)
@@ -176,6 +176,12 @@ class RuntimeSecretStore:
                     if not isinstance(name,str) or not ENV_KEY_RE.fullmatch(name): raise RuntimeError("invalid runtime secret name")
                     if section=="secrets" and not isinstance(value,str): raise RuntimeError("invalid runtime secret value")
                     if section=="pending" and (not isinstance(value,dict) or not isinstance(value.get("source_name"),str) or not isinstance(value.get("value"),str)): raise RuntimeError("invalid runtime secret migration")
+            classifications=record.get("classifications",{})
+            secrets_record=record.get("secrets",{})
+            if not isinstance(classifications,dict) or set(classifications)-set(secrets_record): raise RuntimeError("invalid runtime secret classification")
+            if any(not isinstance(sensitive,bool) for sensitive in classifications.values()): raise RuntimeError("invalid runtime secret classification")
+            # Legacy entries were all treated as secrets; keep that safe default.
+            record["classifications"]={name:classifications.get(name,True) for name in secrets_record}
             managed=record.get("managed_database")
             if managed is not None:
                 if not isinstance(managed,dict) or set(managed)!={"database","runtime_role","migration_role","migration_url"}: raise RuntimeError("invalid managed database record")
@@ -236,13 +242,23 @@ class RuntimeSecretStore:
             record=self.data.get(project_id)
             if record and record.get("slug")!=slug: raise WebgenOperationError("project_identity_conflict",409)
             if not record:
-                self._change(lambda: self.data.__setitem__(project_id,{"slug":slug,"secrets":{},"pending":{},"managed_database":None}))
-    def _record(self,project_id): return self.data.setdefault(project_id,{"slug":None,"secrets":{},"pending":{},"managed_database":None})
+                self._change(lambda: self.data.__setitem__(project_id,{"slug":slug,"secrets":{},"classifications":{},"pending":{},"managed_database":None}))
+    def _record(self,project_id):
+        record=self.data.setdefault(project_id,{"slug":None,"secrets":{},"classifications":{},"pending":{},"managed_database":None})
+        record.setdefault("classifications",{})
+        return record
     def list(self,project_id):
         with self.lock:
             self._ensure_healthy()
             r=self.data.get(project_id,{})
-            return {"secrets":[{"name":name,"configured":True} for name in sorted(r.get("secrets",{}))],"pending_migrations":[{"name":name,"source_name":v["source_name"]} for name,v in sorted(r.get("pending",{}).items())]}
+            return {"secrets":[{"name":name,"configured":True,"sensitive":r.get("classifications",{}).get(name,True)} for name in sorted(r.get("secrets",{}))],"pending_migrations":[{"name":name,"source_name":v["source_name"]} for name,v in sorted(r.get("pending",{}).items())]}
+    def reveal(self,project_id,name):
+        with self.lock:
+            self._ensure_healthy()
+            record=self.data.get(project_id,{})
+            if not valid_slug(record.get("slug")): raise WebgenOperationError("invalid_project_scope",409)
+            if name not in record.get("secrets",{}): raise WebgenOperationError("runtime_secret_not_found",404)
+            return record["secrets"][name]
     def values(self,project_id):
         with self.lock:
             self._ensure_healthy()
@@ -261,21 +277,33 @@ class RuntimeSecretStore:
             if "DATABASE_URL" not in r["secrets"] and len(r["secrets"])>=self.MAX_SECRETS: raise WebgenOperationError("too_many_runtime_secrets",422)
             def update():
                 r["secrets"]["DATABASE_URL"]=database_url
+                r["classifications"]["DATABASE_URL"]=True
                 r["managed_database"]=copy.deepcopy(managed)
             self._change(update)
-    def put(self,project_id,name,value):
+    def put(self,project_id,name,value,sensitive=None):
         with self.lock:
             self._ensure_healthy()
             r=self._record(project_id)
             if not valid_slug(r.get("slug")): raise WebgenOperationError("invalid_project_scope",409)
             if name in r["pending"]: raise WebgenOperationError("migration_pending",409)
+            if sensitive is not None and not isinstance(sensitive,bool): raise WebgenOperationError("invalid_classification",400)
             if name not in r["secrets"] and len(r["secrets"])>=self.MAX_SECRETS: raise WebgenOperationError("too_many_runtime_secrets",422)
+            exists=name in r["secrets"]
+            current_sensitive=r["classifications"].get(name,True)
+            next_sensitive=current_sensitive if sensitive is None and exists else (sensitive if sensitive is not None else True)
             if value=="":
-                if name not in r["secrets"]: raise WebgenOperationError("secret_value_required",422)
-                return {"name":name,"configured":True,"unchanged":True}
+                if not exists: raise WebgenOperationError("secret_value_required",422)
+                if current_sensitive==next_sensitive: return {"name":name,"configured":True,"unchanged":True,"sensitive":current_sensitive}
+                def update_classification():
+                    r["classifications"][name]=next_sensitive
+                    return {"name":name,"configured":True,"unchanged":False,"sensitive":next_sensitive}
+                return self._change(update_classification)
+            if exists and r["secrets"][name]==value and current_sensitive==next_sensitive:
+                return {"name":name,"configured":True,"unchanged":True,"sensitive":current_sensitive}
             def update():
                 r["secrets"][name]=value
-                return {"name":name,"configured":True,"unchanged":False}
+                r["classifications"][name]=next_sensitive
+                return {"name":name,"configured":True,"unchanged":False,"sensitive":next_sensitive}
             return self._change(update)
     def delete(self,project_id,name):
         with self.lock:
@@ -284,7 +312,10 @@ class RuntimeSecretStore:
             if not valid_slug(r.get("slug")): raise WebgenOperationError("invalid_project_scope",409)
             if name in r.get("pending",{}): raise WebgenOperationError("migration_pending",409)
             if name not in r.get("secrets",{}): raise WebgenOperationError("runtime_secret_not_found",404)
-            return self._change(lambda: r["secrets"].pop(name))
+            def remove():
+                r.get("classifications",{}).pop(name,None)
+                return r["secrets"].pop(name)
+            return self._change(remove)
     def stage_migration(self,project_id,name,source_name,value):
         with self.lock:
             self._ensure_healthy()
@@ -304,6 +335,7 @@ class RuntimeSecretStore:
             if name in r.get("secrets",{}): raise WebgenOperationError("runtime_secret_exists",409)
             def activate():
                 r["secrets"][name]=pending["value"]
+                r.setdefault("classifications",{})[name]=True
                 del r["pending"][name]
             self._change(activate)
     def delete_project(self,project_id):
@@ -1413,6 +1445,21 @@ class Handler(BaseHTTPRequestHandler):
                 with self.svc.lock_for(slug): return self.send(200,self.svc.runtime_secret_payload(slug,p,self.headers.get("X-Session-API-Key")))
             except (SecretMaterializationError,WebgenOperationError) as e: return self.send(e.status,{"error":e.code})
             except Exception: return self.send(500,{"error":"operation_failed"})
+        m=re.fullmatch(r"/api/webgen/projects/([^/]+)/runtime-secrets/([A-Za-z][A-Za-z0-9_]{0,63})/value",self.path)
+        if m:
+            if not self.auth(): return
+            if not self.runtime_store_ready(): return
+            slug,name=m.groups()
+            if not valid_slug(slug) or not self.svc._valid_runtime_secret_name(name): return self.send(400,{"error":"invalid_identifier"})
+            p=safe_project(self.svc.root,slug)
+            if not p: return self.send(404,{"error":"not_found"})
+            try:
+                with self.svc.lock_for(slug):
+                    project_id=self.svc._ensure_project_id(slug,p)
+                    value=self.svc.runtime_secrets.reveal(project_id,name)
+                return self.send(200,{"name":name,"value":value})
+            except (SecretMaterializationError,WebgenOperationError) as e: return self.send(e.status,{"error":e.code})
+            except Exception: return self.send(500,{"error":"operation_failed"})
         self.send(404,{"error":"not_found"})
     def do_POST(self):
         if not self.auth():return
@@ -1450,12 +1497,13 @@ class Handler(BaseHTTPRequestHandler):
             if not m:return self.send(404,{"error":"not_found"})
             slug=m.group(1)
             if not valid_slug(slug):return self.send(400,{"error":"invalid_identifier"})
-            if set(d)!={"name","value"} or not self.svc._valid_runtime_secret_name(d.get("name")):return self.send(400,{"error":"invalid_secret_name"})
+            if set(d)-{"name","value","sensitive"} or not {"name","value"}<=set(d) or not self.svc._valid_runtime_secret_name(d.get("name")):return self.send(400,{"error":"invalid_secret_name"})
+            if "sensitive" in d and not isinstance(d["sensitive"],bool):return self.send(400,{"error":"invalid_classification"})
             if not isinstance(d.get("value"),str) or not self.svc._valid_runtime_secret_value(d["value"]):return self.send(422,{"error":"invalid_secret_value"})
             p=safe_project(self.svc.root,slug)
             if not p:return self.send(404,{"error":"not_found"})
             with self.svc.lock_for(slug):
-                project_id=self.svc._ensure_project_id(slug,p); result=self.svc.runtime_secrets.put(project_id,d["name"],d["value"])
+                project_id=self.svc._ensure_project_id(slug,p); result=self.svc.runtime_secrets.put(project_id,d["name"],d["value"],d.get("sensitive"))
             return self.send(200,result)
         except (SecretMaterializationError,WebgenOperationError) as e:self.send(e.status,{"error":e.code})
         except (ValueError,KeyError,json.JSONDecodeError):self.send(400,{"error":"invalid_request"})

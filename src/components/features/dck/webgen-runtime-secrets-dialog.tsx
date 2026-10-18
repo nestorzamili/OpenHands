@@ -1,19 +1,20 @@
 import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
-import { KeyRound, X } from "lucide-react";
+import { Eye, EyeOff, KeyRound, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { I18nKey } from "#/i18n/declaration";
 import { ModalBackdrop } from "#/components/shared/modals/modal-backdrop";
 import {
   deleteWebgenRuntimeSecret,
   fetchWebgenRuntimeSecrets,
+  fetchWebgenRuntimeSecretValue,
   saveWebgenRuntimeSecret,
   type WebgenRuntimeSecretsResponse,
 } from "#/dck/webgen-service";
 
 const ENV_NAME = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;
 
-// @spec WR-020 — This dialog lists secret names only; saved values are never rendered or cached.
+// @spec WR-020 — Values stay hidden until an authenticated user explicitly reveals them.
 export function WebgenRuntimeSecretsDialog({
   projectSlug,
   projectName,
@@ -30,8 +31,15 @@ export function WebgenRuntimeSecretsDialog({
   const [busy, setBusy] = useState(false);
   const [newName, setNewName] = useState("");
   const [newValue, setNewValue] = useState("");
+  const [newSensitive, setNewSensitive] = useState(true);
   const [editingName, setEditingName] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
+  const [editSensitive, setEditSensitive] = useState(true);
+  const [revealedSecret, setRevealedSecret] = useState<{
+    name: string;
+    value: string;
+  } | null>(null);
+  const [revealBusyName, setRevealBusyName] = useState<string | null>(null);
   const [deleteName, setDeleteName] = useState<string | null>(null);
   const [feedback, setFeedback] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
@@ -39,6 +47,7 @@ export function WebgenRuntimeSecretsDialog({
   const load = useCallback(async () => {
     setLoading(true);
     setLoadError(false);
+    setRevealedSecret(null);
     try {
       setData(await fetchWebgenRuntimeSecrets(projectSlug));
     } catch {
@@ -53,6 +62,7 @@ export function WebgenRuntimeSecretsDialog({
   }, [load]);
 
   const refreshAfterMutation = async () => {
+    setRevealedSecret(null);
     try {
       setData(await fetchWebgenRuntimeSecrets(projectSlug));
       setLoadError(false);
@@ -64,6 +74,25 @@ export function WebgenRuntimeSecretsDialog({
   const clearFeedback = () => {
     setFeedback("");
     setErrorMessage("");
+  };
+
+  const toggleReveal = async (name: string) => {
+    clearFeedback();
+    if (revealedSecret?.name === name) {
+      setRevealedSecret(null);
+      return;
+    }
+    setRevealedSecret(null);
+    setRevealBusyName(name);
+    try {
+      const result = await fetchWebgenRuntimeSecretValue(projectSlug, name);
+      if (result.name !== name) throw new Error("Unexpected secret response");
+      setRevealedSecret({ name, value: result.value });
+    } catch {
+      setErrorMessage(t(I18nKey.DCK$RUNTIME_SECRET_OPERATION_ERROR));
+    } finally {
+      setRevealBusyName(null);
+    }
   };
 
   const submitNew = async (event: FormEvent<HTMLFormElement>) => {
@@ -80,9 +109,10 @@ export function WebgenRuntimeSecretsDialog({
     }
     setBusy(true);
     try {
-      await saveWebgenRuntimeSecret(projectSlug, name, newValue);
+      await saveWebgenRuntimeSecret(projectSlug, name, newValue, newSensitive);
       setNewName("");
       setNewValue("");
+      setNewSensitive(true);
       setFeedback(t(I18nKey.DCK$RUNTIME_SECRET_SAVED));
       await refreshAfterMutation();
     } catch {
@@ -96,7 +126,12 @@ export function WebgenRuntimeSecretsDialog({
     clearFeedback();
     setBusy(true);
     try {
-      await saveWebgenRuntimeSecret(projectSlug, name, editValue);
+      await saveWebgenRuntimeSecret(
+        projectSlug,
+        name,
+        editValue,
+        editSensitive,
+      );
       setEditingName(null);
       setEditValue("");
       setFeedback(t(I18nKey.DCK$RUNTIME_SECRET_SAVED));
@@ -116,6 +151,7 @@ export function WebgenRuntimeSecretsDialog({
       setDeleteName(null);
       setEditingName(null);
       setEditValue("");
+      setRevealedSecret(null);
       await refreshAfterMutation();
     } catch {
       setErrorMessage(t(I18nKey.DCK$RUNTIME_SECRET_OPERATION_ERROR));
@@ -131,9 +167,9 @@ export function WebgenRuntimeSecretsDialog({
     >
       <section
         data-testid="dck-webgen-runtime-secrets-dialog"
-        className="webgen-runtime-secrets-dialog m-4 flex max-w-2xl flex-col overflow-hidden rounded-xl border border-border bg-canvas-base shadow-xl"
+        className="webgen-runtime-secrets-dialog m-4 flex max-h-[calc(100vh-2rem)] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-border bg-canvas-base shadow-xl"
       >
-        <header className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
+        <header className="flex shrink-0 items-start justify-between gap-4 border-b border-border px-5 py-4">
           <div className="flex min-w-0 items-start gap-3">
             <KeyRound
               className="mt-1 size-5 shrink-0 text-accent"
@@ -155,7 +191,7 @@ export function WebgenRuntimeSecretsDialog({
           </button>
         </header>
 
-        <div className="overflow-y-auto px-5 py-4">
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
           {loading && (
             <p className="py-5 text-sm text-text-secondary" role="status">
               {t(I18nKey.DCK$LOADING)}
@@ -203,14 +239,47 @@ export function WebgenRuntimeSecretsDialog({
                               {secret.name}
                             </code>
                             <span className="ml-2 text-xs text-text-tertiary">
-                              {t(I18nKey.DCK$RUNTIME_SECRET_CONFIGURED_HIDDEN)}
+                              {t(
+                                secret.sensitive !== false
+                                  ? I18nKey.DCK$RUNTIME_SECRET_SENSITIVE
+                                  : I18nKey.DCK$RUNTIME_SECRET_NON_SENSITIVE,
+                              )}
                             </span>
                           </div>
                           <div className="flex flex-wrap items-center gap-2">
                             <button
+                              data-testid={`dck-webgen-runtime-secret-reveal-${secret.name}`}
+                              type="button"
+                              disabled={busy || revealBusyName !== null}
+                              aria-pressed={
+                                revealedSecret?.name === secret.name
+                              }
+                              onClick={() => void toggleReveal(secret.name)}
+                              className="rounded border border-border px-2.5 py-1.5 text-xs font-medium text-contrast hover:bg-surface disabled:opacity-50"
+                            >
+                              {revealBusyName === secret.name
+                                ? t(I18nKey.DCK$LOADING)
+                                : t(
+                                    revealedSecret?.name === secret.name
+                                      ? I18nKey.DCK$RUNTIME_SECRET_HIDE_VALUE
+                                      : I18nKey.DCK$RUNTIME_SECRET_SHOW_VALUE,
+                                  )}
+                              {revealedSecret?.name === secret.name ? (
+                                <EyeOff
+                                  className="ml-1 inline size-3.5"
+                                  aria-hidden
+                                />
+                              ) : (
+                                <Eye
+                                  className="ml-1 inline size-3.5"
+                                  aria-hidden
+                                />
+                              )}
+                            </button>
+                            <button
                               data-testid={`dck-webgen-runtime-secret-edit-${secret.name}`}
                               type="button"
-                              disabled={busy}
+                              disabled={busy || revealBusyName !== null}
                               onClick={() => {
                                 clearFeedback();
                                 setEditingName(
@@ -219,6 +288,8 @@ export function WebgenRuntimeSecretsDialog({
                                     : secret.name,
                                 );
                                 setEditValue("");
+                                setEditSensitive(secret.sensitive !== false);
+                                setRevealedSecret(null);
                                 setDeleteName(null);
                               }}
                               className="rounded border border-border px-2.5 py-1.5 text-xs font-medium text-contrast hover:bg-surface disabled:opacity-50"
@@ -227,7 +298,7 @@ export function WebgenRuntimeSecretsDialog({
                             </button>
                             <button
                               type="button"
-                              disabled={busy}
+                              disabled={busy || revealBusyName !== null}
                               onClick={() => {
                                 clearFeedback();
                                 setDeleteName(
@@ -237,6 +308,7 @@ export function WebgenRuntimeSecretsDialog({
                                 );
                                 setEditingName(null);
                                 setEditValue("");
+                                setRevealedSecret(null);
                               }}
                               className="rounded border border-border px-2.5 py-1.5 text-xs font-medium text-danger hover:bg-surface disabled:opacity-50"
                             >
@@ -244,9 +316,18 @@ export function WebgenRuntimeSecretsDialog({
                             </button>
                           </div>
                         </div>
+                        {revealedSecret?.name === secret.name && (
+                          <p
+                            className="mt-2 break-all rounded-md bg-surface px-3 py-2 text-sm text-contrast"
+                            data-testid={`dck-webgen-runtime-secret-value-${secret.name}`}
+                            role="status"
+                          >
+                            <code>{revealedSecret.value}</code>
+                          </p>
+                        )}
                         {editingName === secret.name && (
                           <form
-                            className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end"
+                            className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_12rem_auto] sm:items-end"
                             onSubmit={(event) => {
                               event.preventDefault();
                               void saveEdit(secret.name);
@@ -265,6 +346,28 @@ export function WebgenRuntimeSecretsDialog({
                                 }
                                 className="mt-1 block w-full rounded-md border border-border bg-canvas-base px-3 py-2 text-sm text-contrast outline-none focus:border-accent"
                               />
+                            </label>
+                            <label className="text-xs font-medium text-text-secondary">
+                              {t(I18nKey.DCK$RUNTIME_SECRET_CLASSIFICATION)}
+                              <select
+                                data-testid="dck-webgen-runtime-secret-edit-classification"
+                                value={
+                                  editSensitive ? "sensitive" : "non-sensitive"
+                                }
+                                onChange={(event) =>
+                                  setEditSensitive(
+                                    event.target.value === "sensitive",
+                                  )
+                                }
+                                className="mt-1 block w-full rounded-md border border-border bg-canvas-base px-3 py-2 text-sm text-contrast outline-none focus:border-accent"
+                              >
+                                <option value="sensitive">
+                                  {t(I18nKey.DCK$RUNTIME_SECRET_SENSITIVE)}
+                                </option>
+                                <option value="non-sensitive">
+                                  {t(I18nKey.DCK$RUNTIME_SECRET_NON_SENSITIVE)}
+                                </option>
+                              </select>
                             </label>
                             <button
                               data-testid="dck-webgen-runtime-secret-edit-save"
@@ -323,7 +426,7 @@ export function WebgenRuntimeSecretsDialog({
                 <h3 className="text-sm font-semibold text-contrast">
                   {t(I18nKey.DCK$RUNTIME_SECRET_ADD_TITLE)}
                 </h3>
-                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <div className="mt-3 grid gap-3 sm:grid-cols-3">
                   <label className="text-xs font-medium text-text-secondary">
                     {t(I18nKey.DCK$RUNTIME_SECRET_NAME)}
                     <input
@@ -356,6 +459,24 @@ export function WebgenRuntimeSecretsDialog({
                       className="mt-1 block w-full rounded-md border border-border bg-canvas-base px-3 py-2 text-sm text-contrast outline-none focus:border-accent"
                     />
                   </label>
+                  <label className="text-xs font-medium text-text-secondary">
+                    {t(I18nKey.DCK$RUNTIME_SECRET_CLASSIFICATION)}
+                    <select
+                      data-testid="dck-webgen-runtime-secret-classification"
+                      value={newSensitive ? "sensitive" : "non-sensitive"}
+                      onChange={(event) =>
+                        setNewSensitive(event.target.value === "sensitive")
+                      }
+                      className="mt-1 block w-full rounded-md border border-border bg-canvas-base px-3 py-2 text-sm text-contrast outline-none focus:border-accent"
+                    >
+                      <option value="sensitive">
+                        {t(I18nKey.DCK$RUNTIME_SECRET_SENSITIVE)}
+                      </option>
+                      <option value="non-sensitive">
+                        {t(I18nKey.DCK$RUNTIME_SECRET_NON_SENSITIVE)}
+                      </option>
+                    </select>
+                  </label>
                 </div>
                 <button
                   data-testid="dck-webgen-runtime-secret-add"
@@ -368,7 +489,6 @@ export function WebgenRuntimeSecretsDialog({
               </form>
             </>
           )}
-
           <p className="mt-5 border-t border-border pt-3 text-xs font-medium text-text-tertiary">
             {t(I18nKey.DCK$RUNTIME_SECRET_APPLY_NOTICE)}
           </p>

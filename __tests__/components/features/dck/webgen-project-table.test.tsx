@@ -8,6 +8,7 @@ const api = vi.hoisted(() => ({ fetch: vi.fn() }));
 
 vi.mock("#/dck/webgen-service", () => ({
   fetchWebgenRuntimeSecrets: api.fetch,
+  fetchWebgenRuntimeSecretValue: vi.fn(),
   saveWebgenRuntimeSecret: vi.fn(),
   deleteWebgenRuntimeSecret: vi.fn(),
 }));

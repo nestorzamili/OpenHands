@@ -25,10 +25,12 @@ vi.mock("#/routes/agent-settings", () => {
     agentSettingsOverride,
     onSaveControlChange,
     isDefaultProfile,
+    isAgentProfileEditor,
   }: {
     agentSettingsOverride?: Record<string, unknown> | null;
     onSaveControlChange?: (c: AgentSettingsSaveControl) => void;
     isDefaultProfile?: boolean;
+    isAgentProfileEditor?: boolean;
   }) => {
     useEffect(() => {
       if (emitControl) onSaveControlChange?.(emitControl);
@@ -40,6 +42,7 @@ vi.mock("#/routes/agent-settings", () => {
         data-testid="mock-agent-settings"
         data-override={JSON.stringify(agentSettingsOverride)}
         data-default-profile={String(Boolean(isDefaultProfile))}
+        data-agent-profile-editor={String(Boolean(isAgentProfileEditor))}
       />
     );
   };
@@ -146,6 +149,10 @@ describe("AgentProfilesLocalView save mapping", () => {
     render(<AgentProfilesLocalView />);
     await openCreateAndName("my-agent");
 
+    expect(screen.getByTestId("mock-agent-settings")).toHaveAttribute(
+      "data-agent-profile-editor",
+      "true",
+    );
     expect(
       screen.getByTestId("agent-profile-editor-description"),
     ).toHaveTextContent("SETTINGS$AGENT_PROFILE_SAVE_HINT");

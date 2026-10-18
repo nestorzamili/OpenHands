@@ -258,6 +258,12 @@ Open **Settings → Agent** at any time:
   the provider's models, or a custom model ID. Gemini has no **Agent default**:
   Canvas preselects `gemini-2.5-pro` (see the note above).
 
+When OpenCode is newly selected in the Agent Profile editor, Canvas preselects
+`opencode/muse-spark-1.3-contributor-free` (Muse Spark 1.3 Contributor Free).
+This convenience applies only to that profile-editor selection; it does not
+change backend-wide **Settings → Agent** defaults, and opening an existing
+profile preserves its saved model.
+
 Canvas keeps no list of models; the agent reports its own. On a local backend
 Canvas asks the agent-server (`POST /api/acp/models`) to start the provider with
 your saved credentials and report the models it offers and the one it uses by

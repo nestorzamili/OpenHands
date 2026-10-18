@@ -47,6 +47,24 @@ def _handler_call(service, method, path, body=None, authenticated=True, actual_a
     return replies
 
 
+def _handler_call_with_headers(service, method, path, body=None, authenticated=True):
+    from types import SimpleNamespace
+    handler = Handler.__new__(Handler)
+    handler.path = path
+    handler.headers = {"X-Session-API-Key": "session-key"}
+    handler.server = SimpleNamespace(service=service)
+    handler.auth = lambda: authenticated
+    handler.body = lambda: body or {}
+    captured = {"status": None, "body": b""}
+    headers = {}
+    handler.send_response = lambda status: captured.__setitem__("status", status)
+    handler.send_header = lambda name, value: headers.__setitem__(name.lower(), value)
+    handler.end_headers = lambda: None
+    handler.wfile = SimpleNamespace(write=lambda payload: captured.__setitem__("body", payload))
+    getattr(handler, method)()
+    return captured["status"], json.loads(captured["body"]), headers
+
+
 class TestWebgen(unittest.TestCase):
     # @spec WR-019 — Runtime status tolerates containers without healthchecks.
     def test_runtime_status_handles_optional_health_and_failed_containers(self):
@@ -324,7 +342,7 @@ class TestWebgen(unittest.TestCase):
         service.compose.assert_not_called()
         project_id = json.loads((project / ".dck.json").read_text())["projectId"]
         self.assertEqual(service.runtime_secrets.list(project_id)["secrets"], [
-            {"name": "DATABASE_URL", "configured": True},
+            {"name": "DATABASE_URL", "configured": True, "sensitive": True},
         ])
         self.assertFalse((project / ".env").exists())
 
@@ -879,8 +897,8 @@ networks:
             self.assertIn(f"postgresql://{role}:", second_values["DATABASE_URL"])
             self.assertIn(f"@postgres:5432/{database}", second_values["DATABASE_URL"])
             self.assertEqual(service.runtime_secrets.list(project_id)["secrets"], [
-                {"name": "BETTER_AUTH_SECRET", "configured": True},
-                {"name": "DATABASE_URL", "configured": True},
+                {"name": "BETTER_AUTH_SECRET", "configured": True, "sensitive": True},
+                {"name": "DATABASE_URL", "configured": True, "sensitive": True},
             ])
             encrypted = service.runtime_secrets.path.read_bytes()
             self.assertNotIn(second_values["DATABASE_URL"].encode(), encrypted)
@@ -957,7 +975,7 @@ networks:
         service.compose.assert_called_once_with("shop", project, "deploy", runtime_env)
         project_id = json.loads((project / ".dck.json").read_text())["projectId"]
         self.assertEqual(service.runtime_secrets.list(project_id)["secrets"], [
-            {"name": "DATABASE_URL", "configured": True},
+            {"name": "DATABASE_URL", "configured": True, "sensitive": True},
         ])
 
     # @spec WR-020 — Preserve user-provided database credentials instead of replacing them.
@@ -1296,7 +1314,7 @@ networks:
         service.runtime_secrets.bind(alpha_id, "alpha")
         service.runtime_secrets.bind(beta_id, "beta")
         service.runtime_secrets.put(alpha_id, "API_TOKEN", "alpha-private-value")
-        service.runtime_secrets.put(beta_id, "API_TOKEN", "beta-private-value")
+        service.runtime_secrets.put(beta_id, "API_TOKEN", "beta-private-value", sensitive=False)
         ciphertext = service.runtime_secrets.path.read_bytes()
         self.assertNotIn(b"alpha-private-value", ciphertext)
         self.assertNotIn(b"beta-private-value", ciphertext)
@@ -1304,11 +1322,35 @@ networks:
         reopened = RuntimeSecretStore(service.runtime_secrets.path, service.seed.master)
         self.assertEqual(reopened.values(alpha_id), {"API_TOKEN": "alpha-private-value"})
         self.assertEqual(reopened.values(beta_id), {"API_TOKEN": "beta-private-value"})
+        self.assertEqual(reopened.list(alpha_id)["secrets"], [
+            {"name": "API_TOKEN", "configured": True, "sensitive": True},
+        ])
+        self.assertEqual(reopened.list(beta_id)["secrets"], [
+            {"name": "API_TOKEN", "configured": True, "sensitive": False},
+        ])
+        result = reopened.put(beta_id, "API_TOKEN", "", sensitive=True)
+        self.assertTrue(result["unchanged"] is False)
+        self.assertEqual(reopened.values(beta_id), {"API_TOKEN": "beta-private-value"})
+        self.assertEqual(reopened.list(beta_id)["secrets"][0]["sensitive"], True)
         with self.assertRaises(WebgenOperationError) as caught:
             reopened.bind(alpha_id, "beta")
         self.assertEqual(caught.exception.code, "project_identity_conflict")
         reopened.delete(alpha_id, "API_TOKEN")
         self.assertEqual(reopened.identity_for_slug("alpha"), alpha_id)
+
+    def test_runtime_store_defaults_legacy_classification_to_sensitive(self):
+        service = self.make_service()
+        project_id = "00000000-0000-4000-8000-000000000001"
+        service.runtime_secrets.bind(project_id, "shop")
+        service.runtime_secrets.put(project_id, "API_TOKEN", "legacy-value")
+        del service.runtime_secrets.data[project_id]["classifications"]
+        service.runtime_secrets._save()
+
+        reopened = RuntimeSecretStore(service.runtime_secrets.path, service.seed.master)
+        self.assertEqual(reopened.values(project_id), {"API_TOKEN": "legacy-value"})
+        self.assertEqual(reopened.list(project_id)["secrets"], [
+            {"name": "API_TOKEN", "configured": True, "sensitive": True},
+        ])
 
     def test_runtime_store_write_failure_restores_memory_and_persisted_state(self):
         service = self.make_service()
@@ -1397,7 +1439,7 @@ networks:
             reopened = RuntimeSecretStore(store_path, key.read_bytes())
             self.assertEqual(reopened.values(project_id), {"API_TOKEN": "backup-only-value"})
 
-    def test_runtime_secret_api_is_authenticated_scoped_and_never_returns_values(self):
+    def test_runtime_secret_api_is_authenticated_scoped_and_reveals_only_on_request(self):
         service = self.make_service()
         for slug in ("shop", "other"):
             project = service.root / slug
@@ -1411,10 +1453,11 @@ networks:
             service,
             "do_PUT",
             "/api/webgen/projects/shop/runtime-secrets",
-            {"name": "DATABASE_URL", "value": secret_value},
+            {"name": "DATABASE_URL", "value": secret_value, "sensitive": False},
         )[0]
         self.assertEqual(status, 200)
         self.assertNotIn(secret_value, json.dumps(saved))
+        self.assertEqual(saved["sensitive"], False)
 
         status, shop_payload = _handler_call(
             service, "do_GET", "/api/webgen/projects/shop/runtime-secrets"
@@ -1424,10 +1467,34 @@ networks:
         )[0]
         self.assertEqual((status, status_other), (200, 200))
         self.assertEqual([item["name"] for item in shop_payload["secrets"]], ["DATABASE_URL"])
+        self.assertEqual(shop_payload["secrets"][0]["sensitive"], False)
         self.assertEqual(other_payload["secrets"], [])
         self.assertNotIn(secret_value, json.dumps(shop_payload))
         self.assertNotIn(secret_value, json.dumps(other_payload))
         self.assertNotIn("value", shop_payload["secrets"][0])
+
+        unauthenticated_reveal = _handler_call(
+            service,
+            "do_GET",
+            "/api/webgen/projects/shop/runtime-secrets/DATABASE_URL/value",
+            authenticated=False,
+        )
+        self.assertEqual(unauthenticated_reveal, [])
+        status, revealed, headers = _handler_call_with_headers(
+            service,
+            "do_GET",
+            "/api/webgen/projects/shop/runtime-secrets/DATABASE_URL/value",
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(revealed, {"name": "DATABASE_URL", "value": secret_value})
+        self.assertEqual(headers["cache-control"], "no-store")
+        self.assertEqual(headers["x-content-type-options"], "nosniff")
+        status_other_reveal = _handler_call(
+            service,
+            "do_GET",
+            "/api/webgen/projects/other/runtime-secrets/DATABASE_URL/value",
+        )[0][0]
+        self.assertEqual(status_other_reveal, 404)
 
         service.all_container_status = lambda: {}
         status, project_list = _handler_call(service, "do_GET", "/api/webgen/projects")[0]
@@ -1458,6 +1525,7 @@ networks:
         )[0]
         self.assertEqual(deleted, (200, {"deleted": True}))
         self.assertEqual(service.runtime_secrets.values(shop_payload["project_id"]), {})
+        self.assertEqual(service.runtime_secrets.list(shop_payload["project_id"])["secrets"], [])
         service.compose.assert_not_called()
 
     def test_runtime_secret_api_runs_real_auth_and_keeps_project_scope(self):
@@ -1481,6 +1549,14 @@ networks:
                 {"name": "API_TOKEN", "value": "private"}, actual_auth=True,
             )[0]
             self.assertEqual(status, 200)
+            status, revealed = _handler_call(
+                service,
+                "do_GET",
+                "/api/webgen/projects/shop/runtime-secrets/API_TOKEN/value",
+                actual_auth=True,
+            )[0]
+            self.assertEqual(status, 200)
+            self.assertEqual(revealed, {"name": "API_TOKEN", "value": "private"})
             status, other = _handler_call(
                 service, "do_GET", "/api/webgen/projects/other/runtime-secrets",
                 actual_auth=True,
@@ -1497,6 +1573,16 @@ networks:
                 {"name": "OTHER_TOKEN", "value": "must-not-save"}, actual_auth=True,
             )
         self.assertEqual(denied, [(401, {"error": "unauthorized"})])
+        with patch("webgen_control.urlopen", side_effect=lambda request, timeout: (_ for _ in ()).throw(
+            HTTPError(request.full_url, 401, "unauthorized", {}, None)
+        )):
+            denied_reveal = _handler_call(
+                service,
+                "do_GET",
+                "/api/webgen/projects/shop/runtime-secrets/API_TOKEN/value",
+                actual_auth=True,
+            )
+        self.assertEqual(denied_reveal, [(401, {"error": "unauthorized"})])
         other_id = json.loads((service.root / "other" / ".dck.json").read_text())["projectId"]
         self.assertEqual(service.runtime_secrets.values(other_id), {})
 

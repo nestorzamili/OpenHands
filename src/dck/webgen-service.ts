@@ -52,6 +52,12 @@ export interface WebgenLifecycleResponse {
 export interface WebgenRuntimeSecret {
   name: string;
   configured: true;
+  sensitive: boolean;
+}
+
+export interface WebgenRuntimeSecretValueResponse {
+  name: string;
+  value: string;
 }
 
 export interface WebgenRuntimeSecretsResponse {
@@ -153,16 +159,33 @@ export async function fetchWebgenRuntimeSecrets(
   }
 }
 
+export async function fetchWebgenRuntimeSecretValue(
+  projectSlug: string,
+  name: string,
+): Promise<WebgenRuntimeSecretValueResponse> {
+  const client = getClient();
+  try {
+    return await client.get<WebgenRuntimeSecretValueResponse>(
+      `/api/webgen/projects/${encodeURIComponent(projectSlug)}/runtime-secrets/${encodeURIComponent(name)}/value`,
+    );
+  } catch (error) {
+    throw new WebgenServiceError(statusFromError(error), codeFromError(error));
+  } finally {
+    client.close();
+  }
+}
+
 export async function saveWebgenRuntimeSecret(
   projectSlug: string,
   name: string,
   value: string,
+  sensitive: boolean,
 ): Promise<void> {
   const client = getClient();
   try {
     await client.put(
       `/api/webgen/projects/${encodeURIComponent(projectSlug)}/runtime-secrets`,
-      { name, value },
+      { name, value, sensitive },
     );
   } catch (error) {
     throw new WebgenServiceError(statusFromError(error), codeFromError(error));

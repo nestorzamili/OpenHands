@@ -6,6 +6,9 @@ import { expect, test } from "@playwright/test";
 test("keeps the automations Filters popover open while combining filters", async ({
   page,
 }) => {
+  // The mock dev server compiles route modules on demand during cold start.
+  test.setTimeout(90_000);
+
   await page.addInitScript(() => {
     window.localStorage.setItem("analytics-consent", "false");
     window.localStorage.setItem("openhands-telemetry-consent", "denied");
@@ -29,10 +32,10 @@ test("keeps the automations Filters popover open while combining filters", async
     );
   });
   await page.goto("/automations");
-  // Mock settings have no analytics choice yet, so the local consent prompt
-  // covers the page until it is answered.
-  await page.getByTestId("confirm-telemetry-preferences").click();
-  await expect(page.getByTestId("telemetry-consent-form")).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible({
+    timeout: 30_000,
+  });
+  // The fixture above opts out of telemetry; consent UI is outside this test.
 
   const filtersTrigger = page
     .getByTestId("automations-filters")

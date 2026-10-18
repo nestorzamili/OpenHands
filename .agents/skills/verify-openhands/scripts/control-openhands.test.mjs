@@ -94,22 +94,27 @@ function recorder(path = []) {
 }
 
 function run(args, env = {}) {
-  const result = spawnSync(process.execPath, [cli, ...args], {
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      OH_VERIFY_HOME: mkdtempSync(join(tmpdir(), "cov-")),
-      OH_VERIFY_RUN: "",
-      ...env,
-    },
-  });
-  let json;
+  const verifyHome = mkdtempSync(join(tmpdir(), "cov-"));
   try {
-    json = JSON.parse(result.stdout);
-  } catch {
-    json = undefined;
+    const result = spawnSync(process.execPath, [cli, ...args], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        OH_VERIFY_HOME: verifyHome,
+        OH_VERIFY_RUN: "",
+        ...env,
+      },
+    });
+    let json;
+    try {
+      json = JSON.parse(result.stdout);
+    } catch {
+      json = undefined;
+    }
+    return { ...result, json };
+  } finally {
+    rmSync(verifyHome, { recursive: true, force: true });
   }
-  return { ...result, json };
 }
 
 test("scoped testid chain builds nested locators", () => {

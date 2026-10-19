@@ -110,6 +110,7 @@ export function parseArgs(argv = process.argv.slice(2), env = process.env) {
     lockToCloud: null,
     basePath: "/",
     vscodeBasePath: null,
+    dckWorkspaceRoot: null,
     // Also settable via the --disable-telemetry flag below.
     disableTelemetry: isEnvFlagEnabled(env.AGENT_CANVAS_DISABLE_TELEMETRY),
   };
@@ -155,6 +156,9 @@ export function parseArgs(argv = process.argv.slice(2), env = process.env) {
         break;
       case "--runtime-services-info":
         config.runtimeServicesInfo = argv[++i] || null;
+        break;
+      case "--dck-workspace-root":
+        config.dckWorkspaceRoot = argv[++i]?.trim() || null;
         break;
       case "--lock-to-cloud":
         config.lockToCloud = argv[++i] || null;
@@ -312,6 +316,9 @@ OPTIONS:
                                server process and attach it only to loopback
                                proxy requests; never inject it into
                                HTML or browser storage.
+  --dck-workspace-root <path>
+                               Runtime DCK modules root (overrides the build's
+                               VITE_DCK_WORKSPACE_ROOT value).
   --runtime-services-info <json>
                                Inject a JSON description of the local runtime
                                services into index.html so the pre-built
@@ -428,6 +435,7 @@ function makeConfigInjectionScript(
   basePath,
   vscodeBasePath,
   disableTelemetry,
+  dckWorkspaceRoot,
 ) {
   const parts = [];
 
@@ -491,6 +499,12 @@ function makeConfigInjectionScript(
     parts.push(`window.__AGENT_CANVAS_DO_NOT_TRACK__=true;`);
   }
 
+  if (dckWorkspaceRoot) {
+    parts.push(
+      `window.__AGENT_CANVAS_DCK_WORKSPACE_ROOT__=${serializeForInlineScript(dckWorkspaceRoot)};`,
+    );
+  }
+
   if (parts.length === 0) return "";
 
   return `<script>(function(){${parts.join("")}}());</script>`;
@@ -513,6 +527,7 @@ async function serveInjectedIndexHtml(
     basePath,
     vscodeBasePath,
     disableTelemetry,
+    dckWorkspaceRoot,
   } = {},
 ) {
   let content;
@@ -531,6 +546,7 @@ async function serveInjectedIndexHtml(
     basePath,
     vscodeBasePath,
     disableTelemetry,
+    dckWorkspaceRoot,
   );
   // Inject runtime configuration before any app code runs.
   // replace() targets the first (and only) </head> in well-formed HTML.
@@ -583,6 +599,7 @@ function needsRuntimeInjection(injectionOpts) {
     injectionOpts.lockToCloud ||
     injectionOpts.vscodeBasePath ||
     injectionOpts.disableTelemetry ||
+    injectionOpts.dckWorkspaceRoot ||
     (injectionOpts.basePath && injectionOpts.basePath !== "/"),
   );
 }
@@ -779,6 +796,7 @@ export function startStaticServer(config) {
     basePath: normalizeBasePath(config.basePath),
     vscodeBasePath: config.vscodeBasePath || null,
     disableTelemetry: config.disableTelemetry || false,
+    dckWorkspaceRoot: config.dckWorkspaceRoot || null,
   };
   const basePath = injectionOpts.basePath;
   const rejectPrefixes = config.rejectPrefixes ?? [];

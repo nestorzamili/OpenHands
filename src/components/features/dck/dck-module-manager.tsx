@@ -506,7 +506,7 @@ export function DckModuleManager({
     id: module.id,
     name: module.name,
     slug: module.slug,
-    workspacePath: `${root}/${module.slug}`,
+    workspacePath: `${root.replace(/\/+$/, "")}/${module.slug}`,
     skillNames: module.skillNames,
     kind: "conversations",
     icon: resolveModuleIcon(module.iconName),

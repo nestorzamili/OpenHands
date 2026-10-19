@@ -52,6 +52,7 @@ import { homedir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
 import process from "node:process";
 
+import { getLocalDckWorkspaceRoot } from "./dck-workspace-root.mjs";
 import {
   assertPortsFree,
   buildAgentServerCommand,
@@ -1812,6 +1813,9 @@ function startStaticFrontend(config, staticDir) {
       staticDir,
       "--port",
       String(config.vitePort),
+      ...(config.launchAgentServer
+        ? ["--dck-workspace-root", getLocalDckWorkspaceRoot(config)]
+        : []),
       ...bindHostArgs(config.bindHost),
       ...(process.env.VITE_BASE_PATH
         ? ["--base-path", process.env.VITE_BASE_PATH]

@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { getLocalDckWorkspaceRoot } from "./dck-workspace-root.mjs";
 
 import {
   c,
@@ -15,9 +16,7 @@ export function buildFrontendEnv(config, env = process.env) {
   return {
     ...env,
     VITE_SESSION_API_KEY: "",
-    VITE_DCK_WORKSPACE_ROOT:
-      env.VITE_DCK_WORKSPACE_ROOT?.trim() ||
-      join(config.canvasPath, "workspace"),
+    VITE_DCK_WORKSPACE_ROOT: getLocalDckWorkspaceRoot(config, env),
     ...(config.viteWorkingDir
       ? { VITE_WORKING_DIR: config.viteWorkingDir }
       : {}),

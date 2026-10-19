@@ -43,6 +43,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import process from "node:process";
 
 import { buildFrontend } from "./static-build.mjs";
+import { getLocalDckWorkspaceRoot } from "./dck-workspace-root.mjs";
 import {
   buildAgentServerCommand,
   buildSafeDevConfig,
@@ -463,6 +464,8 @@ function startStaticServer(config) {
       join(config.canvasPath, "build"),
       "--port",
       String(config.vitePort),
+      "--dck-workspace-root",
+      getLocalDckWorkspaceRoot(config),
       ...bindHostArgs(config.bindHost),
       ...(process.env.VITE_BASE_PATH
         ? ["--base-path", process.env.VITE_BASE_PATH]

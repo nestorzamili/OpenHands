@@ -47,12 +47,18 @@ export function resolveModuleIcon(iconName: string): LucideIcon {
  * agent-server. In Docker this is the mounted `/projects` (compose maps
  * `./workspace:/projects`); in local `npm run dev` the agent-server runs on the
  * host, where `/projects` does not exist, so point it at the repo's tracked
- * `workspace/` via `VITE_DCK_WORKSPACE_ROOT`.
+ * `workspace/` via `VITE_DCK_WORKSPACE_ROOT`. Static servers can provide the
+ * same override at runtime so an existing build need not be rebuilt.
  */
 export function getDckWorkspaceRoot(): string {
-  const configured = import.meta.env.VITE_DCK_WORKSPACE_ROOT?.trim();
+  const runtimeConfigured =
+    typeof window !== "undefined"
+      ? window.__AGENT_CANVAS_DCK_WORKSPACE_ROOT__?.trim()
+      : undefined;
+  const bakedConfigured = import.meta.env.VITE_DCK_WORKSPACE_ROOT?.trim();
+  const configured = runtimeConfigured || bakedConfigured;
   const root = configured && configured.length > 0 ? configured : "/projects";
-  return root.replace(/\/+$/, "");
+  return root.replace(/\/+$/, "") || "/";
 }
 
 export interface DckModule {
@@ -142,7 +148,7 @@ function resolveModule(
   return {
     ...def,
     icon: resolveModuleIcon(def.iconName),
-    workspacePath: `${root}/${def.slug}`,
+    workspacePath: `${root.replace(/\/+$/, "")}/${def.slug}`,
     source,
   };
 }

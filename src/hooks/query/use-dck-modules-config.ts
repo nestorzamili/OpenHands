@@ -43,7 +43,7 @@ function configFileName(): string {
 }
 
 function configPath(): string {
-  return `${getDckWorkspaceRoot()}/${DCK_MODULES_CONFIG_FILENAME}`;
+  return `${getDckWorkspaceRoot().replace(/\/+$/, "")}/${DCK_MODULES_CONFIG_FILENAME}`;
 }
 
 const EMPTY_CONFIG: DckModulesConfig = {
@@ -145,7 +145,19 @@ export function useDckModulesConfig() {
         ...next,
         modules: reindex(next.modules),
       };
-      await writeDckModulesConfig(normalized);
+      const current = queryClient.getQueryData<DckModulesConfig>(queryKey);
+      // Profile assignments belong to authenticated settings, not the workspace
+      // registry. Editing only a profile must not require filesystem write access.
+      if (
+        !current ||
+        serializeDckModulesConfig(current.modules, current.builtinOverrides) !==
+          serializeDckModulesConfig(
+            normalized.modules,
+            normalized.builtinOverrides,
+          )
+      ) {
+        await writeDckModulesConfig(normalized);
+      }
       return normalized;
     },
     onSuccess: (next) => {

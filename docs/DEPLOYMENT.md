@@ -335,19 +335,35 @@ copy `/opt/dck-agentic/` and `/var/lib/dck-webgen-control/` as one backup set
 
 ## Security notes
 
-- `canvas` runs without `privileged` mode and without the Docker socket. WebGen
-  lifecycle operations go through the authenticated host control service on
-  the private bridge described above; keep that service private and portal
-  login mandatory behind the TLS proxy.
+- `canvas` runs without `privileged` mode, but trusted agents have the read-write
+  Docker socket and therefore root-equivalent host access as described above.
+  WebGen lifecycle operations still use the authenticated host control service
+  for project-scoped status, Environment injection, owner setup, and routing;
+  that workflow is not a security sandbox against socket-enabled agents. Keep
+  the service private and portal login mandatory behind the TLS proxy.
 - The systemd host control service owns generated nginx blocks and reloads.
   Its sandbox grants writable access to WebGen project directories, its
   root-only `/var/lib/dck-webgen-control` state and volatile
   `/run/dck-webgen-control`, `/etc/nginx/dck-apps`, and `/var/log/nginx` for
   validation. It must not receive writable access to Canvas `config/`. The
-  agent has no nginx sudo access. Keep port `8012` on loopback.
+  agent has no direct nginx sudo grant; Docker access can nevertheless bypass
+  host filesystem isolation. Keep port `8012` on loopback.
 
 ## Development
 
 `npm run dev` on the host reads the repo `.env`; point `AUTOMATION_DB_URL` at a
 reachable Postgres (`localhost:5432`) or use `npm run dev:mock` for UI-only work.
 It runs behind the login portal — create the admin at `/setup` on first run.
+
+Local static launchers pass the DCK workspace root at runtime, so rebuilding the
+frontend does not silently switch a non-Docker preview back to `/projects`.
+The local default is the checkout's `workspace/`; set `VITE_DCK_WORKSPACE_ROOT`
+to override it. Published npm installs, which do not ship that directory, reuse
+the local Agent Server's user workspace instead of writing inside the package.
+A custom static launcher must pass `--dck-workspace-root <path>`
+or the equivalent `dckWorkspaceRoot` option to `startStaticServer`. Docker keeps
+its mounted `/projects` default. Do not fix local upload failures by granting
+world-write permissions to `/projects` or running the whole preview as root.
+Profile-only edits are saved in authenticated settings without rewriting an
+unchanged `.dck/modules.json`; actual module edits still require a writable
+workspace and a successfully loaded registry.

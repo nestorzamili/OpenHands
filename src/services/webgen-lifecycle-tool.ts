@@ -97,7 +97,15 @@ export async function performWebgenLifecycle(
     apiKey: backend.apiKey ?? "",
     workingDir: getDckWorkspaceRoot(),
   };
-  const unchanged = () => getActiveBackend().backend.id === backend.id;
+  const unchanged = () => {
+    const current = getActiveBackend().backend;
+    return (
+      current.id === backend.id &&
+      current.kind === backend.kind &&
+      current.host === backend.host &&
+      (current.apiKey ?? "") === clientBackend.apiKey
+    );
+  };
   try {
     const workingDir =
       await AgentServerConversationService.resolveConversationWorkingDir(
@@ -197,7 +205,8 @@ export async function handleWebgenLifecycleAction(
   conversationId: string,
   toolCallId: string,
 ): Promise<void> {
-  const backendId = getActiveBackend().backend.id;
+  const selectedBackend = getActiveBackend().backend;
+  const backendId = selectedBackend.id;
   if (
     !claimClientToolCall(
       `openhands-webgen-lifecycle:${backendId}:${conversationId}`,
@@ -206,7 +215,14 @@ export async function handleWebgenLifecycleAction(
   )
     return;
   const result = await performWebgenLifecycle(conversationId, rawAction);
-  if (getActiveBackend().backend.id !== backendId) return;
+  const currentBackend = getActiveBackend().backend;
+  if (
+    currentBackend.id !== selectedBackend.id ||
+    currentBackend.kind !== selectedBackend.kind ||
+    currentBackend.host !== selectedBackend.host ||
+    (currentBackend.apiKey ?? "") !== (selectedBackend.apiKey ?? "")
+  )
+    return;
   try {
     await postClientToolResult(
       conversationId,

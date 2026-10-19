@@ -147,6 +147,33 @@ describe("webgen lifecycle client tool", () => {
     expect(projects).not.toHaveBeenCalled();
     expect(run).not.toHaveBeenCalled();
   });
+  it("does not submit an action if the backend changes while fetching projects", async () => {
+    projects.mockImplementation(async () => {
+      backend.mockReturnValue({ backend: { id: "other", kind: "local" } });
+      return { projects: [project] };
+    });
+    expect((await performWebgenLifecycle("c1", { action: "stop" })).ok).toBe(
+      false,
+    );
+    expect(run).not.toHaveBeenCalled();
+  });
+  it("does not submit against a backend whose host or credentials changed under the same id", async () => {
+    projects.mockImplementation(async () => {
+      backend.mockReturnValue({
+        backend: {
+          id: "local-test",
+          kind: "local",
+          host: "http://changed-host",
+          apiKey: "changed-key",
+        },
+      });
+      return { projects: [project] };
+    });
+    expect((await performWebgenLifecycle("c1", { action: "stop" })).ok).toBe(
+      false,
+    );
+    expect(run).not.toHaveBeenCalled();
+  });
   it("returns only lifecycle metadata, not environment or controller payload extras", async () => {
     run.mockResolvedValue({
       project: { ...project, environment: { PRIVATE: "sentinel" } },
@@ -194,6 +221,39 @@ describe("webgen lifecycle client tool", () => {
       "c1",
       "WebGen lifecycle result: ",
       expect.objectContaining({ ok: true, action: "stop" }),
+    );
+  });
+  it("executes a concurrent replay of the same tool call only once", async () => {
+    let finishRun!: (value: { project: typeof project }) => void;
+    run.mockImplementation(
+      () => new Promise((resolve) => (finishRun = resolve)),
+    );
+    const action = { kind: "ClientAction_webgen_lifecycle", action: "stop" };
+    const first = handleWebgenLifecycleAction(action, "c1", "tc-concurrent");
+    const replay = handleWebgenLifecycleAction(action, "c1", "tc-concurrent");
+    await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(1));
+    finishRun({ project });
+    await Promise.all([first, replay]);
+    expect(post).toHaveBeenCalledTimes(1);
+  });
+  it("forwards the authorized publish subdomain and conversation id through the bound backend", async () => {
+    await performWebgenLifecycle("c-publish", {
+      kind: "ClientAction_webgen_lifecycle",
+      action: "publish",
+      subdomain: "authorized-app",
+    });
+    expect(run).toHaveBeenCalledWith(
+      "demo-app",
+      {
+        action: "publish",
+        subdomain: "authorized-app",
+        conversation_id: "c-publish",
+      },
+      {
+        host: "http://local-test",
+        apiKey: "fixture-key",
+        workingDir: getDckWorkspaceRoot(),
+      },
     );
   });
 });

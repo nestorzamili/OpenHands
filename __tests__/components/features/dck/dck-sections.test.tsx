@@ -396,6 +396,7 @@ describe("DckModulesSection", () => {
 
   it("reads and updates the card's saved profile in the module edit form", async () => {
     const user = userEvent.setup();
+    const originalRegistry = mockDckModulesConfig.text;
     await SettingsService.saveSettings({
       dck_module_agent_profile_assignments: {
         [getDckModuleAgentProfileScopeKey(null, "/projects")]: {
@@ -433,9 +434,8 @@ describe("DckModulesSection", () => {
         research: "active-profile",
       }),
     );
-    expect(
-      JSON.parse(mockDckModulesConfig.lastUploaded ?? "{}"),
-    ).not.toHaveProperty("agentProfileAssignments");
+    expect(mockDckModulesConfig.lastUploaded).toBeNull();
+    expect(mockDckModulesConfig.text).toBe(originalRegistry);
     expect(mockAgentProfiles.data.active_agent_profile_id).toBe(
       "active-profile",
     );
@@ -443,6 +443,7 @@ describe("DckModulesSection", () => {
 
   it("blocks a stale assignment until it is reassigned to a valid profile", async () => {
     const user = userEvent.setup();
+    const originalRegistry = mockDckModulesConfig.text;
     await SettingsService.saveSettings({
       dck_module_agent_profile_assignments: {
         [getDckModuleAgentProfileScopeKey(null, "/projects")]: {
@@ -500,9 +501,8 @@ describe("DckModulesSection", () => {
     expect(mockAgentProfiles.data.active_agent_profile_id).toBe(
       "active-profile",
     );
-    expect(JSON.parse(mockDckModulesConfig.text)).not.toHaveProperty(
-      "agentProfileAssignments",
-    );
+    expect(mockDckModulesConfig.lastUploaded).toBeNull();
+    expect(mockDckModulesConfig.text).toBe(originalRegistry);
   });
 
   it("opens the webgen spec dialog instead of creating immediately", async () => {

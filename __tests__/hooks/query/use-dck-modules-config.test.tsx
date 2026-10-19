@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useDckModulesConfig } from "#/hooks/query/use-dck-modules-config";
 import { getDckModuleAgentProfileScopeKey } from "#/dck/module-config";
+import { getBuiltinDckModules } from "#/dck/modules";
 import {
   __resetActiveStoreForTests,
   setActiveSelection,
@@ -263,6 +264,84 @@ describe("useDckModulesConfig", () => {
       expect(uploadTextFileMock).not.toHaveBeenCalled();
     },
   );
+
+  it("saves a built-in profile without touching an unchanged or read-only registry", async () => {
+    downloadTextFileMock.mockResolvedValue(configJson([]));
+    uploadTextFileMock.mockRejectedValue(
+      new Error("Permission denied: /projects/.dck"),
+    );
+    const { result } = renderHook(() => useDckModulesConfig(), {
+      wrapper: makeWrapper(),
+    });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    const module = getBuiltinDckModules().find(
+      (entry) => entry.id === "research",
+    )!;
+
+    await act(async () => {
+      await result.current.upsertBuiltinOverride(
+        "research",
+        module,
+        "research-agent",
+      );
+    });
+
+    expect(uploadTextFileMock).not.toHaveBeenCalled();
+    expect(mockSettingsApi.save).toHaveBeenCalledWith({
+      dck_module_agent_profile_assignments: {
+        [getDckModuleAgentProfileScopeKey(null, "/projects")]: {
+          research: "research-agent",
+        },
+      },
+    });
+  });
+
+  it("changes a custom module profile without rewriting unchanged workspace metadata", async () => {
+    downloadTextFileMock.mockResolvedValue(
+      configJson([{ id: "custom-1", name: "Email", slug: "email" }]),
+    );
+    uploadTextFileMock.mockRejectedValue(new Error("Permission denied"));
+    const { result } = renderHook(() => useDckModulesConfig(), {
+      wrapper: makeWrapper(),
+    });
+    await waitFor(() => expect(result.current.modules).toHaveLength(1));
+
+    await act(async () => {
+      await result.current.upsert(result.current.modules[0], "email-agent");
+    });
+
+    expect(uploadTextFileMock).not.toHaveBeenCalled();
+    expect(
+      mockSettingsApi.value.dck_module_agent_profile_assignments[
+        getDckModuleAgentProfileScopeKey(null, "/projects")
+      ],
+    ).toEqual({ "custom-1": "email-agent" });
+  });
+
+  it("does not save a profile when changed module metadata cannot be written", async () => {
+    downloadTextFileMock.mockResolvedValue(configJson([]));
+    uploadTextFileMock.mockRejectedValue(new Error("Permission denied"));
+    const { result } = renderHook(() => useDckModulesConfig(), {
+      wrapper: makeWrapper(),
+    });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    const module = getBuiltinDckModules().find(
+      (entry) => entry.id === "research",
+    )!;
+
+    await act(async () => {
+      await expect(
+        result.current.upsertBuiltinOverride(
+          "research",
+          { ...module, name: "Changed title" },
+          "research-agent",
+        ),
+      ).rejects.toThrow("Permission denied");
+    });
+
+    expect(uploadTextFileMock).toHaveBeenCalledTimes(1);
+    expect(mockSettingsApi.save).not.toHaveBeenCalled();
+  });
 
   it("persists only changed built-in fields and preserves custom modules", async () => {
     downloadTextFileMock.mockResolvedValue(

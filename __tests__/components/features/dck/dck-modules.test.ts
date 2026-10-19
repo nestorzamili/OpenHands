@@ -37,6 +37,7 @@ function makeConversation(
 
 describe("DCK module registry", () => {
   afterEach(() => {
+    delete window.__AGENT_CANVAS_DCK_WORKSPACE_ROOT__;
     vi.unstubAllEnvs();
   });
 
@@ -57,6 +58,21 @@ describe("DCK module registry", () => {
           module.source === "builtin",
       ),
     ).toBe(true);
+  });
+
+  it("uses runtime workspace root before the baked build value", () => {
+    vi.stubEnv("VITE_DCK_WORKSPACE_ROOT", "/baked/workspace");
+    window.__AGENT_CANVAS_DCK_WORKSPACE_ROOT__ = "/runtime/workspace/";
+
+    expect(getDckWorkspaceRoot()).toBe("/runtime/workspace");
+    expect(getDckModules()[0].workspacePath).toBe("/runtime/workspace/webgen");
+  });
+
+  it("keeps a configured filesystem root valid and module paths canonical", () => {
+    window.__AGENT_CANVAS_DCK_WORKSPACE_ROOT__ = "/";
+
+    expect(getDckWorkspaceRoot()).toBe("/");
+    expect(getDckModules()[0].workspacePath).toBe("/webgen");
   });
 
   it("resolves a Lucide component for each built-in icon name, with a fallback", () => {

@@ -52,7 +52,7 @@ describe("dev-static", () => {
 
     expect(env.VITE_SESSION_API_KEY).toBe("");
     expect(env.VITE_WORKING_DIR).toBe("/tmp/workspace");
-    expect(env.VITE_DCK_WORKSPACE_ROOT).toBe("/repo/OpenHands/workspace");
+    expect(env.VITE_DCK_WORKSPACE_ROOT).toBe("/tmp/workspace");
   });
 
   it("preserves an explicit DCK workspace root for local static builds", () => {

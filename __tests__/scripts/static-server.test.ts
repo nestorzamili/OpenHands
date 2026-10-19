@@ -139,6 +139,15 @@ describe("static-server.mjs", () => {
       expect(config.sessionApiKey).toBeNull();
     });
 
+    it("parses the runtime DCK workspace root", () => {
+      expect(
+        parseArgs(["--dck-workspace-root", "/repo/workspace/"])
+          .dckWorkspaceRoot,
+      ).toBe("/repo/workspace/");
+    });
+    it("defaults runtime DCK workspace root to null", () => {
+      expect(parseArgs([]).dckWorkspaceRoot).toBeNull();
+    });
     it("defaults runtimeServicesInfo to null", () => {
       const config = parseArgs([]);
       expect(config.runtimeServicesInfo).toBeNull();
@@ -340,6 +349,38 @@ describe("static-server.mjs", () => {
       const body = await (await fetch(`${origin}/`)).text();
 
       expect(body).not.toContain("__AGENT_CANVAS_VSCODE_BASE_PATH__");
+    });
+  });
+
+  describe("DCK workspace root exposure", () => {
+    it("injects a safely escaped runtime root into served HTML", async () => {
+      const buildDir = mkdtempSync(path.join(tmpdir(), "agent-canvas-build-"));
+      tempDirs.push(buildDir);
+      writeFileSync(
+        path.join(buildDir, "index.html"),
+        "<html><head></head><body>app</body></html>",
+      );
+      const origin = await startServer(buildDir, {
+        dckWorkspaceRoot: "/repo/<workspace>",
+      });
+      const body = await (await fetch(`${origin}/`)).text();
+
+      expect(body).toContain(
+        'window.__AGENT_CANVAS_DCK_WORKSPACE_ROOT__="/repo/\\u003cworkspace\\u003e"',
+      );
+      expect(body).not.toContain("/repo/<workspace>");
+    });
+
+    it("does not inject a DCK root unless configured", async () => {
+      const buildDir = mkdtempSync(path.join(tmpdir(), "agent-canvas-build-"));
+      tempDirs.push(buildDir);
+      writeFileSync(
+        path.join(buildDir, "index.html"),
+        "<html><head></head><body>app</body></html>",
+      );
+      const origin = await startServer(buildDir);
+      const body = await (await fetch(`${origin}/`)).text();
+      expect(body).not.toContain("__AGENT_CANVAS_DCK_WORKSPACE_ROOT__");
     });
   });
 

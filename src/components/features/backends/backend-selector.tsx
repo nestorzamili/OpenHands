@@ -80,6 +80,9 @@ function buildOptions(
 
   const locals = registered.filter((b) => b.kind === "local");
   const clouds = registered.filter((b) => b.kind === "cloud");
+  // With a single backend (e.g. a Canvas locked to one cloud) the backend
+  // name tells the rows nothing, so give the org name the full width.
+  const showBackendName = registered.length > 1;
 
   for (const b of locals) {
     options.push({
@@ -110,7 +113,7 @@ function buildOptions(
         const orgLabel = isPersonal ? personalWorkspaceLabel : org.name;
         options.push({
           value: makeOptionValue(b.id, org.id),
-          label: `${b.name} – ${orgLabel}`,
+          label: showBackendName ? `${b.name} – ${orgLabel}` : orgLabel,
           // All org rows for the same cloud backend share that backend's
           // single connectivity verdict — there is no per-org probe.
           prefix,
@@ -398,7 +401,9 @@ export function BackendSelector({
               void handleSelectBackend(item.value);
             }}
             placeholder={
-              noBackendSelected ? noBackendLabel : active.backend.name
+              noBackendSelected
+                ? noBackendLabel
+                : (activeOption?.label ?? active.backend.name)
             }
             loading={someCloudLoading}
             options={options}

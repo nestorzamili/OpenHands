@@ -102,7 +102,7 @@ const appBuildConfig = {
   },
 };
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ mode, command }) => {
   const {
     VITE_BACKEND_HOST = "127.0.0.1:8000",
     VITE_USE_TLS = "false",
@@ -110,6 +110,9 @@ export default defineConfig(({ mode }) => {
     VITE_BIND_HOST = "127.0.0.1",
     VITE_INSECURE_SKIP_VERIFY = "false",
     VITE_BASE_PATH,
+    VITE_DCK_WORKSPACE_ROOT = command === "serve"
+      ? resolve(process.cwd(), "workspace")
+      : "/projects",
     VITE_VSCODE_BASE_PATH,
     VITE_VSCODE_TARGET,
   } = loadEnv(mode, process.cwd());
@@ -133,6 +136,9 @@ export default defineConfig(({ mode }) => {
       // "public" when the value is falsy.
       __EXTENSIONS_SKILLS_DIR__: JSON.stringify(
         isLibraryBuild ? "" : EXTENSIONS_SKILLS_DIR,
+      ),
+      "import.meta.env.VITE_DCK_WORKSPACE_ROOT": JSON.stringify(
+        VITE_DCK_WORKSPACE_ROOT,
       ),
     },
     plugins: [

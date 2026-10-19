@@ -37,11 +37,6 @@ function getFileClient(): FileClient {
   return new FileClient(getAgentServerClientOptions());
 }
 
-function configDir(): string {
-  const [dir] = DCK_MODULES_CONFIG_FILENAME.split("/");
-  return `${getDckWorkspaceRoot()}/${dir}`;
-}
-
 function configFileName(): string {
   const parts = DCK_MODULES_CONFIG_FILENAME.split("/");
   return parts[parts.length - 1];
@@ -95,7 +90,7 @@ export async function writeDckModulesConfig(
 ): Promise<void> {
   await fileClient.uploadTextFile(
     serializeDckModulesConfig(config.modules, config.builtinOverrides),
-    configDir(),
+    configPath(),
     configFileName(),
   );
 }

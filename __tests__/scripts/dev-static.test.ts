@@ -46,12 +46,22 @@ describe("dev-static", () => {
 
   it("keeps reusable frontend builds free of session credentials", () => {
     const env = buildFrontendEnv(
-      { viteWorkingDir: "/tmp/workspace" },
+      { canvasPath: "/repo/OpenHands", viteWorkingDir: "/tmp/workspace" },
       { VITE_SESSION_API_KEY: "inherited-secret" },
     );
 
     expect(env.VITE_SESSION_API_KEY).toBe("");
     expect(env.VITE_WORKING_DIR).toBe("/tmp/workspace");
+    expect(env.VITE_DCK_WORKSPACE_ROOT).toBe("/repo/OpenHands/workspace");
+  });
+
+  it("preserves an explicit DCK workspace root for local static builds", () => {
+    const env = buildFrontendEnv(
+      { canvasPath: "/repo/OpenHands" },
+      { VITE_DCK_WORKSPACE_ROOT: "/custom/workspace" },
+    );
+
+    expect(env.VITE_DCK_WORKSPACE_ROOT).toBe("/custom/workspace");
   });
 
   it("points every local proxy route at the IPv4 loopback", () => {

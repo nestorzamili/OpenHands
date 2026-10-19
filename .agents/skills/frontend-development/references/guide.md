@@ -4,6 +4,15 @@ DCK scaffold conversations use the individual project workspace. Conversation ro
 
 WebGen table status, links, and lifecycle metadata come only from the host runtime API. Show links only while running; starting, stopped, error, and unknown states have no active link. Preview is `/preview/<slug>` on the Canvas origin. Deploy does not ask for a domain; only Publish selects a subdomain. One deployment has one active mode and link. Show the full URL and a compact status badge in the WebGen table; keep lifecycle actions and project chat in the accessible three-dot menu. Project chat remains available when runtime metadata is unavailable, and uses the same workspace-scoped open behavior as the project name. Do not restore local-port links, metadata fallbacks, or chat-driven lifecycle commands.
 
+## Raw-color class-map scanning
+
+`shadcn/no-raw-colors` stays at warning severity. The audited component paths in
+`eslint.config.js` also enable `scanAllStrings` so literal class recipes remain
+visible when dynamic map or helper lookups hide them from class-site analysis.
+Keep this adoption scoped: scanning every string can mistake program tags for
+color utilities. Review newly included findings before extending the file list;
+the shared exact legacy-token exceptions remain unchanged.
+
 ## Inline-style rollout
 
 `shadcn/no-inline-styles` runs at warning severity across source, including UI

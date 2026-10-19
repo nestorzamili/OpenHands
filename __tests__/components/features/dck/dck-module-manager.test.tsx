@@ -407,8 +407,8 @@ describe("DckModuleManager", () => {
     await user.click(screen.getByTestId("dck-module-form-save"));
 
     await waitFor(() => expect(uploadTextFileMock).toHaveBeenCalledTimes(1));
-    const [text, dir, fileName] = uploadTextFileMock.mock.calls[0];
-    expect(dir).toBe("/projects/.dck");
+    const [text, destinationPath, fileName] = uploadTextFileMock.mock.calls[0];
+    expect(destinationPath).toBe("/projects/.dck/modules.json");
     expect(fileName).toBe("modules.json");
     expect(JSON.parse(text).modules[0]).toMatchObject({
       name: "Reports",

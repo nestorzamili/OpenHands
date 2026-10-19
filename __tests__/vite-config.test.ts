@@ -11,6 +11,31 @@ afterEach(() => {
   delete process.env.BUILD_LIB;
 });
 
+describe("DCK workspace build configuration", () => {
+  it.each([
+    ["development", "serve", resolve(process.cwd(), "workspace")],
+    ["production", "build", "/projects"],
+  ] as const)(
+    "injects the expected default DCK workspace for %s %s when no override is set",
+    async (mode, command, expectedRoot) => {
+      delete process.env.VITE_DCK_WORKSPACE_ROOT;
+      const config = await viteConfig({ mode, command });
+      expect(config.define?.["import.meta.env.VITE_DCK_WORKSPACE_ROOT"]).toBe(
+        JSON.stringify(expectedRoot),
+      );
+    },
+  );
+
+  it("preserves an explicit workspace-root override", async () => {
+    process.env.VITE_DCK_WORKSPACE_ROOT = "/srv/agent-workspace";
+    const config = await viteConfig({ mode: "production", command: "build" });
+    expect(config.define?.["import.meta.env.VITE_DCK_WORKSPACE_ROOT"]).toBe(
+      JSON.stringify("/srv/agent-workspace"),
+    );
+    delete process.env.VITE_DCK_WORKSPACE_ROOT;
+  });
+});
+
 describe("vite optimizeDeps", () => {
   it("prebundles core client entry dependencies", async () => {
     const config = await viteConfig({ mode: "development", command: "serve" });

@@ -357,6 +357,7 @@ function defaults() {
 }
 
 function availableMemoryBytes() {
+  if (process.platform === "darwin") return process.availableMemory();
   // MemAvailable counts reclaimable cache; os.freemem() alone understates it.
   try {
     const line = readFileSync("/proc/meminfo", "utf8").match(

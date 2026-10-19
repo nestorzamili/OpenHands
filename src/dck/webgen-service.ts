@@ -1,5 +1,8 @@
 import { AgentServerClient } from "@openhands/typescript-client/clients";
-import { getAgentServerClientOptions } from "#/api/agent-server-client-options";
+import {
+  getAgentServerClientOptions,
+  type AgentServerClientOverrides,
+} from "#/api/agent-server-client-options";
 import { isSdkHttpStatusError } from "#/api/agent-server-compatibility";
 import i18n from "#/i18n";
 import { I18nKey } from "#/i18n/declaration";
@@ -112,12 +115,16 @@ function statusFromError(error: unknown): number | null {
   return null;
 }
 
-function getClient(timeout = 60_000) {
-  return new AgentServerClient(getAgentServerClientOptions({ timeout }));
+function getClient(timeout = 60_000, backend: AgentServerClientOverrides = {}) {
+  return new AgentServerClient(
+    getAgentServerClientOptions({ ...backend, timeout }),
+  );
 }
 
-export async function fetchWebgenProjects(): Promise<WebgenProjectsResponse> {
-  const client = getClient();
+export async function fetchWebgenProjects(
+  backend?: AgentServerClientOverrides,
+): Promise<WebgenProjectsResponse> {
+  const client = getClient(60_000, backend);
   try {
     return await client.get<WebgenProjectsResponse>("/api/webgen/projects");
   } catch (error) {
@@ -130,8 +137,9 @@ export async function fetchWebgenProjects(): Promise<WebgenProjectsResponse> {
 export async function runWebgenLifecycleAction(
   projectSlug: string,
   request: WebgenLifecycleRequest,
+  backend?: AgentServerClientOverrides,
 ): Promise<WebgenLifecycleResponse> {
-  const client = getClient(45 * 60 * 1000);
+  const client = getClient(45 * 60 * 1000, backend);
   try {
     return await client.post<WebgenLifecycleResponse>(
       `/api/webgen/projects/${encodeURIComponent(projectSlug)}/actions`,

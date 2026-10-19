@@ -57,6 +57,7 @@ const socketCapture = vi.hoisted(() => ({
   readConversationFile: vi.fn(),
   trackError: vi.fn(),
   launchChild: vi.fn(),
+  webgenLifecycle: vi.fn(),
 }));
 
 const historyCapture = vi.hoisted(() => ({
@@ -108,6 +109,11 @@ vi.mock("#/hooks/mutation/use-read-conversation-file", () => ({
 vi.mock("#/services/child-conversation-launch", () => ({
   handleLaunchChildConversationAction: (...args: unknown[]) =>
     socketCapture.launchChild(...args),
+}));
+
+vi.mock("#/services/webgen-lifecycle-tool", () => ({
+  handleWebgenLifecycleAction: (...args: unknown[]) =>
+    socketCapture.webgenLifecycle(...args),
 }));
 
 vi.mock("#/utils/error-handler", () => ({
@@ -339,6 +345,25 @@ function dispatchPlanning(event: unknown) {
 }
 
 describe("Conversation websocket behavior", () => {
+  it("routes a lifecycle event to the current conversation and ignores replay", async () => {
+    renderProvider();
+    const event = makeActionEvent(
+      "webgen-action",
+      { kind: "ClientAction_webgen_lifecycle", action: "restart" },
+      "webgen_lifecycle",
+    );
+    dispatchMain(event);
+    dispatchMain(event);
+    await waitFor(() =>
+      expect(socketCapture.webgenLifecycle).toHaveBeenCalledTimes(1),
+    );
+    expect(socketCapture.webgenLifecycle).toHaveBeenCalledWith(
+      { kind: "ClientAction_webgen_lifecycle", action: "restart" },
+      "conv-main",
+      "call-webgen-action",
+    );
+  });
+
   beforeEach(() => {
     socketCapture.callIndex = 0;
     socketCapture.mainUrl = "";
@@ -356,6 +381,7 @@ describe("Conversation websocket behavior", () => {
     socketCapture.readConversationFile.mockReset();
     socketCapture.trackError.mockReset();
     socketCapture.launchChild.mockReset().mockResolvedValue(undefined);
+    socketCapture.webgenLifecycle.mockReset().mockResolvedValue(undefined);
     nextSeq = 0;
     historyCapture.result = {
       data: { events: [] },

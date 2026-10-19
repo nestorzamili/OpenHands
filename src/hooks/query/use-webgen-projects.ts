@@ -15,7 +15,7 @@ export function useWebgenProjects(enabled = true) {
 
   return useQuery({
     queryKey,
-    queryFn: fetchWebgenProjects,
+    queryFn: () => fetchWebgenProjects(),
     enabled: enabled && active.backend.kind !== "cloud",
     retry: false,
     staleTime: 0,

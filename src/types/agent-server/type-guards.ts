@@ -5,6 +5,7 @@ import {
 } from "#/constants/canvas-ui";
 import { LAUNCH_CHILD_CONVERSATION_TOOL_NAME } from "#/constants/child-conversation";
 import { REQUEST_SECRET_TOOL_NAME } from "#/constants/secret-request";
+import { WEBGEN_LIFECYCLE_TOOL_NAME } from "#/constants/webgen-lifecycle";
 
 import {
   OpenHandsEvent,
@@ -339,3 +340,9 @@ export const isCondensationEvent = (
 export function isAgentServerEvent(event: unknown): event is OpenHandsEvent {
   return isBaseEvent(event);
 }
+
+/** Recognizes WebGen lifecycle client tool action events. */
+export const isWebgenLifecycleActionEvent = (
+  event: OpenHandsEvent,
+): event is ActionEvent =>
+  isActionEvent(event) && event.tool_name === WEBGEN_LIFECYCLE_TOOL_NAME;

@@ -202,16 +202,59 @@ user-provided `DATABASE_URL` values are not adopted or migrated; stop for
 operator review rather than weakening ownership checks. Existing custom URLs
 are preserved; do not silently replace them or provision a second database.
 
-## 6. Lifecycle through the WebGen controls
+## 6. Autonomous lifecycle through real capabilities
 
-Scaffolding and code changes do not deploy. The operator uses **Deploy preview**
-for the first preview deployment; that action disappears once a preview or
-published deployment exists. **Rebuild** remains available for existing
-deployments, while **Start** is shown for stopped deployments. Publish is hidden
-for already-published projects; Unpublish is shown instead. The remaining typed
-actions are Restart, Stop, Publish, Unpublish, and Delete. The host control service runs Docker, validates readiness, owns nginx
-routes, and writes deployment metadata. Canvas does not mount the Docker
-socket. Do not ask for that socket or write host nginx configuration from chat.
+Treat a user's deploy/start/restart/run/test request in chat as authorization
+to act on the current project. Do not refuse because the request came through
+chat, ask again for already-granted internal Docker permission, or tell the
+user to click Deploy/Start when a callable route is available. Scaffolding and
+ordinary code edits alone still do not authorize deployment or publication.
+
+1. Resolve the current conversation's project workspace. Work only on that
+   project; never infer a different project from a familiar slug or probe an
+   unrelated application's database/container.
+2. Prefer the authenticated `webgen_lifecycle` client tool when offered. It
+   executes through the signed-in Canvas session and the host WebGen control
+   service; it is not a UI-click instruction. Use live status first, then the
+   requested action. For an unqualified request to run, deploy preview if no
+   deployment exists, start a stopped deployment, and verify a running one.
+   Rebuild when requested to run changed source; restart only when requested.
+   Keep the authenticated Canvas client connected while its client tool runs.
+3. Let the host controller own runtime-secret injection, owner bootstrap,
+   migrations, readiness, deployment metadata, and nginx. Never call secret
+   value endpoints or extract Environment values to make an alternate route
+   work. Keep Start/Rebuild/Restart in the existing publication mode; Publish
+   requires an explicit publication request and subdomain.
+4. If the controller/tool is unavailable, check the execution runtime rather
+   than declaring Docker forbidden. Trusted internal production agents are
+   configured with a read-write Docker socket, Docker CLI, and the deployment
+   host's socket GID. Verify CLI/daemon access in the actual tool runtime (for
+   example `docker version`); a source commit or host-only probe is not proof.
+   In a temporary non-container dev runtime, if direct access fails and the
+   existing internal authorization and passwordless sudo are available, verify
+   `sudo -n docker version` before declaring Docker unavailable. Do not prompt
+   again for the same permission, make the socket world-writable, or expose it
+   over TCP. This dev fallback says nothing about production deployment status.
+   Use an available Docker route for isolated project build/test commands,
+   without installing dependencies or running bare app processes on the host.
+   Do not substitute raw Compose for controller-managed Environment injection,
+   migrations, publication, or routing. Do not inspect container environments.
+5. If neither a suitable authenticated controller nor Docker route works,
+   state the exact missing capability (missing tool, controller unreachable,
+   authentication failure, missing CLI, or socket permission denied). Report
+   dev-preview and production status separately. Fix the runtime/deploy path
+   when accessible under the existing authorization; otherwise report the
+   access blocker, not a policy prohibition or an invented running preview.
+6. For test requests, actually run the project's relevant tests/build in an
+   isolated container when available and report their results. A status or
+   readiness check is not a test-suite run. Never use live production data or
+   unrelated containers as fixtures.
+
+The same typed lifecycle actions remain available from the WebGen controls:
+Deploy preview for first deployment, Rebuild for existing source changes,
+Start for stopped deployments, Restart, Stop, Publish, Unpublish, and Delete.
+Keep destructive Delete in the explicit UI backup/recovery workflow. Do not
+write host nginx configuration from chat.
 
 Deploy preview serves an unpublished project at the Canvas origin under
 `/preview/<app>`. Rebuild/Start/Restart retain an existing publication.

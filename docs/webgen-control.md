@@ -2,6 +2,33 @@
 
 A root-run, host-side internal HTTP service for the DCK WebGen lifecycle. It uses Python stdlib HTTP/subprocess/urllib, pinned `cryptography` for AES-GCM encryption, and pinned PyYAML to reject unsafe Compose features. It is reached through the authenticated parent Canvas proxy; it has no CORS support and binds only to the private Docker host gateway (`WEBGEN_BIND_HOST`, default `172.17.0.1`), never a public interface.
 
+## Agent-requested lifecycle
+
+Chat is an authorized lifecycle entry point when the user requests it. The
+`webgen_lifecycle` client tool uses the connected, authenticated Canvas client
+to call the same typed WebGen service as the controls. Scope the operation to
+the conversation's project workspace; do not accept arbitrary project paths or
+return app Environment values. A run request checks live state and selects
+Deploy preview for an undeployed app, Start for a stopped deployment, or status
+verification for an already running app. Rebuild and Restart remain explicit
+actions, and destructive Delete stays in the existing UI recovery flow.
+
+Client-tool registration is part of conversation creation. Existing persisted
+conversations do not automatically gain a newly shipped tool or refreshed
+system context; this Agent Server contract has no additive live tool-update
+endpoint. Start a new project conversation to use the new schema. Do not
+rewrite conversation records or claim that reloading the frontend migrates
+an existing agent's tools.
+
+The browser must remain connected for client-tool execution. A missing host
+controller or proxy route must return an unavailable capability, not an
+instruction to click the same unavailable UI action. Temporary non-Docker dev
+previews do not establish production Docker access. Trusted production Docker
+access is independently configured and checked by the deployment script; see
+[deployment](DEPLOYMENT.md#trusted-internal-docker-access). Docker-only isolated
+build/test work must not bypass host-controlled Environment injection or read
+secret container environments. Status/readiness is not a test-suite result.
+
 ## Run and test
 
 ```sh

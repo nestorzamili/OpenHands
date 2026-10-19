@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CANVAS_UI_CLIENT_TOOL_NAME } from "#/constants/canvas-ui";
 import { LAUNCH_CHILD_CONVERSATION_TOOL_NAME } from "#/constants/child-conversation";
 import { REQUEST_SECRET_TOOL_NAME } from "#/constants/secret-request";
+import { WEBGEN_LIFECYCLE_TOOL_NAME } from "#/constants/webgen-lifecycle";
 import { DEFAULT_SETTINGS } from "#/services/settings";
 import type { Settings } from "#/types/settings";
 import {
@@ -748,6 +749,7 @@ describe("buildStartConversationRequest — agentProfileId path", () => {
       CANVAS_UI_CLIENT_TOOL_NAME,
       LAUNCH_CHILD_CONVERSATION_TOOL_NAME,
       REQUEST_SECRET_TOOL_NAME,
+      WEBGEN_LIFECYCLE_TOOL_NAME,
     ]);
   });
 

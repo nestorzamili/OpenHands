@@ -43,6 +43,7 @@ import {
   isAutomationFormUpdateActionEvent,
   isLaunchChildConversationActionEvent,
   isRequestSecretActionEvent,
+  isWebgenLifecycleActionEvent,
 } from "#/types/agent-server/type-guards";
 import {
   asSessionFrame,
@@ -53,6 +54,7 @@ import {
   StreamingDeltaBatcher,
 } from "#/utils/streaming-delta-batcher";
 import { handleCanvasUIAction } from "#/services/canvas-ui";
+import { handleWebgenLifecycleAction } from "#/services/webgen-lifecycle-tool";
 import { handleAutomationFormUpdateAction } from "#/services/automation-form";
 import { handleLaunchChildConversationAction } from "#/services/child-conversation-launch";
 import { handleRequestSecretAction } from "#/services/secret-request";
@@ -890,6 +892,13 @@ export function ConversationWebSocketProvider({
             );
           }
 
+          if (conversationId && isWebgenLifecycleActionEvent(event)) {
+            void handleWebgenLifecycleAction(
+              event.action,
+              conversationId,
+              event.tool_call_id,
+            );
+          }
           // Same pattern again: the user answers in a chat card, and the
           // outcome is posted back once they save or cancel it.
           if (conversationId && isRequestSecretActionEvent(event)) {

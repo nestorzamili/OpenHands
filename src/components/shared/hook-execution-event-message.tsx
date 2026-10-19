@@ -48,9 +48,9 @@ function getStatusText(blocked: boolean, success: boolean): string {
 }
 
 function getStatusClassName(blocked: boolean, success: boolean): string {
-  if (blocked) return "bg-amber-900/50 text-warning";
-  if (success) return "bg-green-900/50 text-status-success";
-  return "bg-red-900/50 text-status-error";
+  if (blocked) return "bg-feedback-warning/10 text-feedback-warning";
+  if (success) return "bg-feedback-success/10 text-feedback-success";
+  return "bg-feedback-error/10 text-feedback-error";
 }
 
 export function HookExecutionEventMessage({
@@ -104,7 +104,7 @@ export function HookExecutionEventMessage({
       )}
 
       {event.blocked && event.reason && (
-        <div className="text-warning">
+        <div className="text-feedback-warning">
           <span className="text-text-subtle">
             {t(I18nKey.HOOK$BLOCKED_REASON)}:
           </span>{" "}
@@ -120,7 +120,7 @@ export function HookExecutionEventMessage({
       )}
 
       {event.error && (
-        <div className="text-status-error">
+        <div className="text-feedback-error">
           <span className="text-text-subtle">{t(I18nKey.HOOK$ERROR)}:</span>{" "}
           {event.error}
         </div>
@@ -138,7 +138,7 @@ export function HookExecutionEventMessage({
       {event.stderr && (
         <div>
           <span className="text-text-subtle">{t(I18nKey.HOOK$STDERR)}:</span>
-          <pre className="text-xs bg-surface p-2 rounded mt-1 overflow-x-auto max-h-40 overflow-y-auto text-warning">
+          <pre className="text-xs bg-surface p-2 rounded mt-1 overflow-x-auto max-h-40 overflow-y-auto text-feedback-warning">
             {event.stderr}
           </pre>
         </div>

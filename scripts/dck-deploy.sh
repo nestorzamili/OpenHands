@@ -36,6 +36,20 @@ write_env_value() {
 command -v docker >/dev/null 2>&1 || die "docker not found"
 docker compose version >/dev/null 2>&1 || die "docker compose v2 not available"
 
+# Inspect the deployment host, not CI/Sandbox. Grant access through its group.
+DOCKER_SOCKET_PATH="${DOCKER_SOCKET_PATH:-/var/run/docker.sock}"
+[[ "$DOCKER_SOCKET_PATH" = /* ]] || die "Docker socket path must be absolute"
+[ -S "$DOCKER_SOCKET_PATH" ] || die "Docker socket not found: $DOCKER_SOCKET_PATH"
+DOCKER_SOCKET_GID="$(stat -c '%g' "$DOCKER_SOCKET_PATH")"
+[[ "$DOCKER_SOCKET_GID" =~ ^[0-9]+$ ]] || die "invalid Docker socket GID"
+SOCKET_MODE="$(stat -c '%a' "$DOCKER_SOCKET_PATH")"
+[[ "$SOCKET_MODE" =~ ^[0-7]{3,4}$ ]] || die "invalid Docker socket permissions"
+if (( (8#$SOCKET_MODE & 0060) != 0060 )); then
+  chmod g+rw "$DOCKER_SOCKET_PATH" || die "cannot grant Docker socket group read/write"
+  SOCKET_MODE="$(stat -c '%a' "$DOCKER_SOCKET_PATH")"
+  (( (8#$SOCKET_MODE & 0060) == 0060 )) || die "Docker socket group read/write verification failed"
+fi
+
 mkdir -p "$TARGET_DIR"/{config,workspace,pgdata}
 WEBGEN_STATE_DIR="${WEBGEN_STATE_DIR:-/var/lib/dck-webgen-control}"
 WEBGEN_KEY="$WEBGEN_STATE_DIR/webgen-control.key"
@@ -108,6 +122,8 @@ fi
 WEBGEN_GATEWAY="$(docker network inspect bridge --format '{{range .IPAM.Config}}{{.Gateway}}{{end}}' 2>/dev/null | head -n1)"
 [[ "$WEBGEN_GATEWAY" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || die "cannot determine Docker's private bridge gateway"
 write_env_value WEBGEN_CONTROL_HOST_IP "$WEBGEN_GATEWAY"
+write_env_value DOCKER_SOCKET_PATH "$DOCKER_SOCKET_PATH"
+write_env_value DOCKER_SOCKET_GID "$DOCKER_SOCKET_GID"
 
 chmod 600 "$ENV_FILE"
 
@@ -198,6 +214,15 @@ for _ in $(seq 1 40); do
   esac
   sleep 3
 done
+
+# Run as the image's normal non-root user, not a root docker-exec override.
+# Local agent/ACP terminal processes inherit this same UID and supplementary GID.
+if [ "$ok" = "1" ]; then
+  if ! docker compose exec -T canvas docker version || ! docker compose exec -T canvas docker ps; then
+    log "agent runtime Docker access verification failed"
+    ok=0
+  fi
+fi
 
 if [ "$ok" != "1" ]; then
   log "HEALTH CHECK FAILED (canvas=$code, container-to-WebGen=$webgen_ok) — rolling back to $PREV_TAG"

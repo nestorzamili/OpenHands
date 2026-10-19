@@ -21,8 +21,10 @@ services:
     image: ${CANVAS_IMAGE:-ghcr.io/dck-ai/dck-agentic}:${CANVAS_IMAGE_TAG:-latest}
     container_name: dck-agentic-canvas
     restart: unless-stopped
-    # WebGen lifecycle is handled by a host-side typed control service; Canvas
-    # never receives the root-equivalent Docker socket.
+    # Internal trusted deployment: agents have root-equivalent host Docker access.
+    # Discover this numeric GID on the deployment host, never on the build runner.
+    group_add:
+      - "${DOCKER_SOCKET_GID:?Run dck-deploy.sh to discover the host socket GID}"
     ports:
       # Published to host loopback only. Host port 8000 is taken by another
       # service on this VM, so DCK ingress uses 8010. nginx terminates TLS
@@ -32,7 +34,17 @@ services:
     volumes:
       - ./config:/home/openhands/.openhands
       - ./workspace:/projects
+      - type: bind
+        source: ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}
+        target: /var/run/docker.sock
+        read_only: false
+        bind:
+          create_host_path: false
     environment:
+      # Pin the deployed execution layer: local conversation tools and ACP
+      # subprocesses run inside Canvas and inherit its supplementary socket GID.
+      - OH_CONVERSATION_RUNTIME=local
+      - DOCKER_HOST=unix:///var/run/docker.sock
       - AGENT_CANVAS_DISABLE_TELEMETRY=1
       - MARS_WEB=0
       # Canvas at the root path (image is built with VITE_BASE_PATH=/, this

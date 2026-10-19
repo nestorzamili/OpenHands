@@ -207,8 +207,36 @@ the Canvas `config` bind mount. Only during an explicit lifecycle action are
 values placed in a temporary mode-`0600` file under volatile, root-only
 `/run/dck-webgen-control` and attached to the app service (not the image build).
 Project `.env` files retain safe non-secret configuration and contain no
-recognized secret entries. The Canvas container never receives or mounts
-`/var/run/docker.sock`; do not expose port `8769` publicly.
+recognized secret entries. Do not expose port `8769` publicly.
+
+### Trusted internal Docker access
+
+This deployment deliberately gives trusted agents **root-equivalent access to
+the production host** through a read-write `/var/run/docker.sock` bind mount.
+The WebGen controller remains in place, but its project policies are not a
+security boundary against agents with this socket access. Portal access must
+remain restricted to trusted users; do not use this setup for untrusted agents.
+
+The production Compose service explicitly uses `OH_CONVERSATION_RUNTIME=local`:
+OpenHands tools, ACP subprocesses, and the local terminal execute inside Canvas.
+The image includes Docker CLI and remains the non-root `openhands` user.
+`dck-deploy.sh` reads the socket's numeric GID from the **deployment host** on
+every deployment and saves it as `DOCKER_SOCKET_GID` in the existing `.env`.
+Compose adds that supplementary group, without privileged mode, world-writable
+permissions, or a Docker TCP listener. `DOCKER_SOCKET_PATH` defaults to
+`/var/run/docker.sock`; deployment refuses a missing/non-socket path and repairs
+missing group read/write with `chmod g+rw` only, without adding other-user access.
+No Sandbox/CI GID is copied to production. For manual Compose use, populate the GID on that host:
+`export DOCKER_SOCKET_GID="$(stat -c '%g' /var/run/docker.sock)"`.
+
+Deploy through the existing manual **DCK Docker → build and deploy** workflow
+on `dev`; it requires repository secrets `VM_SSH_TARGET` and `VM_SSH_KEY`.
+The deploy script checks `docker version` and read-only `docker ps` as Canvas's
+normal user and rejects a failed probe. After rollout, run both commands again
+from the deployed agent's own terminal before declaring agent access live.
+Do not switch this stack to per-conversation Docker runtime: a child runtime
+would need its own explicit socket/group/CLI configuration in the owning SDK;
+mounting only the parent does not propagate Docker access into child containers.
 
 If WebGen shows `Unknown` while host-side checks pass, check the container path:
 `docker compose exec -T canvas python -c 'import urllib.request; print(urllib.request.urlopen("http://webgen-control.internal:8769/healthz", timeout=5).status)'`.

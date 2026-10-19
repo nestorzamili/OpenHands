@@ -119,8 +119,13 @@ RUN if command -v apt-get >/dev/null 2>&1; then \
         > /etc/apt/sources.list.d/debian.sources && \
       apt-get update && \
       apt-get upgrade -y --no-install-recommends && \
+      apt-get install -y --no-install-recommends docker-cli && \
       rm -rf /var/lib/apt/lists/*; \
     fi
+
+# Only a client is needed: the trusted deployment mounts the host socket.
+# Fail the build rather than shipping an agent terminal without Docker CLI.
+RUN docker --version
 
 # Install automation server and the tool models its SDK clients deserialize.
 # Match openhands-tools to the SDK already provided by the agent-server image,

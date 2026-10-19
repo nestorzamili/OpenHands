@@ -27,6 +27,13 @@ async function createFixture() {
   const stage = path.join(root, "stage");
   const target = path.join(root, "target");
   const bin = path.join(root, "bin");
+  const dockerSocketPath = path.join(root, "docker.sock");
+  await execFileAsync("python3", [
+    "-c",
+    "import socket, sys; s = socket.socket(socket.AF_UNIX); s.bind(sys.argv[1]); s.close()",
+    dockerSocketPath,
+  ]);
+  await chmod(dockerSocketPath, 0o660);
   await Promise.all([
     mkdir(path.join(stage, "scripts"), { recursive: true }),
     mkdir(path.join(stage, "workspace", ".agents"), { recursive: true }),
@@ -68,6 +75,7 @@ async function createFixture() {
     `#!/usr/bin/env bash
 set -e
 printf '%s\\n' "$*" >> "${root}/docker.log"
+if [[ "$1 $2 $3 $4 $5" == "compose exec -T canvas docker" ]]; then exit "\${DOCKER_CLI_PROBE_EXIT:-0}"; fi
 if [[ "$1 $2 $3" == "compose exec -T" ]]; then exit "\${WEBGEN_PROBE_EXIT:-0}"; fi
 if [[ "$1 $2" == "compose version" ]]; then exit 0; fi
 if [[ "$1 $2" == "compose pull" ]]; then exit 0; fi
@@ -132,6 +140,7 @@ exit 0
     `#!/usr/bin/env bash
 if [[ "$1" == "-c" && "$2" == "%a:%u" && "$3" == "$WEBGEN_STATE_DIR/webgen-control.key" ]]; then echo 600:0; exit 0; fi
 if [[ "$1" == "-c" && "$2" == "%s" && "$3" == "$WEBGEN_STATE_DIR/webgen-control.key" ]]; then wc -c < "$3"; exit 0; fi
+if [[ "$1" == "-c" && "$2" == "%g" && "$3" == "$DOCKER_SOCKET_PATH" ]]; then echo "\${TEST_SOCKET_GID:-23456}"; exit 0; fi
 exec /usr/bin/stat "$@"
 `,
   );
@@ -163,7 +172,7 @@ exit 2
       "sleep",
     ].map((name) => chmod(path.join(bin, name), 0o755)),
   );
-  return { root, stage, target, bin };
+  return { root, stage, target, bin, dockerSocketPath };
 }
 
 async function readEnv(file: string) {
@@ -188,7 +197,8 @@ afterEach(async () => {
 
 describe("DCK production deploy bootstrap", () => {
   it("installs the private WebGen service without chowning the project workspace recursively", async () => {
-    const { stage, target, bin, root } = await createFixture();
+    const { stage, target, bin, root, dockerSocketPath } =
+      await createFixture();
     await mkdir(path.join(target, "config"), { recursive: true });
     const legacyKey = Buffer.alloc(32, 23);
     await writeFile(
@@ -218,6 +228,7 @@ describe("DCK production deploy bootstrap", () => {
           ...process.env,
           PATH: `${bin}:${process.env.PATH}`,
           TARGET_DIR: target,
+          DOCKER_SOCKET_PATH: dockerSocketPath,
           WEBGEN_STATE_DIR: path.join(root, "webgen-state"),
           CHOWN_LOG: chownLog,
           UFW_STATE: "active",
@@ -231,7 +242,12 @@ describe("DCK production deploy bootstrap", () => {
     expect(await readFile(path.join(root, "docker.log"), "utf8")).toContain(
       "compose exec -T canvas python",
     );
+    const dockerLog = await readFile(path.join(root, "docker.log"), "utf8");
+    expect(dockerLog).toContain("compose exec -T canvas docker version");
+    expect(dockerLog).toContain("compose exec -T canvas docker ps");
     const env = await readEnv(path.join(target, ".env"));
+    expect(env.DOCKER_SOCKET_PATH).toBe(dockerSocketPath);
+    expect(env.DOCKER_SOCKET_GID).toBe("23456");
     expect(env.CANVAS_IMAGE).toBe("ghcr.io/example/dck-agentic");
     expect(env.WEBGEN_CONTROL_HOST_IP).toBe("172.17.0.1");
     expect(env.POSTGRES_PASSWORD).toMatch(/^[A-Za-z0-9]{32}$/);
@@ -271,9 +287,11 @@ describe("DCK production deploy bootstrap", () => {
           ...process.env,
           PATH: `${bin}:${process.env.PATH}`,
           TARGET_DIR: target,
+          DOCKER_SOCKET_PATH: dockerSocketPath,
           WEBGEN_STATE_DIR: path.join(root, "webgen-state"),
           CHOWN_LOG: chownLog,
           UFW_STATE: "active",
+          TEST_SOCKET_GID: "34567",
         },
       },
     );
@@ -282,6 +300,7 @@ describe("DCK production deploy bootstrap", () => {
     expect(redeployedEnv.CANVAS_IMAGE).toBe("ghcr.io/example/custom-dck");
     expect(redeployedEnv.CANVAS_IMAGE_TAG).toBe("sha-next");
     expect(redeployedEnv.WEBGEN_CONTROL_HOST_IP).toBe("172.17.0.1");
+    expect(redeployedEnv.DOCKER_SOCKET_GID).toBe("34567");
     const chownCommands = await readFile(chownLog, "utf8");
     expect(chownCommands).toContain(`${target}/workspace/.agents`);
     expect(chownCommands).not.toMatch(/-R [^\n]*\/workspace(?:\s|$)/);
@@ -289,7 +308,7 @@ describe("DCK production deploy bootstrap", () => {
 });
 
 it("stops before Canvas config ownership changes when legacy and private keys conflict", async () => {
-  const { stage, target, bin, root } = await createFixture();
+  const { stage, target, bin, root, dockerSocketPath } = await createFixture();
   const state = path.join(root, "webgen-state");
   const config = path.join(target, "config");
   await Promise.all([
@@ -306,12 +325,18 @@ it("stops before Canvas config ownership changes when legacy and private keys co
   await expect(
     execFileAsync(
       "bash",
-      [path.join(repositoryRoot, "scripts/dck-deploy.sh"), "sha-test", stage],
+      [
+        path.join(repositoryRoot, "scripts/dck-deploy.sh"),
+        "sha-test",
+        stage,
+        "ghcr.io/example/dck-agentic",
+      ],
       {
         env: {
           ...process.env,
           PATH: `${bin}:${process.env.PATH}`,
           TARGET_DIR: target,
+          DOCKER_SOCKET_PATH: dockerSocketPath,
           WEBGEN_STATE_DIR: state,
           CHOWN_LOG: path.join(root, "chown.log"),
         },
@@ -330,7 +355,7 @@ it("stops before Canvas config ownership changes when legacy and private keys co
 });
 
 it("rolls back when Canvas cannot reach WebGen even though host health checks pass", async () => {
-  const { stage, target, bin, root } = await createFixture();
+  const { stage, target, bin, root, dockerSocketPath } = await createFixture();
   await mkdir(target, { recursive: true });
   await writeFile(
     path.join(target, ".env"),
@@ -345,6 +370,7 @@ it("rolls back when Canvas cannot reach WebGen even though host health checks pa
           ...process.env,
           PATH: `${bin}:${process.env.PATH}`,
           TARGET_DIR: target,
+          DOCKER_SOCKET_PATH: dockerSocketPath,
           WEBGEN_STATE_DIR: path.join(root, "webgen-state"),
           CHOWN_LOG: path.join(root, "chown.log"),
           UFW_STATE: "inactive",
@@ -358,5 +384,117 @@ it("rolls back when Canvas cannot reach WebGen even though host health checks pa
   );
   expect(await readFile(path.join(root, "ufw.log"), "utf8")).not.toContain(
     "allow",
+  );
+});
+
+describe("Docker socket prerequisite", () => {
+  it.each(["missing", "regular-file"])(
+    "rejects a %s socket before creating the target",
+    async (invalidSocket) => {
+      const { stage, target, bin, root, dockerSocketPath } =
+        await createFixture();
+      let configuredSocket = dockerSocketPath;
+      if (invalidSocket === "missing") {
+        configuredSocket = path.join(root, "missing.sock");
+      } else if (invalidSocket === "regular-file") {
+        await rm(dockerSocketPath);
+        await writeFile(dockerSocketPath, "not a socket");
+      }
+
+      await expect(
+        execFileAsync(
+          "bash",
+          [
+            path.join(repositoryRoot, "scripts/dck-deploy.sh"),
+            "sha-test",
+            stage,
+          ],
+          {
+            env: {
+              ...process.env,
+              PATH: `${bin}:${process.env.PATH}`,
+              TARGET_DIR: target,
+              DOCKER_SOCKET_PATH: configuredSocket,
+              WEBGEN_STATE_DIR: path.join(root, "webgen-state"),
+              CHOWN_LOG: path.join(root, "chown.log"),
+            },
+          },
+        ),
+      ).rejects.toMatchObject({ code: 1 });
+      await expect(stat(target)).rejects.toMatchObject({ code: "ENOENT" });
+    },
+  );
+
+  it("adds only missing group read/write bits to a valid socket", async () => {
+    const { stage, target, bin, root, dockerSocketPath } =
+      await createFixture();
+    await chmod(dockerSocketPath, 0o640);
+    await writeFile(
+      path.join(stage, ".env.production.sample"),
+      [
+        "CANVAS_IMAGE=ghcr.io/example/dck-agentic",
+        "CANVAS_IMAGE_TAG=sha-test",
+        "POSTGRES_USER=dck",
+        "POSTGRES_PASSWORD=fixture-password",
+        "POSTGRES_DB=dck_agentic",
+        "AUTOMATION_DB_URL=postgresql+asyncpg://dck:fixture-password@postgres:5432/dck_agentic",
+        "WEBGEN_CONTROL_HOST_IP=",
+      ].join("\n") + "\n",
+    );
+
+    await execFileAsync(
+      "bash",
+      [
+        path.join(repositoryRoot, "scripts/dck-deploy.sh"),
+        "sha-test",
+        stage,
+        "ghcr.io/example/dck-agentic",
+      ],
+      {
+        env: {
+          ...process.env,
+          PATH: `${bin}:${process.env.PATH}`,
+          TARGET_DIR: target,
+          DOCKER_SOCKET_PATH: dockerSocketPath,
+          WEBGEN_STATE_DIR: path.join(root, "webgen-state"),
+          CHOWN_LOG: path.join(root, "chown.log"),
+          UFW_STATE: "inactive",
+        },
+      },
+    );
+
+    const mode = (await stat(dockerSocketPath)).mode & 0o777;
+    expect(mode & 0o060).toBe(0o060);
+    expect(mode & 0o707).toBe(0o600);
+  });
+});
+
+it("rolls back when the in-container Docker CLI probe fails", async () => {
+  const { stage, target, bin, root, dockerSocketPath } = await createFixture();
+  await mkdir(target, { recursive: true });
+  await writeFile(
+    path.join(target, ".env"),
+    "CANVAS_IMAGE=ghcr.io/example/dck-agentic\nCANVAS_IMAGE_TAG=sha-old\nPOSTGRES_USER=dck\n",
+  );
+  await expect(
+    execFileAsync(
+      "bash",
+      [path.join(repositoryRoot, "scripts/dck-deploy.sh"), "sha-new", stage],
+      {
+        env: {
+          ...process.env,
+          PATH: `${bin}:${process.env.PATH}`,
+          TARGET_DIR: target,
+          DOCKER_SOCKET_PATH: dockerSocketPath,
+          WEBGEN_STATE_DIR: path.join(root, "webgen-state"),
+          CHOWN_LOG: path.join(root, "chown.log"),
+          UFW_STATE: "inactive",
+          DOCKER_CLI_PROBE_EXIT: "1",
+        },
+      },
+    ),
+  ).rejects.toMatchObject({ code: 1 });
+  expect((await readEnv(path.join(target, ".env"))).CANVAS_IMAGE_TAG).toBe(
+    "sha-old",
   );
 });

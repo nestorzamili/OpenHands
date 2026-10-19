@@ -196,9 +196,9 @@ describe("getAcpPreferredDefaultModel", () => {
 });
 
 describe("getAcpAgentProfileDefaultModel", () => {
-  it("prefers Muse Spark 1.3 Contributor Free for a newly selected OpenCode profile", () => {
+  it("prefers DeepSeek V4.1 Flash Free for a newly selected OpenCode profile", () => {
     expect(getAcpAgentProfileDefaultModel("opencode")).toBe(
-      "opencode/muse-spark-1.3-contributor-free",
+      "opencode/deepseek-v4.1-flash-free",
     );
   });
 

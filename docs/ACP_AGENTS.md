@@ -259,7 +259,7 @@ Open **Settings → Agent** at any time:
   Canvas preselects `gemini-2.5-pro` (see the note above).
 
 When OpenCode is newly selected in the Agent Profile editor, Canvas preselects
-`opencode/muse-spark-1.3-contributor-free` (Muse Spark 1.3 Contributor Free).
+`opencode/deepseek-v4.1-flash-free` (DeepSeek V4.1 Flash Free).
 This convenience applies only to that profile-editor selection; it does not
 change backend-wide **Settings → Agent** defaults, and opening an existing
 profile preserves its saved model.

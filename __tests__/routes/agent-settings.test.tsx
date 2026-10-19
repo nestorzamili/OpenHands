@@ -298,7 +298,7 @@ describe("AgentSettingsScreen", () => {
     });
   });
 
-  it("preselects Muse Spark 1.3 Contributor Free only in the Agent Profile editor", async () => {
+  it("preselects DeepSeek V4.1 Flash Free only in the Agent Profile editor", async () => {
     const user = userEvent.setup();
     const { control } = renderAgentSettingsScreen({
       isAgentProfileEditor: true,
@@ -309,11 +309,11 @@ describe("AgentSettingsScreen", () => {
     await user.click(await screen.findByRole("option", { name: "OpenCode" }));
 
     expect(screen.getByLabelText("SETTINGS$AGENT_MODEL")).toHaveValue(
-      "opencode/muse-spark-1.3-contributor-free",
+      "opencode/deepseek-v4.1-flash-free",
     );
     expect(control().buildAgentProfileFields()).toMatchObject({
       acp_server: "opencode",
-      acp_model: "opencode/muse-spark-1.3-contributor-free",
+      acp_model: "opencode/deepseek-v4.1-flash-free",
     });
   });
 

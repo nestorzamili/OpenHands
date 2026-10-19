@@ -367,7 +367,7 @@ export function getAcpPreferredDefaultModel(
 export function getAcpAgentProfileDefaultModel(
   key: string | null | undefined,
 ): string | null {
-  if (key === "opencode") return "opencode/muse-spark-1.3-contributor-free";
+  if (key === "opencode") return "opencode/deepseek-v4.1-flash-free";
   return getAcpPreferredDefaultModel(key);
 }
 

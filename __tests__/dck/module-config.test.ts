@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  buildDckModulePrompt,
   buildModuleFolderDeleteCommand,
-  composePromptWithSkillTrigger,
   getDckModuleAgentProfileScopeKey,
   parseDckBuiltinModuleOverrides,
   parseDckModulesConfig,
@@ -228,53 +226,27 @@ describe("buildModuleFolderDeleteCommand", () => {
   });
 });
 
-describe("composePromptWithSkillTrigger", () => {
-  it("appends the first trigger when the prompt lacks any", () => {
-    const result = composePromptWithSkillTrigger("Write a report.", [
-      "analytics",
-      "sql",
-    ]);
-    expect(result).toBe("Write a report.\n\nUse the analytics skill for this.");
-  });
-
-  it("leaves the prompt unchanged when a trigger is already present", () => {
-    const result = composePromptWithSkillTrigger(
-      "Run an analytics pass on the data.",
-      ["analytics"],
+describe("legacy module Skill configuration", () => {
+  it("preserves legacy Skill lists while serializing configuration", () => {
+    const raw = JSON.stringify({
+      modules: [module({ skillNames: [" old-skill ", "old-skill"] })],
+      builtinOverrides: [
+        { id: "research", skillNames: [" legacy ", "legacy"] },
+      ],
+    });
+    const parsedModules = parseDckModulesConfig(raw);
+    const parsedOverrides = parseDckBuiltinModuleOverrides(raw, ["research"]);
+    const serialized = serializeDckModulesConfig(
+      parsedModules,
+      parsedOverrides,
     );
-    expect(result).toBe("Run an analytics pass on the data.");
-  });
-
-  it("matches triggers case-insensitively", () => {
-    const result = composePromptWithSkillTrigger("Do some ANALYTICS now.", [
-      "analytics",
+    expect(JSON.parse(serialized).modules[0].skillNames).toEqual([
+      " old-skill ",
+      "old-skill",
     ]);
-    expect(result).toBe("Do some ANALYTICS now.");
-  });
-
-  it("returns the prompt unchanged when there are no triggers", () => {
-    expect(composePromptWithSkillTrigger("Hello.", [])).toBe("Hello.");
-  });
-});
-
-describe("buildDckModulePrompt", () => {
-  it("activates every selected catalog Skill and leaves the task unchanged when none is linked", () => {
-    const triggers = new Map([
-      ["email-writing", ["email writing"]],
-      ["seo-audit", ["SEO audit"]],
+    expect(JSON.parse(serialized).builtinOverrides[0].skillNames).toEqual([
+      " legacy ",
+      "legacy",
     ]);
-
-    expect(
-      buildDckModulePrompt(
-        "Draft a launch email.",
-        ["email-writing", "seo-audit"],
-        triggers,
-      ),
-    ).toBe(
-      "Draft a launch email.\n\nUse the email writing skill for this.\n\nUse the SEO audit skill for this.",
-    );
-    expect(buildDckModulePrompt("Draft a launch email.", [], triggers)).toBe(
-      "Draft a launch email.",
-    );
   });
 });

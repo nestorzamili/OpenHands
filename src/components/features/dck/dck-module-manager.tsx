@@ -1,5 +1,4 @@
 import React from "react";
-import { Select, SelectItem } from "@heroui/react";
 import { useTranslation } from "react-i18next";
 import { ChevronUp, ChevronDown, Pencil, Trash2, Plus } from "lucide-react";
 import type { AgentProfileSummary } from "#/api/agent-profiles-service/agent-profiles-service.api";
@@ -7,6 +6,7 @@ import { ModalBackdrop } from "#/components/shared/modals/modal-backdrop";
 import { BrandButton } from "#/components/features/settings/brand-button";
 import { DckModuleAgentProfileSelector } from "#/components/features/dck/dck-module-agent-profile-selector";
 import { I18nKey } from "#/i18n/declaration";
+import { agentProfileSupportsSkills } from "#/api/agent-profiles-service/profile-field-support";
 import { cn } from "#/utils/utils";
 import { displayErrorToast } from "#/utils/custom-toast-handlers";
 import {
@@ -26,7 +26,6 @@ import {
   type DckCustomModule,
 } from "#/dck/module-config";
 import { useDckModulesConfig } from "#/hooks/query/use-dck-modules-config";
-import { useProjectSkills } from "#/hooks/query/use-project-skills";
 import {
   isDckModuleAgentProfileSelectionBlocked,
   resolveDckModuleAgentProfileSelection,
@@ -163,7 +162,6 @@ function ModuleForm({
   isCheckingAgentProfiles,
   reservedSlugs,
   existingSlugs,
-  skillOptions,
   isSaving,
   onCancel,
   onSubmit,
@@ -176,7 +174,6 @@ function ModuleForm({
   isCheckingAgentProfiles: boolean;
   reservedSlugs: string[];
   existingSlugs: string[];
-  skillOptions: { name: string }[];
   isSaving: boolean;
   onCancel: () => void;
   onSubmit: (
@@ -219,12 +216,6 @@ function ModuleForm({
     setTouched((previous) => ({ ...previous, [field]: true }));
     setDraft((prev) => ({ ...prev, [field]: value }));
   };
-  const selectableSkills = [
-    ...new Set([
-      ...skillOptions.map((skill) => skill.name),
-      ...draft.skillNames,
-    ]),
-  ];
 
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
@@ -351,37 +342,17 @@ function ModuleForm({
           setProfileIdDraft(profileId)
         }
       />
-
-      <Select
-        data-testid="dck-module-form-skills"
-        label={t(I18nKey.DCK$MODULE_FORM_SKILL_LABEL)}
-        labelPlacement="outside"
-        aria-label={t(I18nKey.DCK$MODULE_FORM_SKILL_LABEL)}
-        placeholder={t(I18nKey.DCK$MODULE_FORM_SKILL_NONE)}
-        selectionMode="multiple"
-        listboxProps={{ escapeKeyBehavior: "none" }}
-        selectedKeys={draft.skillNames}
-        onSelectionChange={(keys) =>
-          setDraft((previous) => ({
-            ...previous,
-            skillNames:
-              keys === "all" ? selectableSkills : Array.from(keys, String),
-          }))
-        }
-        isDisabled={isSaving || selectableSkills.length === 0}
-        variant="bordered"
-        classNames={{ trigger: "min-h-11", popoverContent: "bg-content1" }}
-        popoverProps={{
-          shouldCloseOnScroll: false,
-          classNames: { base: "z-[80]" },
-        }}
-      >
-        {selectableSkills.map((name) => (
-          <SelectItem key={name} textValue={name}>
-            {name}
-          </SelectItem>
-        ))}
-      </Select>
+      <div className="flex flex-col gap-1 text-xs text-text-secondary">
+        <p>{t(I18nKey.DCK$MODULE_LEGACY_SKILLS_NOTICE)}</p>
+        {!agentProfileSupportsSkills() && (
+          <p>{t(I18nKey.DCK$MODULE_PROFILE_SKILLS_CLOUD_UNAVAILABLE)}</p>
+        )}
+        {draft.skillNames.length > 0 && (
+          <p data-testid="dck-module-legacy-skills">
+            {draft.skillNames.join(", ")}
+          </p>
+        )}
+      </div>
 
       <div className="sticky bottom-0 flex justify-end gap-2 border-t border-border bg-base-secondary py-3">
         <BrandButton
@@ -482,7 +453,6 @@ export function DckModuleManager({
     remove,
     move,
   } = useDckModulesConfig();
-  const { skills } = useProjectSkills();
   const conversations = useAllConversations();
   const { prefillAndOpen } = useOpenConversation();
   const [mode, setMode] = React.useState<Mode>({ kind: "list" });
@@ -491,7 +461,6 @@ export function DckModuleManager({
   );
   const [isDeleting, setIsDeleting] = React.useState(false);
 
-  const skillOptions = skills.map((skill) => ({ name: skill.name }));
   const builtins = React.useMemo(
     () => getBuiltinDckModules(builtinOverrides),
     [builtinOverrides],
@@ -669,7 +638,6 @@ export function DckModuleManager({
                 (slug) => slug !== editingBuiltin?.slug,
               )}
               existingSlugs={existingSlugsExcluding(mode.editingId)}
-              skillOptions={skillOptions}
               isSaving={isSaving}
               onCancel={() => setMode({ kind: "list" })}
               onSubmit={handleSubmit}

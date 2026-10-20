@@ -55,6 +55,12 @@ Agent Canvas supports several modes:
 | `npm run build` | Builds the standalone application. |
 | `npm run build:lib` | Builds library entrypoints for embedding Agent Canvas components. |
 
+## Agent Profile skills: Local and Cloud
+
+The Skills page toggles global skill settings via `useSkillEnablement()` (`src/hooks/use-skill-enablement.ts`); these are not the per-profile controls. Local Agent Profiles can separately select public skills per profile: the editor saves profile-level `public_skills` / `disabled_skills` fields, enforced by the Agent Server when that profile is used. A new Local profile starts from the global Skills-page selection, but later changes to global toggles do not automatically select a newly authored/custom skill for an already chosen profile. Configure that skill in Settings → Agent Profiles for the profile that will launch it. DCK module assignment can explicitly select a profile—including the `default` profile—and launches with that profile ID (`src/routes/module-detail.tsx`, `src/hooks/use-dck-module-agent-profiles.ts`); it does not substitute global Skills-page toggles for that profile's skill selection. The UI capability gate is `agentProfileSupportsSkills()` in `src/api/agent-profiles-service/profile-field-support.ts`, with editing and save behavior in `src/routes/agent-settings.tsx` and `src/components/features/settings/agent-profiles/agent-profiles-local-view.tsx`.
+
+Cloud currently has frontend transport for agent-profile CRUD/activation through `src/api/cloud/agent-profiles-service.api.ts`, but **not per-profile skills**. The capability gate excludes Cloud profiles from the skill editor; Cloud skill enablement uses global settings/catalog behavior (`src/hooks/use-skill-enablement.ts`) and does not apply a profile's `public_skills` / `disabled_skills` selection. Cloud-global skills and skills available in a Cloud conversation are distinct from per-profile skill assignment. Do not assume selecting or persisting Local-style profile skill fields in Cloud will change what a Cloud run loads. This is a code-level capability assessment only; live Cloud behavior/parity has not been verified. Cloud per-profile skill enforcement remains a gap until the Cloud launch path applies the selection and corresponding UI/API support is enabled.
+
 ## Packaging and distribution
 
 The npm package is `@openhands/agent-canvas`. The package exposes:

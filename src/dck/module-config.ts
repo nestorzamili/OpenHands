@@ -9,7 +9,6 @@ export interface DckCustomModule {
   iconName: string;
   description: string;
   promptTemplate: string;
-  /** Optional project/public Skills linked to this module. */
   skillNames: string[];
   order: number;
 }
@@ -39,18 +38,6 @@ function coerceString(value: unknown): string | null {
     return trimmed.length > 0 ? trimmed : null;
   }
   return null;
-}
-
-function coerceStringList(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return [
-    ...new Set(
-      value.flatMap((entry) => {
-        const normalized = coerceString(entry);
-        return normalized ? [normalized] : [];
-      }),
-    ),
-  ];
 }
 
 function coerceOrder(value: unknown): number | null {
@@ -186,7 +173,11 @@ export function parseDckModulesConfig(
       iconName: coerceString(record.iconName) ?? "",
       description: coerceString(record.description) ?? "",
       promptTemplate,
-      skillNames: coerceStringList(record.skillNames),
+      skillNames: Array.isArray(record.skillNames)
+        ? record.skillNames.filter(
+            (entry): entry is string => typeof entry === "string",
+          )
+        : [],
       order: coerceOrder(record.order) ?? index,
     });
   });
@@ -241,7 +232,9 @@ export function parseDckBuiltinModuleOverrides(
       });
 
       if (Array.isArray(record.skillNames)) {
-        override.skillNames = coerceStringList(record.skillNames);
+        override.skillNames = record.skillNames.filter(
+          (entry): entry is string => typeof entry === "string",
+        );
       }
 
       if (Object.keys(override).length === 1) return [];
@@ -262,7 +255,7 @@ export function serializeDckModulesConfig(
     iconName: module.iconName,
     description: module.description,
     promptTemplate: module.promptTemplate,
-    skillNames: coerceStringList(module.skillNames),
+    skillNames: [...module.skillNames],
     order: index,
   }));
   const normalizedOverrides = builtinOverrides.map((override) => ({
@@ -276,7 +269,7 @@ export function serializeDckModulesConfig(
       promptTemplate: override.promptTemplate,
     }),
     ...(override.skillNames !== undefined && {
-      skillNames: coerceStringList(override.skillNames),
+      skillNames: [...override.skillNames],
     }),
   }));
   const serialized: {
@@ -365,51 +358,6 @@ export function makeCustomModuleId(): string {
 function makeDckEntityId(prefix: string): string {
   const random = Math.random().toString(36).slice(2, 10);
   return `${prefix}-${Date.now().toString(36)}-${random}`;
-}
-
-/**
- * Ensure a module's opening prompt will auto-activate its linked skill: if the
- * prompt does not already contain one of the skill's triggers (case-insensitive),
- * append a short sentence naming the first trigger. Skills activate from trigger
- * keywords in the first message, so this is what wires a module to its skill.
- */
-export function composePromptWithSkillTrigger(
-  promptTemplate: string,
-  triggers: readonly string[],
-): string {
-  const prompt = promptTemplate.trim();
-  const usableTriggers = triggers
-    .map((trigger) => trigger.trim())
-    .filter((trigger) => trigger.length > 0);
-  if (usableTriggers.length === 0) return prompt;
-
-  const lowered = prompt.toLowerCase();
-  const alreadyPresent = usableTriggers.some((trigger) =>
-    lowered.includes(trigger.toLowerCase()),
-  );
-  if (alreadyPresent) return prompt;
-
-  const trigger = usableTriggers[0];
-  const suffix = `Use the ${trigger} skill for this.`;
-  return prompt.length > 0 ? `${prompt}\n\n${suffix}` : suffix;
-}
-
-/** Compose a DCK task prompt with the module's optional catalog Skill. */
-export function buildDckModulePrompt(
-  promptTemplate: string,
-  moduleSkillNames: readonly string[],
-  triggersBySkill: ReadonlyMap<string, readonly string[]>,
-): string {
-  return [
-    ...new Set(moduleSkillNames.map((name) => name.trim()).filter(Boolean)),
-  ].reduce(
-    (prompt, skillName) =>
-      composePromptWithSkillTrigger(
-        prompt,
-        triggersBySkill.get(skillName) ?? [],
-      ),
-    promptTemplate.trim(),
-  );
 }
 
 /**

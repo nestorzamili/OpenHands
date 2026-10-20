@@ -286,7 +286,9 @@ describe("DckModulesSection", () => {
     expect(
       screen.getByTestId("dck-module-agent-profile-selector-research"),
     ).toBeInTheDocument();
-    expect(screen.getByTestId("dck-module-form-skills")).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("dck-module-form-skills"),
+    ).not.toBeInTheDocument();
     expect(screen.queryByTestId("dck-module-form-persona")).toBeNull();
   });
 
@@ -342,6 +344,7 @@ describe("DckModulesSection", () => {
     const payload = mockCreateConversation.mock.calls[0][0];
     expect(payload.workingDir).toBe("/projects/content");
     expect(payload.query).toMatch(/content|marketing|seo/i);
+    expect(payload.query).not.toContain("Use the content-creator skill");
     expect(payload.entryPoint).toBeUndefined();
     await waitFor(() => {
       expect(navigate).toHaveBeenCalledWith("/conversations/conv-new");

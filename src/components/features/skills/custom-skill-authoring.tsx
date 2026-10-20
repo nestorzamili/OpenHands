@@ -1,6 +1,6 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { Loader2, Plus, Trash2 } from "lucide-react";
+import { Loader2, Trash2 } from "lucide-react";
 import { ModalBackdrop } from "#/components/shared/modals/modal-backdrop";
 import { BrandButton } from "#/components/features/settings/brand-button";
 import { MarkdownRenderer } from "#/components/features/markdown/markdown-renderer";
@@ -8,6 +8,7 @@ import { I18nKey } from "#/i18n/declaration";
 import { cn } from "#/utils/utils";
 import { displayErrorToast } from "#/utils/custom-toast-handlers";
 import {
+  applySkillSourceEdit,
   extractSkillMarkdownBody,
   getSkillDeleteTarget,
   validateSkillDraft,
@@ -18,6 +19,7 @@ import {
   useProjectSkills,
   type ProjectSkillSummary,
 } from "#/hooks/query/use-project-skills";
+import type { SkillInfo } from "#/types/settings";
 
 const EMPTY_DRAFT: SkillDraft = {
   name: "",
@@ -28,107 +30,6 @@ const EMPTY_DRAFT: SkillDraft = {
 };
 
 type SkillManagerTab = "preview" | "editor";
-
-type Mode =
-  | {
-      kind: "browse";
-      selectedSkill: ProjectSkillSummary | null;
-      tab: SkillManagerTab;
-    }
-  | { kind: "create"; draft: SkillDraft };
-
-function SkillRow({
-  skill,
-  isSelected,
-  onSelect,
-  onDelete,
-  disabled,
-}: {
-  skill: ProjectSkillSummary;
-  isSelected: boolean;
-  onSelect: () => void;
-  onDelete: () => void;
-  disabled: boolean;
-}) {
-  const { t } = useTranslation("openhands");
-  const scopeKey =
-    skill.scope === "project"
-      ? I18nKey.DCK$SKILL_PROJECT_BADGE
-      : skill.scope === "personal"
-        ? I18nKey.DCK$SKILL_PERSONAL_BADGE
-        : null;
-
-  return (
-    <li
-      data-testid={`dck-skill-row-${skill.name}`}
-      className={cn(
-        "flex items-center gap-1 rounded-lg border border-border pr-2",
-        isSelected ? "border-primary bg-surface" : "hover:bg-surface",
-      )}
-    >
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={onSelect}
-        aria-pressed={isSelected}
-        data-testid={`dck-skill-select-${skill.name}`}
-        className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-3 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50"
-      >
-        <span className="flex min-w-0 flex-1 flex-col">
-          <span className="truncate text-sm font-medium text-contrast">
-            {skill.name}
-          </span>
-          {skill.description && (
-            <span className="truncate text-xs text-text-tertiary">
-              {skill.description}
-            </span>
-          )}
-        </span>
-        <span className="flex shrink-0 flex-col items-end gap-1">
-          {scopeKey && (
-            <span
-              data-testid={`dck-skill-scope-${skill.name}`}
-              className="rounded bg-base-secondary px-1.5 py-0.5 text-xs uppercase tracking-wide text-text-tertiary"
-            >
-              {t(scopeKey)}
-            </span>
-          )}
-          <span
-            data-testid={
-              skill.builtin
-                ? `dck-skill-public-badge-${skill.name}`
-                : `dck-skill-custom-badge-${skill.name}`
-            }
-            className="rounded bg-base-secondary px-1.5 py-0.5 text-xs uppercase tracking-wide text-text-tertiary"
-          >
-            {t(
-              skill.builtin
-                ? I18nKey.DCK$SKILL_PUBLIC_BADGE
-                : I18nKey.DCK$SKILL_CUSTOM_BADGE,
-            )}
-          </span>
-        </span>
-      </button>
-      {!skill.builtin && (
-        <button
-          type="button"
-          disabled={disabled || !skill.deletable}
-          onClick={onDelete}
-          data-testid={`dck-skill-delete-${skill.name}`}
-          aria-label={t(I18nKey.DCK$SKILL_DELETE)}
-          title={
-            skill.deletable
-              ? t(I18nKey.DCK$SKILL_DELETE)
-              : t(I18nKey.DCK$SKILL_FILE_UNAVAILABLE)
-          }
-          className="rounded p-1.5 text-text-secondary hover:text-status-error focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          <Trash2 size={16} aria-hidden />
-        </button>
-      )}
-    </li>
-  );
-}
 
 function SkillForm({
   initialDraft,
@@ -470,11 +371,11 @@ function SkillDetails({
                   spellCheck={false}
                   value={source}
                   onChange={(event) => {
-                    const normalized = event.target.value.replace(
-                      /\r\n?/g,
-                      "\n",
+                    const nextSource = applySkillSourceEdit(
+                      savedSource,
+                      event.target.value,
+                      lineEnding,
                     );
-                    const nextSource = normalized.replace(/\n/g, lineEnding);
                     setSource(nextSource);
                     onDirtyChange(nextSource !== savedSource);
                   }}
@@ -626,68 +527,53 @@ function DiscardSkillChangesConfirm({
   );
 }
 
-export function DckSkillManager({ onClose }: { onClose: () => void }) {
+export function CustomSkillAuthoring({
+  onClose,
+  selectedSkill,
+}: {
+  onClose: () => void;
+  selectedSkill?: Pick<SkillInfo, "name" | "source">;
+}) {
   const { t } = useTranslation("openhands");
   const {
     skills,
     editableSkills,
     isSaving,
     isDeleting,
+    isLoading,
+    isError,
     saveSkill,
     saveSkillSource,
     deleteSkill,
     refetch,
   } = useProjectSkills();
-  const [mode, setMode] = React.useState<Mode>({
-    kind: "browse",
-    selectedSkill: null,
-    tab: "preview",
-  });
+  const [tab, setTab] = React.useState<SkillManagerTab>("preview");
   const [hasUnsavedChanges, setHasUnsavedChanges] = React.useState(false);
-  const [pendingAction, setPendingAction] = React.useState<(() => void) | null>(
-    null,
-  );
   const [deletingSkill, setDeletingSkill] =
     React.useState<ProjectSkillSummary | null>(null);
-
+  const [pendingClose, setPendingClose] = React.useState(false);
+  const summary = selectedSkill
+    ? skills.find(
+        (skill) =>
+          skill.name === selectedSkill.name &&
+          skill.source === selectedSkill.source,
+      )
+    : undefined;
   const reservedNames = skills
     .filter((skill) => skill.builtin)
     .map((skill) => skill.name);
-  const existingSlugsExcluding = (slug: string | null): string[] =>
-    editableSkills
-      .filter((skill) => skill.scope === "project")
-      .map((skill) => skill.filePath?.replace(/\\/g, "/").split("/").at(-2))
-      .filter((name): name is string => Boolean(name) && name !== slug);
-
-  const requestAction = (action: () => void) => {
-    if (hasUnsavedChanges) {
-      setPendingAction(() => action);
-      return;
-    }
-    action();
-  };
-
-  const confirmDiscardChanges = () => {
-    const action = pendingAction;
-    setPendingAction(null);
-    setHasUnsavedChanges(false);
-    action?.();
-  };
-
-  const handleCloseRequest = () =>
-    requestAction(() => {
+  const existingSlugs = editableSkills
+    .filter((skill) => skill.scope === "project")
+    .map((skill) => skill.filePath?.replace(/\\/g, "/").split("/").at(-2))
+    .filter((name): name is string => Boolean(name));
+  const handleCloseRequest = () => {
+    if (hasUnsavedChanges) setPendingClose(true);
+    else {
       void refetch();
       onClose();
-    });
-
-  const openCreate = () =>
-    requestAction(() => {
-      setHasUnsavedChanges(false);
-      setMode({ kind: "create", draft: EMPTY_DRAFT });
-    });
-
+    }
+  };
   const handleCreate = async (draft: SkillDraft) => {
-    if (mode.kind !== "create") return;
     const slug = draft.slug.trim().toLowerCase();
     try {
       await saveSkill(slug, {
@@ -696,17 +582,16 @@ export function DckSkillManager({ onClose }: { onClose: () => void }) {
         triggers: draft.triggers,
         body: draft.body,
       });
-      setMode({ kind: "browse", selectedSkill: null, tab: "preview" });
+      onClose();
     } catch {
       displayErrorToast(t(I18nKey.DCK$SKILL_SAVE_ERROR));
     }
   };
-
   const handleSaveSource = async (
     skill: ProjectSkillSummary,
     source: string,
-  ): Promise<boolean> => {
-    if (!skill.editable || !skill.filePath) return false;
+  ) => {
+    if (skill.builtin || !skill.editable || !skill.filePath) return false;
     try {
       await saveSkillSource(skill.filePath, source);
       return true;
@@ -715,40 +600,33 @@ export function DckSkillManager({ onClose }: { onClose: () => void }) {
       return false;
     }
   };
-
   const handleDelete = async () => {
-    const target = deletingSkill;
-    if (!target?.deletable || !target.filePath) return;
+    if (
+      !deletingSkill?.deletable ||
+      !deletingSkill.filePath ||
+      deletingSkill.builtin
+    )
+      return;
     try {
-      await deleteSkill(target.filePath);
+      await deleteSkill(deletingSkill.filePath);
       setDeletingSkill(null);
-      setMode((current) =>
-        current.kind === "browse" &&
-        current.selectedSkill?.filePath === target.filePath
-          ? { ...current, selectedSkill: null }
-          : current,
-      );
+      onClose();
     } catch {
       displayErrorToast(t(I18nKey.DCK$SKILL_DELETE_ERROR));
     }
   };
-
-  const isBrowse = mode.kind === "browse";
+  const isCreate = !selectedSkill;
   return (
     <ModalBackdrop
       onClose={isSaving || isDeleting ? undefined : handleCloseRequest}
     >
       <div
         data-testid="dck-skill-manager"
-        style={
-          isBrowse
-            ? { height: "min(56rem, 92vh)", width: "min(78rem, 96vw)" }
-            : { width: "min(40rem, 94vw)" }
-        }
-        className={cn(
-          "flex max-h-dvh flex-col gap-4 overflow-hidden rounded-xl border border-border bg-base-secondary p-5",
-          isBrowse ? "w-full" : "w-full overflow-y-auto",
-        )}
+        style={{
+          width: isCreate ? "min(40rem, 94vw)" : "min(78rem, 96vw)",
+          height: isCreate ? undefined : "min(56rem, 92vh)",
+        }}
+        className="flex max-h-dvh w-full flex-col gap-4 overflow-hidden rounded-xl border border-border bg-base-secondary p-5"
       >
         <header className="flex shrink-0 flex-col gap-1">
           <h2 className="text-lg font-semibold text-contrast">
@@ -758,107 +636,79 @@ export function DckSkillManager({ onClose }: { onClose: () => void }) {
             {t(I18nKey.DCK$SKILL_MANAGER_DESCRIPTION)}
           </p>
         </header>
-
-        {mode.kind === "create" ? (
+        {isCreate ? (
           <div className="min-h-0 flex-1 overflow-y-auto">
             <SkillForm
-              initialDraft={mode.draft}
-              existingSlugs={existingSlugsExcluding(null)}
+              initialDraft={EMPTY_DRAFT}
+              existingSlugs={existingSlugs}
               reservedNames={reservedNames}
               isSaving={isSaving}
-              onCancel={() =>
-                setMode({ kind: "browse", selectedSkill: null, tab: "preview" })
-              }
+              onCancel={handleCloseRequest}
               onSubmit={(draft) => void handleCreate(draft)}
             />
           </div>
         ) : (
           <div className="flex min-h-0 flex-1 flex-col gap-3">
-            <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-2 gap-3 md:grid-cols-12 md:grid-rows-1">
-              <aside className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-base md:col-span-3">
-                <ul className="flex-1 space-y-2 overflow-y-auto p-2">
-                  {skills.map((skill, index) => (
-                    <SkillRow
-                      key={`${skill.scope}-${skill.filePath ?? skill.source ?? skill.name}-${index}`}
-                      skill={skill}
-                      isSelected={
-                        mode.selectedSkill?.filePath === skill.filePath &&
-                        mode.selectedSkill?.name === skill.name
-                      }
-                      onSelect={() => {
-                        if (
-                          mode.selectedSkill?.filePath === skill.filePath &&
-                          mode.selectedSkill?.name === skill.name
-                        ) {
-                          return;
-                        }
-                        requestAction(() => {
-                          setHasUnsavedChanges(false);
-                          setMode({
-                            kind: "browse",
-                            selectedSkill: skill,
-                            tab: "preview",
-                          });
-                        });
-                      }}
-                      onDelete={() =>
-                        requestAction(() => {
-                          setHasUnsavedChanges(false);
-                          setDeletingSkill(skill);
-                        })
-                      }
-                      disabled={isSaving || isDeleting}
-                    />
-                  ))}
-                </ul>
-                <div className="border-t border-border p-2">
-                  <BrandButton
-                    type="button"
-                    variant="secondary"
-                    testId="dck-skill-add"
-                    startContent={<Plus size={16} aria-hidden />}
-                    onClick={openCreate}
-                    isDisabled={isSaving || isDeleting}
-                  >
-                    {t(I18nKey.DCK$SKILL_ADD)}
-                  </BrandButton>
-                </div>
-              </aside>
-
-              <main className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-base md:col-span-9">
-                {mode.selectedSkill ? (
+            <main className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-base">
+              {isLoading ? (
+                <p className="p-6 text-sm text-text-tertiary">
+                  {t(I18nKey.DCK$SKILL_LOADING)}
+                </p>
+              ) : isError || !summary ? (
+                <p
+                  data-testid="dck-skill-unavailable"
+                  role="alert"
+                  className="p-6 text-sm text-status-error"
+                >
+                  {t(I18nKey.DCK$SKILL_PREVIEW_LOAD_ERROR)}
+                </p>
+              ) : summary.builtin ? (
+                <SkillDetails
+                  key={`${summary.name}-${summary.source}`}
+                  skill={summary}
+                  tab="preview"
+                  onTabChange={() => {}}
+                  isSaving={isSaving}
+                  onSave={async () => false}
+                  onDirtyChange={() => {}}
+                />
+              ) : (
+                <>
                   <SkillDetails
-                    key={`${mode.selectedSkill.filePath ?? mode.selectedSkill.source ?? mode.selectedSkill.name}-${mode.selectedSkill.name}`}
-                    skill={mode.selectedSkill}
-                    tab={mode.tab}
-                    onTabChange={(tab) =>
-                      setMode((current) =>
-                        current.kind === "browse"
-                          ? { ...current, tab }
-                          : current,
-                      )
-                    }
+                    key={`${summary.name}-${summary.source}`}
+                    skill={summary}
+                    tab={tab}
+                    onTabChange={setTab}
                     isSaving={isSaving}
-                    onSave={(source) =>
-                      handleSaveSource(mode.selectedSkill!, source)
-                    }
+                    onSave={(source) => handleSaveSource(summary, source)}
                     onDirtyChange={setHasUnsavedChanges}
                   />
-                ) : (
-                  <div className="flex flex-1 items-center justify-center p-6 text-center text-sm text-text-tertiary">
-                    {t(I18nKey.DCK$SKILL_SELECT_PROMPT)}
-                  </div>
-                )}
-              </main>
-            </div>
+                  {summary.deletable && (
+                    <div className="flex justify-end px-3 pb-3">
+                      <BrandButton
+                        type="button"
+                        variant="danger"
+                        testId="dck-skill-selected-delete"
+                        startContent={<Trash2 size={16} aria-hidden />}
+                        isDisabled={isSaving || isDeleting}
+                        onClick={() => {
+                          if (hasUnsavedChanges) setPendingClose(true);
+                          else setDeletingSkill(summary);
+                        }}
+                      >
+                        {t(I18nKey.DCK$SKILL_DELETE)}
+                      </BrandButton>
+                    </div>
+                  )}
+                </>
+              )}
+            </main>
             <div className="flex shrink-0 justify-end">
               <BrandButton
                 type="button"
-                variant="primary"
+                variant="secondary"
                 testId="dck-skill-manager-close"
-                onClick={() => {
-                  handleCloseRequest();
-                }}
+                onClick={handleCloseRequest}
                 isDisabled={isSaving || isDeleting}
               >
                 {t(I18nKey.DCK$MODULE_FORM_CANCEL)}
@@ -866,24 +716,30 @@ export function DckSkillManager({ onClose }: { onClose: () => void }) {
             </div>
           </div>
         )}
+        {deletingSkill && (
+          <DeleteSkillConfirm
+            skill={deletingSkill}
+            isDeleting={isDeleting}
+            onCancel={() => setDeletingSkill(null)}
+            onConfirm={() => void handleDelete()}
+          />
+        )}
+        {pendingClose && (
+          <DiscardSkillChangesConfirm
+            skillName={summary?.name ?? ""}
+            onKeepEditing={() => setPendingClose(false)}
+            onDiscard={() => {
+              setPendingClose(false);
+              setHasUnsavedChanges(false);
+              if (summary) setDeletingSkill(summary);
+              else {
+                void refetch();
+                onClose();
+              }
+            }}
+          />
+        )}
       </div>
-      {deletingSkill && (
-        <DeleteSkillConfirm
-          skill={deletingSkill}
-          isDeleting={isDeleting}
-          onCancel={() => setDeletingSkill(null)}
-          onConfirm={() => void handleDelete()}
-        />
-      )}
-      {pendingAction && (
-        <DiscardSkillChangesConfirm
-          skillName={
-            mode.kind === "browse" ? (mode.selectedSkill?.name ?? "") : ""
-          }
-          onKeepEditing={() => setPendingAction(null)}
-          onDiscard={confirmDiscardChanges}
-        />
-      )}
     </ModalBackdrop>
   );
 }

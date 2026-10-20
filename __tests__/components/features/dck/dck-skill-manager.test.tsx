@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { DckSkillManager } from "#/components/features/dck/dck-skill-manager";
+import { CustomSkillAuthoring } from "#/components/features/skills/custom-skill-authoring";
 
 const getSkillsMock = vi.fn();
 const downloadTextFileMock = vi.fn();
@@ -71,13 +71,16 @@ vi.mock("#/api/agent-server-home", () => ({
     path.startsWith("/") ? path : `/home/agent/${path}`,
 }));
 
-function renderManager(onClose = vi.fn()) {
+function renderManager(
+  selectedSkill?: { name: string; source: string | null },
+  onClose = vi.fn(),
+) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   render(
     <QueryClientProvider client={client}>
-      <DckSkillManager onClose={onClose} />
+      <CustomSkillAuthoring onClose={onClose} selectedSkill={selectedSkill} />
     </QueryClientProvider>,
   );
   return onClose;
@@ -128,58 +131,73 @@ beforeEach(() => {
 });
 
 describe("DckSkillManager", () => {
-  it("keeps origin separate from scope and exposes delete only for custom skills", async () => {
+  it("opens creation directly without rendering a parallel skill catalog", () => {
     renderManager();
-
-    expect(
-      await screen.findByTestId("dck-skill-select-my-skill"),
-    ).toBeInTheDocument();
-    expect(screen.getByTestId("dck-skill-delete-my-skill")).toBeInTheDocument();
-    expect(screen.getByTestId("dck-skill-scope-my-skill")).toHaveTextContent(
-      "DCK$SKILL_PROJECT_BADGE",
-    );
-    expect(
-      screen.getByTestId("dck-skill-custom-badge-my-skill"),
-    ).toBeInTheDocument();
-    expect(
-      await screen.findByTestId("dck-skill-select-personal-skill"),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByTestId("dck-skill-scope-personal-skill"),
-    ).toHaveTextContent("DCK$SKILL_PERSONAL_BADGE");
-    expect(
-      screen.getByTestId("dck-skill-custom-badge-personal-skill"),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByTestId("dck-skill-delete-personal-skill"),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByTestId("dck-skill-public-badge-docker"),
-    ).toBeInTheDocument();
-    expect(screen.queryByTestId("dck-skill-delete-docker")).toBeNull();
+    expect(screen.getByTestId("dck-skill-form")).toBeInTheDocument();
+    expect(screen.queryByTestId("dck-skill-select-my-skill")).toBeNull();
+    expect(screen.queryByTestId("dck-skill-row-my-skill")).toBeNull();
   });
 
-  it("opens a built-in skill as preview only", async () => {
-    const user = userEvent.setup();
-    renderManager();
+  it("opens a selected custom skill without rendering a parallel catalog", async () => {
+    render(
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <CustomSkillAuthoring
+          onClose={vi.fn()}
+          selectedSkill={{
+            name: "my-skill",
+            source: "/projects/.agents/skills/my-skill/SKILL.md",
+          }}
+        />
+      </QueryClientProvider>,
+    );
 
-    await user.click(await screen.findByTestId("dck-skill-select-docker"));
+    await waitFor(() =>
+      expect(screen.getByTestId("dck-skill-preview-panel")).toHaveTextContent(
+        "Original instructions",
+      ),
+    );
+    expect(screen.queryByTestId("dck-skill-select-my-skill")).toBeNull();
+    expect(screen.getByTestId("dck-skill-tab-editor")).toBeInTheDocument();
+    await userEvent.setup().click(screen.getByTestId("dck-skill-tab-editor"));
+    expect(await screen.findByTestId("dck-skill-source-textarea")).toHaveValue(
+      projectSkillSource,
+    );
+  });
 
+  it("does not resolve a same-name skill from a different source", async () => {
+    render(
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <CustomSkillAuthoring
+          onClose={vi.fn()}
+          selectedSkill={{ name: "my-skill", source: "user" }}
+        />
+      </QueryClientProvider>,
+    );
     expect(
-      await screen.findByTestId("dck-skill-preview-panel"),
-    ).toHaveTextContent("Docker instructions");
-    expect(screen.queryByTestId("dck-skill-tab-editor")).toBeNull();
-    expect(screen.queryByTestId("dck-skill-delete-docker")).toBeNull();
+      await screen.findByTestId("dck-skill-unavailable"),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("dck-skill-source-textarea")).toBeNull();
   });
 
   it("previews a custom skill, then edits and saves only when it is dirty", async () => {
     const user = userEvent.setup();
-    renderManager();
-
-    await user.click(await screen.findByTestId("dck-skill-select-my-skill"));
-    expect(
-      await screen.findByTestId("dck-skill-preview-panel"),
-    ).toHaveTextContent("Original instructions");
+    renderManager({
+      name: "my-skill",
+      source: "/projects/.agents/skills/my-skill/SKILL.md",
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("dck-skill-preview-panel")).toHaveTextContent(
+        "Original instructions",
+      ),
+    );
     await user.click(screen.getByTestId("dck-skill-tab-editor"));
     expect(
       await screen.findByTestId("dck-skill-source-path"),
@@ -209,11 +227,8 @@ describe("DckSkillManager", () => {
 
   it("saves a personal skill back to its personal source path", async () => {
     const user = userEvent.setup();
-    renderManager();
-
-    await user.click(
-      await screen.findByTestId("dck-skill-select-personal-skill"),
-    );
+    renderManager({ name: "personal-skill", source: "user" });
+    await screen.findByTestId("dck-skill-tab-editor");
     await user.click(screen.getByTestId("dck-skill-tab-editor"));
     expect(
       await screen.findByTestId("dck-skill-source-path"),
@@ -237,46 +252,10 @@ describe("DckSkillManager", () => {
     );
   });
 
-  it("asks before discarding unsaved source when switching skills", async () => {
-    const user = userEvent.setup();
-    renderManager();
-
-    await user.click(await screen.findByTestId("dck-skill-select-my-skill"));
-    await user.click(screen.getByTestId("dck-skill-tab-editor"));
-    const textarea = await screen.findByTestId("dck-skill-source-textarea");
-    fireEvent.change(textarea, {
-      target: { value: `${projectSkillSource}\nUnsaved change` },
-    });
-
-    await user.click(screen.getByTestId("dck-skill-select-docker"));
-    expect(
-      await screen.findByTestId("dck-skill-discard-confirm"),
-    ).toBeVisible();
-    expect(screen.getByTestId("dck-skill-select-my-skill")).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-
-    await user.click(screen.getByTestId("dck-skill-discard-cancel"));
-    expect(screen.queryByTestId("dck-skill-discard-confirm")).toBeNull();
-    expect(screen.getByTestId("dck-skill-select-my-skill")).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-
-    await user.click(screen.getByTestId("dck-skill-select-docker"));
-    await user.click(screen.getByTestId("dck-skill-discard-confirm-button"));
-    expect(
-      await screen.findByTestId("dck-skill-preview-panel"),
-    ).toHaveTextContent("Docker instructions");
-    expect(screen.queryByTestId("dck-skill-source-textarea")).toBeNull();
-  });
-
   it("blocks saving an invalid skill and does not write", async () => {
     const user = userEvent.setup();
     renderManager();
 
-    await user.click(await screen.findByTestId("dck-skill-add"));
     await user.click(screen.getByTestId("dck-skill-form-save"));
 
     expect(
@@ -291,7 +270,6 @@ describe("DckSkillManager", () => {
     const user = userEvent.setup();
     renderManager();
 
-    await user.click(await screen.findByTestId("dck-skill-add"));
     await user.type(screen.getByTestId("dck-skill-form-name"), "docker");
     await user.type(screen.getByTestId("dck-skill-form-slug"), "my-docker");
     await user.type(screen.getByTestId("dck-skill-form-body"), "Instructions");
@@ -307,7 +285,6 @@ describe("DckSkillManager", () => {
     const user = userEvent.setup();
     renderManager();
 
-    await user.click(await screen.findByTestId("dck-skill-add"));
     await user.type(screen.getByTestId("dck-skill-form-name"), "SEO Audit");
     await user.type(screen.getByTestId("dck-skill-form-slug"), "seo-audit");
     await user.type(
@@ -343,7 +320,6 @@ describe("DckSkillManager", () => {
     );
     const user = userEvent.setup();
     renderManager();
-    await user.click(await screen.findByTestId("dck-skill-add"));
     await user.type(screen.getByTestId("dck-skill-form-name"), "New writer");
     await user.type(screen.getByTestId("dck-skill-form-slug"), "copy");
     await user.type(
@@ -360,9 +336,15 @@ describe("DckSkillManager", () => {
   it("deletes a project custom skill only after showing its exact folder", async () => {
     const onClose = vi.fn();
     const user = userEvent.setup();
-    renderManager(onClose);
+    renderManager(
+      {
+        name: "my-skill",
+        source: "/projects/.agents/skills/my-skill/SKILL.md",
+      },
+      onClose,
+    );
 
-    await user.click(await screen.findByTestId("dck-skill-delete-my-skill"));
+    await user.click(await screen.findByTestId("dck-skill-selected-delete"));
     expect(screen.getByTestId("dck-skill-delete-path")).toHaveTextContent(
       "/projects/.agents/skills/my-skill",
     );
@@ -375,16 +357,14 @@ describe("DckSkillManager", () => {
       ),
     );
     expect(closeBashClientMock).toHaveBeenCalled();
-    expect(onClose).not.toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it("deletes personal custom skills from their personal path", async () => {
     const user = userEvent.setup();
-    renderManager();
+    renderManager({ name: "personal-skill", source: "user" });
 
-    await user.click(
-      await screen.findByTestId("dck-skill-delete-personal-skill"),
-    );
+    await user.click(await screen.findByTestId("dck-skill-selected-delete"));
     expect(screen.getByTestId("dck-skill-delete-path")).toHaveTextContent(
       "/home/agent/.agents/skills/personal-skill",
     );

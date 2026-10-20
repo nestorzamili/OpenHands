@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  applySkillSourceEdit,
   buildSkillDeleteCommand,
   extractSkillMarkdownBody,
   getSkillDeleteTarget,
@@ -84,6 +85,15 @@ describe("serializeSkillMarkdown", () => {
 });
 
 describe("raw SKILL.md editing helpers", () => {
+  it("preserves untouched mixed line endings, frontmatter keys, and whitespace across textarea edits", () => {
+    const raw =
+      "---\r\nname: guide\ncustom: [keep, me]\r\ndescription: |\n  exact  \r\n---\n# Guide\r\nBody\n";
+    const normalized = raw.replace(/\r\n?/g, "\n");
+    const changed = normalized.replace("# Guide", "# Updated Guide");
+    expect(applySkillSourceEdit(raw, changed, "\n")).toBe(
+      raw.replace("# Guide", "# Updated Guide"),
+    );
+  });
   it("removes frontmatter from preview without trimming Markdown whitespace", () => {
     const body = "\n# Guide\n\nKeep trailing spaces.  \n";
     const source = `---\nname: guide\ndescription: |\n  Multiline summary\n  stays intact\ncustom: [unknown, metadata]\n---\n${body}`;

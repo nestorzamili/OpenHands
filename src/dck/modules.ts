@@ -79,19 +79,19 @@ interface DckModuleDef {
   id: string;
   name: string;
   slug: string;
-  skillNames: string[];
   kind: DckModuleKind;
   iconName: string;
   description: string;
   promptTemplate: string;
+  skillNames?: string[];
 }
 
 const DCK_BUILTIN_MODULE_DEFS: DckModuleDef[] = [
   {
     id: "webgen",
+    skillNames: ["web-generator"],
     name: "Web Generator",
     slug: "webgen",
-    skillNames: ["web-generator"],
     kind: "projects",
     iconName: "globe",
     description: "",
@@ -100,9 +100,9 @@ const DCK_BUILTIN_MODULE_DEFS: DckModuleDef[] = [
   },
   {
     id: "research",
+    skillNames: ["social-trends-researcher"],
     name: "Research",
     slug: "research",
-    skillNames: ["social-trends-researcher"],
     kind: "conversations",
     iconName: "search",
     description: "Deep literature synthesis with cited reports",
@@ -111,9 +111,9 @@ const DCK_BUILTIN_MODULE_DEFS: DckModuleDef[] = [
   },
   {
     id: "analytics",
+    skillNames: ["data-analytics"],
     name: "Analytics",
     slug: "analytics",
-    skillNames: ["data-analytics"],
     kind: "conversations",
     iconName: "line-chart",
     description: "SQL exploration, charts, and Power BI / DAX modeling",
@@ -122,9 +122,9 @@ const DCK_BUILTIN_MODULE_DEFS: DckModuleDef[] = [
   },
   {
     id: "content",
+    skillNames: ["content-creator"],
     name: "Content",
     slug: "content",
-    skillNames: ["content-creator"],
     kind: "conversations",
     iconName: "pen-line",
     description: "Marketing and social content, calendars, and SEO copy",
@@ -147,6 +147,10 @@ function resolveModule(
 ): DckModule {
   return {
     ...def,
+    skillNames:
+      "skillNames" in def && Array.isArray(def.skillNames)
+        ? def.skillNames
+        : [],
     icon: resolveModuleIcon(def.iconName),
     workspacePath: `${root.replace(/\/+$/, "")}/${def.slug}`,
     source,

@@ -20,6 +20,14 @@ import {
 import { MOCK_DEFAULT_USER_SETTINGS } from "#/mocks/handlers";
 import { Settings, SkillInfo } from "#/types/settings";
 import { ActiveBackendProvider } from "#/contexts/active-backend-context";
+import { FileClient } from "@openhands/typescript-client/clients";
+import * as CloudOrganizationService from "#/api/cloud/organization-service.api";
+import { getDckWorkspaceRoot } from "#/dck/modules";
+import {
+  __resetActiveStoreForTests,
+  setActiveSelection,
+  setRegisteredBackends,
+} from "#/api/backend-registry/active-store";
 
 const navigateMock = vi.fn();
 
@@ -124,7 +132,7 @@ describe("SkillsSettingsScreen", () => {
     );
   });
 
-  it("filters a manually created workspace skill with the Custom origin facet", async () => {
+  it("shares the dedicated custom filter with native facets and URL history", async () => {
     const builtinSkill = buildSkill({ name: "deno", source: "public" });
     const workspaceSkill = buildSkill({
       name: "workspace-helper",
@@ -138,16 +146,107 @@ describe("SkillsSettingsScreen", () => {
     ]);
 
     const user = userEvent.setup();
-    renderSkillsSettingsScreen();
+    const router = renderSkillsSettingsScreen();
 
     const customFacet = await screen.findByTestId("skill-facet-origin-custom");
-    expect(customFacet).toHaveTextContent("SETTINGS$SKILLS_ORIGIN_CUSTOM");
-    await user.click(customFacet);
+    const quickFilter = screen.getByTestId("skills-custom-filter");
+    await user.click(quickFilter);
 
     expect(
       await screen.findByTestId("skill-card-workspace-helper"),
     ).toBeInTheDocument();
     expect(screen.queryByTestId("skill-card-deno")).not.toBeInTheDocument();
+    expect(customFacet).toHaveAttribute("aria-checked", "true");
+    expect(router.state.location.search).toBe("?origin=custom");
+
+    await user.click(screen.getByTestId("skills-clear-filters"));
+
+    expect(await screen.findByTestId("skill-card-deno")).toBeInTheDocument();
+    expect(quickFilter).toHaveAttribute("aria-pressed", "false");
+    expect(router.state.location.search).toBe("");
+  });
+
+  it("opens custom source authoring from its native card without another catalog", async () => {
+    const user = userEvent.setup();
+    const source =
+      "---\nname: workspace-helper\nmetadata:\n  owner: DCK\n---\nOriginal body\n";
+    const customSkill = buildSkill({
+      name: "workspace-helper",
+      source: `${getDckWorkspaceRoot()}/.agents/skills/workspace-helper/SKILL.md`,
+    });
+    vi.spyOn(SkillsService, "getSettingsSkills").mockResolvedValue([
+      customSkill,
+    ]);
+    vi.spyOn(FileClient.prototype, "downloadTextFile").mockResolvedValue(
+      source,
+    );
+
+    renderSkillsSettingsScreen();
+    await user.click(await screen.findByTestId("skill-card-workspace-helper"));
+    await user.click(await screen.findByTestId("dck-skill-tab-editor"));
+
+    expect(await screen.findByTestId("dck-skill-source-textarea")).toHaveValue(
+      source,
+    );
+    expect(
+      screen.queryByTestId("dck-skill-select-workspace-helper"),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByTestId("skill-detail-modal")).not.toBeInTheDocument();
+  });
+
+  it("opens the new custom skill form directly from the Skills page", async () => {
+    vi.spyOn(SkillsService, "getSettingsSkills").mockResolvedValue([]);
+    renderSkillsSettingsScreen();
+
+    await userEvent
+      .setup()
+      .click(await screen.findByTestId("skills-new-skill-button"));
+
+    expect(await screen.findByTestId("dck-skill-form")).toBeInTheDocument();
+    expect(screen.queryByTestId("dck-skill-new")).not.toBeInTheDocument();
+  });
+
+  it("explains unsupported Cloud custom editing while retaining native preview", async () => {
+    __resetActiveStoreForTests();
+    vi.spyOn(
+      CloudOrganizationService,
+      "getCloudOrganizations",
+    ).mockResolvedValue({ items: [], currentOrgId: null });
+    vi.spyOn(
+      CloudOrganizationService,
+      "getCurrentCloudApiKey",
+    ).mockResolvedValue({ orgId: null, isLegacyKey: false });
+    setRegisteredBackends([
+      {
+        id: "cloud-1",
+        name: "Cloud",
+        host: "https://app.example.com",
+        apiKey: "key",
+        kind: "cloud",
+      },
+    ]);
+    setActiveSelection({ backendId: "cloud-1", orgId: null });
+    vi.spyOn(SkillsService, "getSettingsSkills").mockResolvedValue([
+      buildSkill({ name: "cloud-skill", source: "public" }),
+    ]);
+    try {
+      renderSkillsSettingsScreen();
+      expect(
+        await screen.findByTestId("skills-cloud-authoring-notice"),
+      ).toHaveTextContent("SETTINGS$SKILLS_CUSTOM_AUTHORING_UNSUPPORTED_CLOUD");
+      expect(
+        screen.queryByTestId("skills-new-skill-button"),
+      ).not.toBeInTheDocument();
+      await userEvent
+        .setup()
+        .click(await screen.findByTestId("skill-card-cloud-skill"));
+      expect(
+        await screen.findByTestId("skill-detail-modal"),
+      ).toBeInTheDocument();
+    } finally {
+      window.localStorage.clear();
+      __resetActiveStoreForTests();
+    }
   });
 
   it("shows card subtitle text from skill content when description is omitted", async () => {
@@ -343,7 +442,7 @@ Full skill body.`,
       license: "MIT",
       compatibility: "Requires Python 3.11+",
       allowed_tools: ["bash", "execute_bash"],
-      source: "/skills/rich/SKILL.md",
+      source: "public",
     });
     vi.spyOn(SkillsService, "getSkills").mockResolvedValue([skill]);
 

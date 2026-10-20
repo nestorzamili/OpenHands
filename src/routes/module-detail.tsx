@@ -16,9 +16,7 @@ import {
 import { useSearchSubdirs } from "#/hooks/query/use-search-subdirs";
 import { useWebgenProjects } from "#/hooks/query/use-webgen-projects";
 import { useQueryClient } from "@tanstack/react-query";
-import { useProjectSkills } from "#/hooks/query/use-project-skills";
 import { formatRelativeTime } from "#/utils/format-relative-time";
-import { buildDckModulePrompt } from "#/dck/module-config";
 import {
   buildWebgenScaffoldPrompt,
   type WebgenNewProjectSpec,
@@ -333,12 +331,6 @@ export function ModuleDetailView({
     isCreating,
   } = useOpenConversation();
   const queryClient = useQueryClient();
-  const { skills } = useProjectSkills();
-  const triggersBySkill = React.useMemo(() => {
-    const map = new Map<string, string[]>();
-    skills.forEach((skill) => map.set(skill.name, skill.triggers));
-    return map;
-  }, [skills]);
   const agentProfilesQuery = useAgentProfiles();
   const agentProfiles = agentProfilesQuery.data?.profiles ?? [];
   const isCheckingAgentProfiles = Boolean(
@@ -374,9 +366,7 @@ export function ModuleDetailView({
     blockedMessage: moduleProfileSelectionBlockedMessage,
   };
   const buildModulePrompt = (taskPrompt: string) =>
-    dckModule
-      ? buildDckModulePrompt(taskPrompt, dckModule.skillNames, triggersBySkill)
-      : taskPrompt;
+    dckModule ? taskPrompt.trim() : taskPrompt;
   const [showNewProjectDialog, setShowNewProjectDialog] = React.useState(false);
   const [pendingOwnerSeedDeploy, setPendingOwnerSeedDeploy] =
     React.useState<PendingOwnerSeedDeploy | null>(null);

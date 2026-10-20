@@ -306,3 +306,54 @@ export function buildSkillDeleteCommand(filePath: string): string {
   const command = target.kind === "directory" ? "rm -rf --" : "rm -f --";
   return `${command} ${quotedPath}`;
 }
+
+export function applySkillSourceEdit(
+  rawSource: string,
+  textareaValue: string,
+  preferredEnding: string,
+): string {
+  const normalizedRaw = rawSource.replace(/\r\n?/g, "\n");
+  const edited = textareaValue.replace(/\r\n?/g, "\n");
+  let prefix = 0;
+  while (
+    prefix < normalizedRaw.length &&
+    prefix < edited.length &&
+    normalizedRaw[prefix] === edited[prefix]
+  )
+    prefix++;
+  let suffix = 0;
+  while (
+    suffix < normalizedRaw.length - prefix &&
+    suffix < edited.length - prefix &&
+    normalizedRaw[normalizedRaw.length - 1 - suffix] ===
+      edited[edited.length - 1 - suffix]
+  )
+    suffix++;
+  const rawPrefixLength = rawOffsetForNormalizedOffset(rawSource, prefix);
+  const rawSuffixStart = rawOffsetForNormalizedOffset(
+    rawSource,
+    normalizedRaw.length - suffix,
+  );
+  const inserted = edited
+    .slice(prefix, edited.length - suffix)
+    .replace(/\n/g, preferredEnding);
+  return (
+    rawSource.slice(0, rawPrefixLength) +
+    inserted +
+    rawSource.slice(rawSuffixStart)
+  );
+}
+
+function rawOffsetForNormalizedOffset(
+  raw: string,
+  normalizedOffset: number,
+): number {
+  let seen = 0;
+  let index = 0;
+  while (index < raw.length && seen < normalizedOffset) {
+    if (raw[index] === "\r" && raw[index + 1] === "\n") index++;
+    index++;
+    seen++;
+  }
+  return index;
+}

@@ -232,15 +232,9 @@ describe("DckModuleManager", () => {
       screen.getByTestId("dck-module-agent-profile-selector-webgen"),
       "active-profile",
     );
-    await user.click(
-      screen.getByRole("button", { name: /DCK\$MODULE_FORM_SKILL_LABEL/ }),
-    );
-    fireEvent.scroll(screen.getByTestId("dck-module-form").parentElement!);
-    const webgenSkill = screen.getByRole("option", { name: "web-generator" });
-    expect(webgenSkill).toHaveAttribute("aria-selected", "true");
-    await user.click(webgenSkill);
-    expect(webgenSkill).toHaveAttribute("aria-selected", "false");
-    await user.keyboard("{Escape}");
+    expect(
+      screen.queryByTestId("dck-module-form-skills"),
+    ).not.toBeInTheDocument();
     expect(screen.getByTestId("dck-module-form")).toBeInTheDocument();
     expect(onClose).not.toHaveBeenCalled();
 
@@ -261,7 +255,6 @@ describe("DckModuleManager", () => {
           id: "webgen",
           name: "Site Studio",
           promptTemplate: "Scaffold a marketing website.",
-          skillNames: [],
         },
       ],
     });
@@ -302,13 +295,12 @@ describe("DckModuleManager", () => {
       "dck-module-form",
     );
     expect(profileSelector).toHaveValue("research-profile");
-    await user.click(
-      screen.getByRole("button", { name: /DCK\$MODULE_FORM_SKILL_LABEL/ }),
-    );
     expect(
-      screen.getByRole("option", { name: "web-generator" }),
-    ).toHaveAttribute("aria-selected", "true");
-    await user.keyboard("{Escape}");
+      screen.queryByTestId("dck-module-form-skills"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId("dck-module-legacy-skills")).toHaveTextContent(
+      "web-generator",
+    );
     expect(screen.queryByTestId("dck-module-form-persona")).toBeNull();
     await user.selectOptions(profileSelector, "active-profile");
 
@@ -398,12 +390,6 @@ describe("DckModuleManager", () => {
       screen.getByTestId("dck-module-form-prompt"),
       "Write a weekly report.",
     );
-    await user.click(
-      screen.getByRole("button", { name: /DCK\$MODULE_FORM_SKILL_LABEL/ }),
-    );
-    await user.click(screen.getByRole("option", { name: "web-generator" }));
-    await user.click(screen.getByRole("option", { name: "research-brief" }));
-    await user.keyboard("{Escape}");
     await user.click(screen.getByTestId("dck-module-form-save"));
 
     await waitFor(() => expect(uploadTextFileMock).toHaveBeenCalledTimes(1));
@@ -413,7 +399,7 @@ describe("DckModuleManager", () => {
     expect(JSON.parse(text).modules[0]).toMatchObject({
       name: "Reports",
       slug: "reports",
-      skillNames: ["web-generator", "research-brief"],
+      skillNames: [],
     });
   });
 

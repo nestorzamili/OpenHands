@@ -3,7 +3,6 @@ import { useTranslation } from "react-i18next";
 import { Settings2 } from "lucide-react";
 import { useSearchSubdirs } from "#/hooks/query/use-search-subdirs";
 import { useDckModulesConfig } from "#/hooks/query/use-dck-modules-config";
-import { useProjectSkills } from "#/hooks/query/use-project-skills";
 import { useAgentProfiles } from "#/hooks/query/use-agent-profiles";
 import {
   getDckModuleAgentProfileIdForLaunch,
@@ -34,7 +33,6 @@ import {
 import { WebgenNewProjectDialog } from "#/components/features/dck/webgen-new-project-dialog";
 import type { WebgenOwnerSeedInput } from "#/components/features/dck/webgen-owner-seed-fields";
 import { DckModuleManager } from "#/components/features/dck/dck-module-manager";
-import { buildDckModulePrompt } from "#/dck/module-config";
 import {
   buildWebgenScaffoldPrompt,
   type WebgenNewProjectSpec,
@@ -147,12 +145,6 @@ export function DckModulesSection() {
     builtinOverrides,
     agentProfileAssignments,
   } = useDckModulesConfig();
-  const { skills } = useProjectSkills();
-  const triggersBySkill = React.useMemo(() => {
-    const map = new Map<string, string[]>();
-    skills.forEach((skill) => map.set(skill.name, skill.triggers));
-    return map;
-  }, [skills]);
   const agentProfilesQuery = useAgentProfiles();
   const agentProfiles = agentProfilesQuery.data?.profiles ?? [];
   const isCheckingAgentProfiles = Boolean(
@@ -166,7 +158,7 @@ export function DckModulesSection() {
   const launchPrompt = (
     module: DckModule,
     taskPrompt = module.promptTemplate,
-  ) => buildDckModulePrompt(taskPrompt, module.skillNames, triggersBySkill);
+  ) => taskPrompt.trim();
   const createNew = (
     workingDir: string,
     promptTemplate?: string,

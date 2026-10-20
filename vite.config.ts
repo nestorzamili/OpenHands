@@ -500,6 +500,7 @@ export default defineConfig(({ mode, command }) => {
             exclude: [
               ...configDefaults.exclude,
               "tests",
+              ".tmp/**",
               // Webgen apps are independent repos with their own test runners.
               "workspace/webgen/**",
               ...NODE_ENV_PILOT_TESTS,

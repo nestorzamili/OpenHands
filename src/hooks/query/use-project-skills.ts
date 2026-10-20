@@ -13,6 +13,7 @@ import {
   getSkillFilePathParts,
   SKILL_FILE_NAME,
   SKILLS_DIR_SEGMENT,
+  SKILL_SLUG_PATTERN,
   buildSkillDeleteCommand,
   getSkillDeleteTarget,
   serializeSkillMarkdown,
@@ -20,6 +21,7 @@ import {
   type SkillMarkdownFields,
 } from "#/dck/skill-authoring";
 import { useActiveBackend } from "#/contexts/active-backend-context";
+import { getActiveBackend } from "#/api/backend-registry/active-store";
 import type { SkillInfo } from "#/types/settings";
 import {
   getSkillScope,
@@ -62,6 +64,57 @@ function isAbsolutePath(path: string): boolean {
 
 function joinPath(root: string, child: string): string {
   return `${root.replace(/[/\\]+$/, "")}/${child.replace(/^[/\\]+/, "")}`;
+}
+
+function normalizeAbsolutePath(path: string): string | null {
+  const normalized = normalizePath(path);
+  if (!isAbsolutePath(normalized) || normalized.includes("://")) return null;
+  const prefix = /^[A-Za-z]:\//.test(normalized) ? normalized.slice(0, 3) : "/";
+  const rest = prefix === "/" ? normalized : normalized.slice(3);
+  const segments = rest.split("/").filter(Boolean);
+  if (segments.some((segment) => segment === "." || segment === ".."))
+    return null;
+  return `${prefix}${segments.join("/")}`.replace(/\/$/, "") || "/";
+}
+
+function sameBackendSnapshot(
+  left: ReturnType<typeof getActiveBackend>,
+  right: ReturnType<typeof getActiveBackend>,
+): boolean {
+  return (
+    left.backend.id === right.backend.id &&
+    left.backend.host === right.backend.host &&
+    left.backend.connectionRevision === right.backend.connectionRevision &&
+    left.orgId === right.orgId
+  );
+}
+
+async function isPathInTrustedSkillRoots(filePath: string): Promise<boolean> {
+  const snapshot = getActiveBackend();
+  if (snapshot.backend.kind === "cloud") return false;
+  const normalized = normalizeAbsolutePath(filePath);
+  if (!normalized) return false;
+  let dckRoot: string;
+  try {
+    dckRoot = getDckWorkspaceRoot();
+  } catch {
+    return false;
+  }
+  const roots: string[] = [dckRoot];
+  const discoveredRoots = await Promise.allSettled([
+    resolveAbsoluteAgentServerPath(getAgentServerWorkingDir()),
+    getAgentServerHomeDir(),
+  ]);
+  discoveredRoots.forEach((result) => {
+    if (result.status === "fulfilled") roots.push(result.value);
+  });
+  if (!sameBackendSnapshot(snapshot, getActiveBackend())) return false;
+  const trustedRoots = roots
+    .map(normalizeAbsolutePath)
+    .filter((root): root is string => Boolean(root));
+  return trustedRoots.some(
+    (root) => normalized === root || normalized.startsWith(`${root}/`),
+  );
 }
 
 function isSinglePathSegment(value: string): boolean {
@@ -191,7 +244,11 @@ async function toSummary(
   } catch {
     // Preserve the skill in the manager if path discovery is unavailable.
   }
-  const fileParts = filePath ? getSkillFilePathParts(filePath) : null;
+  const inTrustedRoot = Boolean(
+    filePath && (await isPathInTrustedSkillRoots(filePath).catch(() => false)),
+  );
+  const fileParts =
+    filePath && inTrustedRoot ? getSkillFilePathParts(filePath) : null;
   return {
     name: skill.name,
     description: skill.description ?? null,
@@ -202,7 +259,10 @@ async function toSummary(
     builtin: isBuiltinSkill(skill),
     editable: Boolean(fileParts && filePath),
     deletable: Boolean(
-      !isBuiltinSkill(skill) && filePath && getSkillDeleteTarget(filePath),
+      !isBuiltinSkill(skill) &&
+      fileParts &&
+      filePath &&
+      getSkillDeleteTarget(filePath),
     ),
     filePath: fileParts ? filePath : null,
   };
@@ -210,28 +270,38 @@ async function toSummary(
 
 export async function readSkillFile(
   filePath: string,
-  fileClient: FileClient = getFileClient(),
+  fileClient?: FileClient,
 ): Promise<string> {
-  if (!getSkillFilePathParts(filePath)) {
+  if (
+    !getSkillFilePathParts(filePath) ||
+    !(await isPathInTrustedSkillRoots(filePath))
+  ) {
     throw new Error("Unsupported skill file path");
   }
-  return fileClient.downloadTextFile(filePath);
+  return (fileClient ?? getFileClient()).downloadTextFile(filePath);
 }
 
 export async function writeSkillFile(
   filePath: string,
   source: string,
-  fileClient: FileClient = getFileClient(),
+  fileClient?: FileClient,
 ): Promise<void> {
   const parts = getSkillFilePathParts(filePath);
-  if (!parts || !isAbsolutePath(filePath)) {
+  if (!parts || !(await isPathInTrustedSkillRoots(filePath))) {
     throw new Error("Unsupported skill file path");
   }
-  await fileClient.uploadTextFile(source, parts.directory, parts.fileName);
+  await (fileClient ?? getFileClient()).uploadTextFile(
+    source,
+    parts.directory,
+    parts.fileName,
+  );
 }
 
 export async function deleteSkillFile(filePath: string): Promise<void> {
-  if (!isAbsolutePath(filePath) || !getSkillDeleteTarget(filePath)) {
+  if (
+    !getSkillDeleteTarget(filePath) ||
+    !(await isPathInTrustedSkillRoots(filePath))
+  ) {
     throw new Error("Unsupported skill delete path");
   }
 
@@ -251,18 +321,23 @@ export async function deleteSkillFile(filePath: string): Promise<void> {
 export async function writeProjectSkill(
   slug: string,
   fields: SkillMarkdownFields,
-  fileClient: FileClient = getFileClient(),
+  fileClient?: FileClient,
 ): Promise<void> {
+  const snapshot = getActiveBackend();
+  if (!SKILL_SLUG_PATTERN.test(slug))
+    throw new Error("Unsupported skill folder");
   const directory = skillDirPath(getDckWorkspaceRoot(), slug);
+  const filePath = `${directory}/${SKILL_FILE_NAME}`;
+  if (!(await isPathInTrustedSkillRoots(filePath)))
+    throw new Error("Unsupported skill file path");
+  const client = fileClient ?? getFileClient();
   try {
-    await fileClient.downloadTextFile(`${directory}/SKILL.md`);
+    await client.downloadTextFile(filePath);
   } catch (error) {
     if (!isSdkHttpStatusError(error, 404)) throw error;
-    await fileClient.uploadTextFile(
-      serializeSkillMarkdown(fields),
-      directory,
-      "SKILL.md",
-    );
+    if (!sameBackendSnapshot(snapshot, getActiveBackend()))
+      throw new Error("Active skill backend changed");
+    await writeSkillFile(filePath, serializeSkillMarkdown(fields), client);
     return;
   }
   throw new Error("A skill already exists at this path. Open it to edit.");

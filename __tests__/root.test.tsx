@@ -219,7 +219,7 @@ describe("App root agent-server availability guard", () => {
   it("lets root-level onboarding navigate to the launched conversation before closing", async () => {
     server.use(
       http.get("*/server_info", () =>
-        HttpResponse.json({ uptime: 0, idle_time: 0, version: "1.52.0" }),
+        HttpResponse.json({ uptime: 0, idle_time: 0, version: "1.56.0" }),
       ),
     );
 
@@ -371,7 +371,7 @@ describe("App root agent-server availability guard", () => {
         }),
       ),
       http.get("*/server_info", () =>
-        HttpResponse.json({ uptime: 0, idle_time: 0, version: "1.52.0" }),
+        HttpResponse.json({ uptime: 0, idle_time: 0, version: "1.56.0" }),
       ),
     );
 
@@ -427,7 +427,7 @@ describe("App root agent-server availability guard", () => {
         }),
       ),
       http.get("*/server_info", () =>
-        HttpResponse.json({ uptime: 0, idle_time: 0, version: "1.52.0" }),
+        HttpResponse.json({ uptime: 0, idle_time: 0, version: "1.56.0" }),
       ),
     );
 
@@ -720,7 +720,7 @@ describe("App root agent-server availability guard", () => {
         }),
       ),
       http.get("*/server_info", () =>
-        HttpResponse.json({ uptime: 0, idle_time: 0, version: "1.52.0" }),
+        HttpResponse.json({ uptime: 0, idle_time: 0, version: "1.56.0" }),
       ),
     );
 

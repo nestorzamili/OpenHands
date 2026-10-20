@@ -34,17 +34,21 @@ import * as telemetry from "#/services/telemetry";
 const deviceFlowMocks = vi.hoisted(() => ({
   startDeviceFlow: vi.fn(),
   pollForToken: vi.fn(),
+  countConversations: vi.fn().mockResolvedValue(0),
 }));
 
-const getServerInfoMock = vi.fn().mockResolvedValue({ version: "1.52.0" });
-const countConversationsMock = vi.fn().mockResolvedValue(0);
+const getServerInfoMock = vi.fn().mockResolvedValue({ version: "1.56.0" });
+const getSettingsMock = vi.fn().mockResolvedValue({});
 
 vi.mock("@openhands/typescript-client/clients", () => ({
   ServerClient: vi.fn(function ServerClientMock() {
     return { getServerInfo: getServerInfoMock };
   }),
   ConversationClient: vi.fn(function ConversationClientMock() {
-    return { countConversations: countConversationsMock };
+    return { countConversations: deviceFlowMocks.countConversations };
+  }),
+  SettingsClient: vi.fn(function SettingsClientMock() {
+    return { getSettings: getSettingsMock };
   }),
 }));
 
@@ -164,9 +168,11 @@ beforeEach(() => {
   vi.spyOn(telemetry, "isTelemetryEnabled").mockReturnValue(true);
   window.localStorage.clear();
   getServerInfoMock.mockReset();
-  getServerInfoMock.mockResolvedValue({ version: "1.52.0" });
-  countConversationsMock.mockReset();
-  countConversationsMock.mockResolvedValue(0);
+  getServerInfoMock.mockResolvedValue({ version: "1.56.0" });
+  getSettingsMock.mockReset();
+  getSettingsMock.mockResolvedValue({});
+  deviceFlowMocks.countConversations.mockReset();
+  deviceFlowMocks.countConversations.mockResolvedValue(0);
   vi.mocked(getCloudOrganizations).mockReset();
   vi.mocked(getCloudOrganizations).mockResolvedValue({
     items: [],
@@ -224,12 +230,12 @@ describe("ManageBackendsModal", () => {
   });
 
   it("shows invalid API key status when the backend auth probe returns 401", async () => {
-    countConversationsMock.mockRejectedValue(
-      Object.assign(new Error("Unauthorized"), {
-        name: "HttpError",
-        status: 401,
-      }),
-    );
+    const unauthorized = Object.assign(new Error("Unauthorized"), {
+      name: "HttpError",
+      status: 401,
+    });
+    getSettingsMock.mockRejectedValue(unauthorized);
+    deviceFlowMocks.countConversations.mockRejectedValue(unauthorized);
 
     renderWithProviders(<ManageBackendsModal onClose={vi.fn()} />);
 
@@ -260,7 +266,7 @@ describe("ManageBackendsModal", () => {
     );
     expect(
       screen.getByTestId("manage-backends-status-detail-Local"),
-    ).toHaveTextContent("Agent Canvas requires agent-server 1.51.0 or newer");
+    ).toHaveTextContent("Agent Canvas requires agent-server 1.55.0 or newer");
   });
 
   // @spec BM-002 — Switching backends from Manage backends redirects a

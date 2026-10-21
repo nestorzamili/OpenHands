@@ -27,11 +27,13 @@ import { SkillsToolbar } from "#/components/features/skills/skills-toolbar";
 import { CustomSkillAuthoring } from "#/components/features/skills/custom-skill-authoring";
 import { useSettings } from "#/hooks/query/use-settings";
 import { useActiveBackend } from "#/contexts/active-backend-context";
+import { useSkillCatalog } from "#/hooks/query/use-skill-catalog";
 import { useSkills } from "#/hooks/query/use-skills";
 import { useSkillEnablement } from "#/hooks/use-skill-enablement";
+import { getAgentServerWorkingDir } from "#/api/agent-server-config";
 import { I18nKey } from "#/i18n/declaration";
 import type { SkillInfo } from "#/types/settings";
-import { isBuiltinSkill } from "#/utils/skill-scope";
+import { getSkillScope, isBuiltinSkill } from "#/utils/skill-scope";
 import {
   extensionModuleCardGridClassName,
   extensionModuleCardGridContainerClassName,
@@ -45,10 +47,22 @@ const SEARCH_URL_SYNC_DELAY_MS = 300;
 function SkillsSettingsScreen() {
   const { t } = useTranslation("openhands");
 
-  const { data: settings, isLoading: settingsLoading } = useSettings();
-  const { data: skills, isLoading: skillsLoading } = useSkills();
-  const { isEnabled, setEnabled } = useSkillEnablement();
   const { backend, orgId } = useActiveBackend();
+  const isCloud = backend.kind === "cloud";
+  const { data: settings, isLoading: settingsLoading } = useSettings();
+  const { data: inventorySkills, isLoading: inventoryLoading } = useSkills();
+  const catalog = useSkillCatalog({ enabled: !isCloud });
+  const catalogSkills = catalog.data ?? [];
+  const projectSkills = (inventorySkills ?? []).filter(
+    (skill) =>
+      getSkillScope(skill, getAgentServerWorkingDir()) === "project" &&
+      !isBuiltinSkill(skill),
+  );
+  const skills = isCloud
+    ? inventorySkills
+    : [...catalogSkills, ...projectSkills];
+  const skillsLoading = inventoryLoading || (!isCloud && catalog.isLoading);
+  const { isEnabled, setEnabled, isUnavailable } = useSkillEnablement();
 
   const [searchParams, setSearchParams] = useSearchParams();
   const [queryInput, setQueryInput] = React.useState(
@@ -169,6 +183,14 @@ function SkillsSettingsScreen() {
               >
                 {t(I18nKey.SETTINGS$SKILLS_NEW_CONVERSATION_NOTICE)}
               </div>
+              {!isCloud ? (
+                <div
+                  data-testid="skills-default-list-notice"
+                  className="max-w-2xl text-xs text-tertiary-alt"
+                >
+                  {t(I18nKey.SETTINGS$SKILLS_DEFAULT_LIST_NOTICE)}
+                </div>
+              ) : null}
               <p className="max-w-2xl text-xs text-tertiary-alt">
                 {t(I18nKey.SETTINGS$SKILLS_MODULE_PROFILE_NOTICE)}
               </p>
@@ -304,20 +326,11 @@ function SkillsSettingsScreen() {
                             key={`${skill.name}:${skill.source ?? ""}:${index}`}
                             skill={skill}
                             enabled={isEnabled(skill)}
-                            onOpen={() => {
-                              if (
-                                !isBuiltinSkill(skill) &&
-                                backend.kind !== "cloud"
-                              ) {
-                                setAuthoringSkill(skill);
-                                setShowSkillManager(true);
-                              } else {
-                                setSelectedSkill(skill);
-                              }
-                            }}
+                            onOpen={() => setSelectedSkill(skill)}
                             onToggle={(enabled) =>
                               setEnabled(skill.name, enabled)
                             }
+                            isToggleDisabled={isUnavailable}
                           />
                         ))}
                       </div>
@@ -345,6 +358,16 @@ function SkillsSettingsScreen() {
             enabled={isEnabled(selectedSkill)}
             onToggle={(enabled) => setEnabled(selectedSkill.name, enabled)}
             onClose={() => setSelectedSkill(null)}
+            isToggleDisabled={isUnavailable}
+            onEdit={
+              !isCloud && !isBuiltinSkill(selectedSkill)
+                ? () => {
+                    setSelectedSkill(null);
+                    setAuthoringSkill(selectedSkill);
+                    setShowSkillManager(true);
+                  }
+                : undefined
+            }
           />
         )}
 

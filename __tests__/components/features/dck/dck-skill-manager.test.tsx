@@ -252,6 +252,114 @@ describe("DckSkillManager", () => {
     );
   });
 
+  it("closes after discarding edits without opening delete confirmation", async () => {
+    const onClose = vi.fn();
+    const user = userEvent.setup();
+    renderManager(
+      {
+        name: "my-skill",
+        source: "/projects/.agents/skills/my-skill/SKILL.md",
+      },
+      onClose,
+    );
+    await user.click(await screen.findByTestId("dck-skill-tab-editor"));
+    const editor = await screen.findByTestId("dck-skill-source-textarea");
+    fireEvent.change(editor, {
+      target: { value: `${projectSkillSource}changed` },
+    });
+    await user.click(screen.getByTestId("dck-skill-manager-close"));
+    await user.click(screen.getByTestId("dck-skill-discard-confirm-button"));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId("dck-skill-delete-confirm")).toBeNull();
+    expect(executeCommandMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps edits made during a pending save dirty and preserves mixed line endings", async () => {
+    let resolveUpload!: (value: { success: true }) => void;
+    uploadTextFileMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveUpload = resolve;
+        }),
+    );
+    const mixedSource = personalSkillSource.replace(
+      "  Personal line two\r\n",
+      "  Personal line two\n",
+    );
+    const originalDownload = downloadTextFileMock.getMockImplementation()!;
+    downloadTextFileMock.mockImplementation(async (path: string) =>
+      path === "/home/agent/.agents/skills/personal-skill/SKILL.md"
+        ? mixedSource
+        : originalDownload(path),
+    );
+    const user = userEvent.setup();
+    renderManager({ name: "personal-skill", source: "user" });
+    await user.click(await screen.findByTestId("dck-skill-tab-editor"));
+    const editor = await screen.findByTestId("dck-skill-source-textarea");
+    const firstEdit = mixedSource.replace(
+      "Personal line one",
+      "Edited line one",
+    );
+    fireEvent.change(editor, { target: { value: firstEdit } });
+    await user.click(screen.getByTestId("dck-skill-editor-save"));
+    await waitFor(() => expect(uploadTextFileMock).toHaveBeenCalledTimes(1));
+    const secondEdit = firstEdit.replace(
+      "Personal instructions",
+      "Edited instructions",
+    );
+    fireEvent.change(editor, { target: { value: secondEdit } });
+    resolveUpload({ success: true });
+    await waitFor(() =>
+      expect(screen.getByTestId("dck-skill-manager-close")).toBeEnabled(),
+    );
+    expect(editor).toHaveValue(secondEdit.replace(/\r\n/g, "\n"));
+    expect(screen.getByTestId("dck-skill-editor-save")).toBeEnabled();
+    expect(uploadTextFileMock).toHaveBeenNthCalledWith(
+      1,
+      firstEdit,
+      "/home/agent/.agents/skills/personal-skill",
+      "SKILL.md",
+    );
+    await user.click(screen.getByTestId("dck-skill-editor-save"));
+    await waitFor(() =>
+      expect(uploadTextFileMock).toHaveBeenNthCalledWith(
+        2,
+        secondEdit,
+        "/home/agent/.agents/skills/personal-skill",
+        "SKILL.md",
+      ),
+    );
+  });
+
+  it("retains selection by file path after a source edit renames the skill", async () => {
+    const user = userEvent.setup();
+    const path = "/projects/.agents/skills/my-skill/SKILL.md";
+    renderManager({ name: "my-skill", source: path });
+    await user.click(await screen.findByTestId("dck-skill-tab-editor"));
+    const editor = await screen.findByTestId("dck-skill-source-textarea");
+    const renamed = projectSkillSource.replace(
+      "name: my-skill",
+      "name: renamed skill",
+    );
+    uploadTextFileMock.mockImplementationOnce(async () => {
+      getSkillsMock.mockResolvedValue([
+        { name: "renamed skill", source: path, content: renamed },
+      ]);
+      downloadTextFileMock.mockResolvedValue(renamed);
+      return { success: true };
+    });
+    fireEvent.change(editor, { target: { value: renamed } });
+    await user.click(screen.getByTestId("dck-skill-editor-save"));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("heading", { name: "renamed skill" }),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId("dck-skill-unavailable")).toBeNull();
+    expect(screen.getByTestId("dck-skill-source-textarea")).toBe(editor);
+    expect(editor).toHaveValue(renamed);
+  });
+
   it("blocks saving an invalid skill and does not write", async () => {
     const user = userEvent.setup();
     renderManager();

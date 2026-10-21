@@ -198,6 +198,8 @@ function SkillDetails({
   const fallbackContent = skill.content ?? "";
   const [source, setSource] = React.useState(fallbackContent);
   const [savedSource, setSavedSource] = React.useState(fallbackContent);
+  const sourceRef = React.useRef(fallbackContent);
+  sourceRef.current = source;
   const [isLoading, setIsLoading] = React.useState(Boolean(skill.filePath));
   const [loadError, setLoadError] = React.useState(false);
   const canEdit = !skill.builtin && skill.editable && Boolean(skill.filePath);
@@ -205,8 +207,6 @@ function SkillDetails({
 
   React.useEffect(() => {
     let cancelled = false;
-    setSource(fallbackContent);
-    setSavedSource(fallbackContent);
     setLoadError(false);
 
     if (!skill.filePath) {
@@ -234,7 +234,7 @@ function SkillDetails({
     return () => {
       cancelled = true;
     };
-  }, [fallbackContent, skill.filePath]);
+  }, [skill.filePath]);
 
   const lineEnding = source.includes("\r\n") ? "\r\n" : "\n";
   const preview =
@@ -245,9 +245,10 @@ function SkillDetails({
 
   const handleSave = async () => {
     if (!canEdit || !isDirty) return;
-    if (await onSave(source)) {
-      setSavedSource(source);
-      onDirtyChange(false);
+    const submittedSource = source;
+    if (await onSave(submittedSource)) {
+      setSavedSource(submittedSource);
+      onDirtyChange(sourceRef.current !== submittedSource);
     }
   };
 
@@ -372,7 +373,7 @@ function SkillDetails({
                   value={source}
                   onChange={(event) => {
                     const nextSource = applySkillSourceEdit(
-                      savedSource,
+                      source,
                       event.target.value,
                       lineEnding,
                     );
@@ -551,14 +552,21 @@ export function CustomSkillAuthoring({
   const [hasUnsavedChanges, setHasUnsavedChanges] = React.useState(false);
   const [deletingSkill, setDeletingSkill] =
     React.useState<ProjectSkillSummary | null>(null);
-  const [pendingClose, setPendingClose] = React.useState(false);
-  const summary = selectedSkill
-    ? skills.find(
-        (skill) =>
-          skill.name === selectedSkill.name &&
-          skill.source === selectedSkill.source,
-      )
-    : undefined;
+  const [pendingClose, setPendingClose] = React.useState<
+    "close" | "delete" | null
+  >(null);
+  const [selectedFilePath, setSelectedFilePath] = React.useState<string | null>(
+    null,
+  );
+  const summary = selectedFilePath
+    ? skills.find((skill) => skill.filePath === selectedFilePath)
+    : selectedSkill
+      ? skills.find(
+          (skill) =>
+            skill.name === selectedSkill.name &&
+            skill.source === selectedSkill.source,
+        )
+      : undefined;
   const reservedNames = skills
     .filter((skill) => skill.builtin)
     .map((skill) => skill.name);
@@ -567,7 +575,7 @@ export function CustomSkillAuthoring({
     .map((skill) => skill.filePath?.replace(/\\/g, "/").split("/").at(-2))
     .filter((name): name is string => Boolean(name));
   const handleCloseRequest = () => {
-    if (hasUnsavedChanges) setPendingClose(true);
+    if (hasUnsavedChanges) setPendingClose("close");
     else {
       void refetch();
       onClose();
@@ -592,6 +600,7 @@ export function CustomSkillAuthoring({
     source: string,
   ) => {
     if (skill.builtin || !skill.editable || !skill.filePath) return false;
+    setSelectedFilePath(skill.filePath);
     try {
       await saveSkillSource(skill.filePath, source);
       return true;
@@ -664,7 +673,7 @@ export function CustomSkillAuthoring({
                 </p>
               ) : summary.builtin ? (
                 <SkillDetails
-                  key={`${summary.name}-${summary.source}`}
+                  key={summary.filePath ?? summary.source}
                   skill={summary}
                   tab="preview"
                   onTabChange={() => {}}
@@ -675,7 +684,7 @@ export function CustomSkillAuthoring({
               ) : (
                 <>
                   <SkillDetails
-                    key={`${summary.name}-${summary.source}`}
+                    key={summary.filePath ?? summary.source}
                     skill={summary}
                     tab={tab}
                     onTabChange={setTab}
@@ -692,7 +701,7 @@ export function CustomSkillAuthoring({
                         startContent={<Trash2 size={16} aria-hidden />}
                         isDisabled={isSaving || isDeleting}
                         onClick={() => {
-                          if (hasUnsavedChanges) setPendingClose(true);
+                          if (hasUnsavedChanges) setPendingClose("delete");
                           else setDeletingSkill(summary);
                         }}
                       >
@@ -727,11 +736,12 @@ export function CustomSkillAuthoring({
         {pendingClose && (
           <DiscardSkillChangesConfirm
             skillName={summary?.name ?? ""}
-            onKeepEditing={() => setPendingClose(false)}
+            onKeepEditing={() => setPendingClose(null)}
             onDiscard={() => {
-              setPendingClose(false);
+              const intent = pendingClose;
+              setPendingClose(null);
               setHasUnsavedChanges(false);
-              if (summary) setDeletingSkill(summary);
+              if (intent === "delete" && summary) setDeletingSkill(summary);
               else {
                 void refetch();
                 onClose();

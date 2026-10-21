@@ -44,6 +44,7 @@ export const APP_PREFERENCE_FIELDS = [
   "run_router_at_conversation_start",
   "workspace_file_discovery",
   "dck_module_agent_profile_assignments",
+  "default_profile_migrated",
 ] as const;
 
 export type AppPreferenceField = (typeof APP_PREFERENCE_FIELDS)[number];

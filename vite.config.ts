@@ -238,6 +238,8 @@ export default defineConfig(({ mode, command }) => {
           lib: {
             entry: LIB_ENTRY,
             formats: ["es"],
+            // Exported as @openhands/agent-canvas/styles.css.
+            cssFileName: "styles",
           },
           rollupOptions: {
             output: [
@@ -247,7 +249,6 @@ export default defineConfig(({ mode, command }) => {
                 preserveModulesRoot: "src",
                 entryFileNames: "[name].js",
                 chunkFileNames: "chunks/[name]-[hash].js",
-                assetFileNames: "assets/[name]-[hash][extname]",
               },
               {
                 format: "cjs",
@@ -255,7 +256,6 @@ export default defineConfig(({ mode, command }) => {
                 preserveModulesRoot: "src",
                 entryFileNames: "[name].cjs",
                 chunkFileNames: "chunks/[name]-[hash].cjs",
-                assetFileNames: "assets/[name]-[hash][extname]",
                 exports: "named",
               },
             ],

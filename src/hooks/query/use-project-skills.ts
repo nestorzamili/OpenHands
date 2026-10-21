@@ -21,6 +21,7 @@ import {
   type SkillMarkdownFields,
 } from "#/dck/skill-authoring";
 import { useActiveBackend } from "#/contexts/active-backend-context";
+import { SKILL_CATALOG_QUERY_KEYS } from "#/hooks/query/query-keys";
 import { getActiveBackend } from "#/api/backend-registry/active-store";
 import type { SkillInfo } from "#/types/settings";
 import {
@@ -374,6 +375,9 @@ export function useProjectSkills() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: listKey });
       void queryClient.invalidateQueries({ queryKey: managerKey });
+      void queryClient.invalidateQueries({
+        queryKey: SKILL_CATALOG_QUERY_KEYS.all,
+      });
     },
   });
   const saveSource = useMutation<
@@ -385,6 +389,9 @@ export function useProjectSkills() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: listKey });
       void queryClient.invalidateQueries({ queryKey: managerKey });
+      void queryClient.invalidateQueries({
+        queryKey: SKILL_CATALOG_QUERY_KEYS.all,
+      });
     },
   });
   const remove = useMutation<void, Error, string>({
@@ -392,6 +399,9 @@ export function useProjectSkills() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: listKey });
       void queryClient.invalidateQueries({ queryKey: managerKey });
+      void queryClient.invalidateQueries({
+        queryKey: SKILL_CATALOG_QUERY_KEYS.all,
+      });
     },
   });
 

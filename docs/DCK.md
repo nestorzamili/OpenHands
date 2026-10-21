@@ -4,12 +4,12 @@ DCK Agentic adalah kustomisasi Agent Canvas pada branch `dev`. Konfigurasi deplo
 
 ## Modul dan penyimpanan
 
-| Modul | Workspace | Hasil |
-| --- | --- | --- |
-| WebGen | `/projects/webgen/<slug>` | Aplikasi Next.js dengan satu service Compose, dikelola host WebGen control. |
-| Research | `/projects/research` | Laporan riset dengan sumber dan tanggal. |
-| Analytics | `/projects/analytics` | Analisis data, SQL, visualisasi, dan materi Power BI. |
-| Content | `/projects/content` | Artikel, caption, naskah, dan kalender konten. |
+| Modul     | Workspace                 | Hasil                                                                       |
+| --------- | ------------------------- | --------------------------------------------------------------------------- |
+| WebGen    | `/projects/webgen/<slug>` | Aplikasi Next.js dengan satu service Compose, dikelola host WebGen control. |
+| Research  | `/projects/research`      | Laporan riset dengan sumber dan tanggal.                                    |
+| Analytics | `/projects/analytics`     | Analisis data, SQL, visualisasi, dan materi Power BI.                       |
+| Content   | `/projects/content`       | Artikel, caption, naskah, dan kalender konten.                              |
 
 Definisi modul dan override bawaan disimpan di workspace `.dck/modules.json`. Assignment Agent Profile disimpan melalui settings server dan dibatasi oleh workspace serta organisasi. Modul tanpa profil valid tidak membuat percakapan baru. Assignment yang dihapus dikirim sebagai tombstone `null`. Kegagalan membaca registry selain file tidak ditemukan memblokir penulisan.
 
@@ -19,7 +19,7 @@ Apps tersemat menggunakan Customize → Apps (`/apps`). Penjadwalan memakai fitu
 
 Modul DCK hanya memilih Agent Profile native; model/provider, tools, verification, serta pemilihan Skills dimiliki profil tersebut, bukan konfigurasi agen kedua di DCK. Workspace, navigasi, dan task starter tetap dimiliki modul. Prompt task tidak lagi ditambahi trigger berdasarkan `skillNames` modul. Nilai lama tetap disimpan tanpa normalisasi nama dan ditampilkan read-only sebagai referensi; membuka atau mengedit modul tidak otomatis mengubah profil yang mungkin digunakan modul lain. Pilih Skills opsional melalui editor Agent Profiles sebelum membuat percakapan baru. Referensi bawaan lama adalah WebGen → `web-generator`, Research → `social-trends-researcher`, Analytics → `data-analytics`, dan Content → `content-creator`; referensi ini bukan bukti bahwa skill tersebut aktif pada profil.
 
-Halaman Skills native (`/skills`) menjadi katalog tunggal, dengan filter Custom, preview built-in, dan authoring custom dari kartu yang dipilih. Editor custom memakai file sumber lengkap, termasuk YAML/frontmatter dan metadata yang tidak dikenali; save/delete tetap memakai file serta scope project/personal yang telah diverifikasi. Membuat atau menyimpan skill tidak otomatis memilihnya untuk profil modul. Tombol Skills global pada halaman native bukan pengganti pemilihan Skills per-profile.
+Halaman Skills native (`/skills`) menjadi katalog tunggal untuk public/user dari Agent Server, ditambah inventori skill project yang tetap tersedia. Detail dan Use Skill in Chat memakai perilaku native; authoring source custom menjadi aksi Edit terpisah pada kartu yang dipilih. Editor custom memakai file sumber lengkap, termasuk YAML/frontmatter dan metadata yang tidak dikenali; save/delete tetap memakai file serta scope project/personal yang telah diverifikasi. Membuat atau menyimpan skill tidak otomatis memilihnya untuk profil modul. Pada backend Local, toggle halaman Skills memakai seleksi profil `default` native setelah migrasi bawaan; profil lain tetap memiliki seleksinya sendiri.
 
 Boundary read/write/delete authoring menolak path di luar root DCK, working directory agent-server, atau home agent-server, serta menolak traversal, URL, dan pergantian backend/organisasi saat resolusi root. Pemeriksaan containment ini bersifat leksikal; typed FileClient saat ini tidak menyediakan verifikasi realpath/symlink. Ini pengaman UI untuk deployment internal tepercaya, bukan sandbox atau pengganti izin filesystem server.
 

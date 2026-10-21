@@ -740,9 +740,10 @@ export function CustomSkillAuthoring({
             onDiscard={() => {
               const intent = pendingClose;
               setPendingClose(null);
-              setHasUnsavedChanges(false);
-              if (intent === "delete" && summary) setDeletingSkill(summary);
-              else {
+              if (intent === "delete" && summary) {
+                setDeletingSkill(summary);
+              } else {
+                setHasUnsavedChanges(false);
                 void refetch();
                 onClose();
               }

@@ -71,6 +71,7 @@
     "winston": "3.19.0",
     "winston-daily-rotate-file": "5.0.0",
     "ws": "8.21.0",
+    "yaml": "2.9.0",
     "zustand": "5.0.14"
   },
   "scripts": {

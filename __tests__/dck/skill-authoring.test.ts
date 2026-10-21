@@ -82,6 +82,23 @@ describe("serializeSkillMarkdown", () => {
     expect(text).not.toContain("triggers:");
     expect(text).not.toContain("description:");
   });
+  it.each([
+    "123",
+    "yes",
+    "null",
+    "2026-10-21",
+    "line\nbreak",
+    'a "quote" \\ path',
+    "a, b",
+  ])("preserves string fields containing %j", (value) => {
+    const fields = {
+      name: "guide",
+      description: value,
+      triggers: [value],
+      body: "Instructions.",
+    };
+    expect(parseSkillMarkdown(serializeSkillMarkdown(fields))).toEqual(fields);
+  });
 });
 
 describe("raw SKILL.md editing helpers", () => {
@@ -129,7 +146,7 @@ describe("raw SKILL.md editing helpers", () => {
 
 describe("validateSkillDraft", () => {
   const base: SkillDraft = {
-    name: "My Skill",
+    name: "my-skill",
     slug: "my-skill",
     description: "",
     triggers: [],
@@ -139,6 +156,28 @@ describe("validateSkillDraft", () => {
   it("accepts a valid draft", () => {
     expect(validateSkillDraft(base).valid).toBe(true);
   });
+  it.each([
+    "SEO Audit",
+    "MY-SKILL",
+    "-my-skill",
+    "my-skill-",
+    "my--skill",
+    "my_skill",
+    "different-skill",
+    "a".repeat(65),
+  ])("rejects a native-incompatible name %j", (name) => {
+    expect(validateSkillDraft({ ...base, name }).errors.name).toBe(
+      I18nKey.DCK$SKILL_NAME_INVALID,
+    );
+  });
+  it.each(["my-skill-", "my--skill", "MY-SKILL", "a".repeat(65)])(
+    "rejects a native-incompatible folder %j",
+    (slug) => {
+      expect(validateSkillDraft({ ...base, slug }).errors.slug).toBe(
+        I18nKey.DCK$SKILL_SLUG_INVALID,
+      );
+    },
+  );
 
   it("requires a name, slug, and body", () => {
     const result = validateSkillDraft({
@@ -168,7 +207,7 @@ describe("validateSkillDraft", () => {
 
   it("rejects a name that shadows a public skill", () => {
     const result = validateSkillDraft(
-      { ...base, name: "docker" },
+      { ...base, name: "docker", slug: "docker" },
       { reservedNames: ["docker"] },
     );
     expect(result.errors.name).toBe(I18nKey.DCK$SKILL_NAME_TAKEN);

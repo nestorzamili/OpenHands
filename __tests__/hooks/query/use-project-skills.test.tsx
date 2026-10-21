@@ -216,4 +216,24 @@ describe("Skills file scope boundaries", () => {
     expect(mocks.download).not.toHaveBeenCalled();
     expect(mocks.upload).not.toHaveBeenCalled();
   });
+  it.each([
+    ["seo-audit", "SEO Audit"],
+    ["seo-audit", "other-name"],
+    ["seo--audit", "seo--audit"],
+    ["a".repeat(65), "a".repeat(65)],
+  ])(
+    "rejects a native-incompatible create for %s / %s before filesystem I/O",
+    async (slug, name) => {
+      await expect(
+        writeProjectSkill(slug, {
+          name,
+          description: "Guide",
+          triggers: [],
+          body: "Instructions",
+        }),
+      ).rejects.toThrow("Unsupported");
+      expect(mocks.download).not.toHaveBeenCalled();
+      expect(mocks.upload).not.toHaveBeenCalled();
+    },
+  );
 });

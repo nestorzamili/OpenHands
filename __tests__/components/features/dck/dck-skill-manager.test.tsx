@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CustomSkillAuthoring } from "#/components/features/skills/custom-skill-authoring";
+import { parseSkillMarkdown } from "#/dck/skill-authoring";
 
 const getSkillsMock = vi.fn();
 const downloadTextFileMock = vi.fn();
@@ -379,7 +380,7 @@ describe("DckSkillManager", () => {
     renderManager();
 
     await user.type(screen.getByTestId("dck-skill-form-name"), "docker");
-    await user.type(screen.getByTestId("dck-skill-form-slug"), "my-docker");
+    await user.type(screen.getByTestId("dck-skill-form-slug"), "docker");
     await user.type(screen.getByTestId("dck-skill-form-body"), "Instructions");
     await user.click(screen.getByTestId("dck-skill-form-save"));
 
@@ -389,7 +390,7 @@ describe("DckSkillManager", () => {
     expect(uploadTextFileMock).not.toHaveBeenCalled();
   });
 
-  it("creates a valid skill and writes SKILL.md under .agents/skills", async () => {
+  it("requires a native-compatible name before writing SKILL.md under .agents/skills", async () => {
     const user = userEvent.setup();
     renderManager();
 
@@ -405,13 +406,24 @@ describe("DckSkillManager", () => {
     );
     await user.click(screen.getByTestId("dck-skill-form-save"));
 
+    expect(
+      await screen.findByTestId("dck-skill-form-name-error"),
+    ).toBeInTheDocument();
+    expect(uploadTextFileMock).not.toHaveBeenCalled();
+    await user.clear(screen.getByTestId("dck-skill-form-name"));
+    await user.type(screen.getByTestId("dck-skill-form-name"), "seo-audit");
+    await user.click(screen.getByTestId("dck-skill-form-save"));
+
     await waitFor(() => expect(uploadTextFileMock).toHaveBeenCalledTimes(1));
     const [text, dir, fileName] = uploadTextFileMock.mock.calls[0];
     expect(dir).toBe("/projects/.agents/skills/seo-audit");
     expect(fileName).toBe("SKILL.md");
-    expect(text).toContain("name: SEO Audit");
-    expect(text).toContain("- seo");
-    expect(text).toContain("Audit the site for SEO issues.");
+    expect(parseSkillMarkdown(text)).toEqual({
+      name: "seo-audit",
+      description: "",
+      triggers: ["seo", "audit"],
+      body: "Audit the site for SEO issues.",
+    });
   });
 
   it("rejects an existing storage slug even when its display name differs", async () => {
@@ -428,7 +440,7 @@ describe("DckSkillManager", () => {
     );
     const user = userEvent.setup();
     renderManager();
-    await user.type(screen.getByTestId("dck-skill-form-name"), "New writer");
+    await user.type(screen.getByTestId("dck-skill-form-name"), "copy");
     await user.type(screen.getByTestId("dck-skill-form-slug"), "copy");
     await user.type(
       screen.getByTestId("dck-skill-form-body"),
@@ -439,6 +451,28 @@ describe("DckSkillManager", () => {
       await screen.findByTestId("dck-skill-form-slug-error"),
     ).toBeInTheDocument();
     expect(uploadTextFileMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps the editor dirty when delete is cancelled after discarding", async () => {
+    const user = userEvent.setup();
+    renderManager({
+      name: "my-skill",
+      source: "/projects/.agents/skills/my-skill/SKILL.md",
+    });
+    await user.click(await screen.findByTestId("dck-skill-tab-editor"));
+    const editor = await screen.findByTestId("dck-skill-source-textarea");
+    fireEvent.change(editor, {
+      target: { value: `${projectSkillSource}changed` },
+    });
+
+    await user.click(screen.getByTestId("dck-skill-selected-delete"));
+    await user.click(screen.getByTestId("dck-skill-discard-confirm-button"));
+    await user.click(screen.getByTestId("dck-skill-delete-cancel"));
+
+    expect(editor).toHaveValue(`${projectSkillSource}changed`);
+    expect(screen.getByTestId("dck-skill-editor-save")).toBeEnabled();
+    await user.click(screen.getByTestId("dck-skill-manager-close"));
+    expect(screen.getByTestId("dck-skill-discard-confirm")).toBeInTheDocument();
   });
 
   it("deletes a project custom skill only after showing its exact folder", async () => {

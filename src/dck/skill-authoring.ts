@@ -1,3 +1,4 @@
+import { parse, stringify } from "yaml";
 import { I18nKey } from "#/i18n/declaration";
 
 const AGENTS_DIR_NAME = ".agents";
@@ -8,7 +9,7 @@ export const SKILLS_DIR_SEGMENT = `${AGENTS_DIR_NAME}/${SKILLS_SUBDIR_NAME}`;
 export const SKILL_FILE_NAME = "SKILL.md";
 const MARKDOWN_FILE_EXTENSION = ".md";
 
-export const SKILL_SLUG_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
+export const SKILL_SLUG_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const SLUG_MAX_LENGTH = 64;
 const NAME_MAX_LENGTH = 64;
 
@@ -69,26 +70,6 @@ export function extractSkillMarkdownBody(raw: string): string {
   return frontmatter ? raw.slice(frontmatter[0].length) : raw;
 }
 
-function escapeYamlScalar(value: string): string {
-  const needsQuote = /^[\s"'#:>|*&!%@`{}[\],]|[:#]\s|\s$/.test(value);
-  if (!needsQuote) return value;
-  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
-}
-
-function unquoteYamlScalar(value: string): string {
-  const trimmed = value.trim();
-  if (
-    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
-    (trimmed.startsWith("'") && trimmed.endsWith("'"))
-  ) {
-    const inner = trimmed.slice(1, -1);
-    return trimmed.startsWith('"')
-      ? inner.replace(/\\"/g, '"').replace(/\\\\/g, "\\")
-      : inner;
-  }
-  return trimmed;
-}
-
 /**
  * Parse a SKILL.md file into its frontmatter fields and Markdown body.
  *
@@ -113,50 +94,29 @@ export function parseSkillMarkdown(raw: string | null): SkillMarkdownFields {
   }
 
   const [, frontmatter, body] = match;
-  const lines = frontmatter.split(/\r?\n/);
-
-  let name = "";
-  let description = "";
-  const triggers: string[] = [];
-  let inTriggers = false;
-
-  for (const line of lines) {
-    const triggerItem = line.match(/^\s*-\s+(.*)$/);
-    if (inTriggers && triggerItem) {
-      const value = unquoteYamlScalar(triggerItem[1]);
-      if (value.length > 0) triggers.push(value);
-      continue;
+  let metadata: Record<string, unknown> = {};
+  try {
+    const parsed: unknown = parse(frontmatter, {
+      version: "1.1",
+      maxAliasCount: 0,
+    });
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      metadata = parsed as Record<string, unknown>;
     }
-
-    const keyValue = line.match(/^([A-Za-z0-9_-]+)\s*:\s*(.*)$/);
-    if (!keyValue) continue;
-    const [, key, rest] = keyValue;
-    inTriggers = false;
-
-    if (key === "name") {
-      name = unquoteYamlScalar(rest);
-    } else if (key === "description") {
-      description = unquoteYamlScalar(rest);
-    } else if (key === "triggers") {
-      inTriggers = true;
-      // Inline list form: `triggers: [a, b]`
-      const inline = rest.trim();
-      if (inline.startsWith("[") && inline.endsWith("]")) {
-        inline
-          .slice(1, -1)
-          .split(",")
-          .map((item) => unquoteYamlScalar(item))
-          .filter((item) => item.length > 0)
-          .forEach((item) => triggers.push(item));
-        inTriggers = false;
-      }
-    }
+  } catch {
+    return { ...empty, body: body.trim() };
   }
 
   return {
-    name,
-    description,
-    triggers,
+    name: typeof metadata.name === "string" ? metadata.name : "",
+    description:
+      typeof metadata.description === "string" ? metadata.description : "",
+    triggers: Array.isArray(metadata.triggers)
+      ? metadata.triggers.filter(
+          (value): value is string =>
+            typeof value === "string" && value.length > 0,
+        )
+      : [],
     body: body.trim(),
   };
 }
@@ -175,18 +135,17 @@ export function serializeSkillMarkdown(fields: SkillMarkdownFields): string {
     .filter((trigger) => trigger.length > 0);
   const body = fields.body.trim();
 
-  const lines: string[] = ["---", `name: ${escapeYamlScalar(name)}`];
-  if (description.length > 0) {
-    lines.push(`description: ${escapeYamlScalar(description)}`);
-  }
-  if (triggers.length > 0) {
-    lines.push("triggers:");
-    triggers.forEach((trigger) => {
-      lines.push(`  - ${escapeYamlScalar(trigger)}`);
-    });
-  }
-  lines.push("---", "");
-  return `${lines.join("\n")}\n${body}\n`;
+  const metadata = {
+    name,
+    ...(description.length > 0 ? { description } : {}),
+    ...(triggers.length > 0 ? { triggers } : {}),
+  };
+  const frontmatter = stringify(metadata, {
+    defaultStringType: "QUOTE_DOUBLE",
+    defaultKeyType: "PLAIN",
+    lineWidth: 0,
+  });
+  return `---\n${frontmatter}---\n\n${body}\n`;
 }
 
 export interface SkillDraft {
@@ -218,7 +177,7 @@ export function validateSkillDraft(
   options: ValidateSkillDraftOptions = {},
 ): SkillDraftValidation {
   const name = draft.name.trim();
-  const slug = draft.slug.trim().toLowerCase();
+  const slug = draft.slug.trim();
   const body = draft.body.trim();
 
   const existingSlugs = new Set(options.existingSlugs ?? []);
@@ -229,7 +188,11 @@ export function validateSkillDraft(
   let nameError: I18nKey | null = null;
   if (name.length === 0) {
     nameError = I18nKey.DCK$SKILL_NAME_REQUIRED;
-  } else if (name.length > NAME_MAX_LENGTH) {
+  } else if (
+    name.length > NAME_MAX_LENGTH ||
+    !SKILL_SLUG_PATTERN.test(name) ||
+    name !== slug
+  ) {
     nameError = I18nKey.DCK$SKILL_NAME_INVALID;
   } else if (reservedNames.has(name.toLowerCase())) {
     nameError = I18nKey.DCK$SKILL_NAME_TAKEN;

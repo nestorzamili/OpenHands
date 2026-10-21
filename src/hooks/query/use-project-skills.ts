@@ -18,6 +18,7 @@ import {
   getSkillDeleteTarget,
   serializeSkillMarkdown,
   skillDirPath,
+  validateSkillDraft,
   type SkillMarkdownFields,
 } from "#/dck/skill-authoring";
 import { useActiveBackend } from "#/contexts/active-backend-context";
@@ -325,7 +326,10 @@ export async function writeProjectSkill(
   fileClient?: FileClient,
 ): Promise<void> {
   const snapshot = getActiveBackend();
-  if (!SKILL_SLUG_PATTERN.test(slug))
+  if (
+    !SKILL_SLUG_PATTERN.test(slug) ||
+    !validateSkillDraft({ ...fields, slug }).valid
+  )
     throw new Error("Unsupported skill folder");
   const directory = skillDirPath(getDckWorkspaceRoot(), slug);
   const filePath = `${directory}/${SKILL_FILE_NAME}`;

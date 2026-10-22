@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRoutesStub } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -100,8 +106,8 @@ const RouterStub = createRoutesStub([
   },
 ]);
 
-const renderApp = (initialEntries: string[] = ["/"]) =>
-  render(<RouterStub initialEntries={initialEntries} />, {
+const renderApp = async (initialEntries: string[] = ["/"]) => {
+  const result = render(<RouterStub initialEntries={initialEntries} />, {
     wrapper: ({ children }) => (
       <QueryClientProvider
         client={
@@ -114,6 +120,11 @@ const renderApp = (initialEntries: string[] = ["/"]) =>
       </QueryClientProvider>
     ),
   });
+
+  // Wait for real lazy-loaded gates, not the query timeout for cold Vite imports.
+  await act(() => vi.dynamicImportSettled());
+  return result;
+};
 
 const COOKIE_DEPLOYMENT_ORIGIN = "https://pr-254.staging.openhands.dev";
 
@@ -177,7 +188,7 @@ describe("App root agent-server availability guard", () => {
     window.localStorage.clear();
     __resetActiveStoreForTests();
 
-    renderApp(["/"]);
+    await renderApp(["/"]);
 
     await waitFor(() => {
       expect(
@@ -200,7 +211,7 @@ describe("App root agent-server availability guard", () => {
     window.localStorage.clear();
     __resetActiveStoreForTests();
 
-    renderApp(["/"]);
+    await renderApp(["/"]);
 
     await waitFor(() => {
       expect(
@@ -223,7 +234,7 @@ describe("App root agent-server availability guard", () => {
       ),
     );
 
-    renderApp(["/"]);
+    await renderApp(["/"]);
 
     fireEvent.click(await screen.findByTestId("mock-onboarding-launch"));
 
@@ -246,17 +257,14 @@ describe("App root agent-server availability guard", () => {
     window.localStorage.clear();
     __resetActiveStoreForTests();
 
-    renderApp(["/"]);
-    await vi.dynamicImportSettled();
+    await renderApp(["/"]);
 
     await waitFor(() => {
       expect(
         screen.getByTestId("first-run-onboarding-screen"),
       ).toBeInTheDocument();
     });
-    expect(
-      await screen.findByTestId("onboarding-modal"),
-    ).toBeInTheDocument();
+    expect(await screen.findByTestId("onboarding-modal")).toBeInTheDocument();
     expect(
       screen.queryByTestId("agent-server-onboarding-screen"),
     ).not.toBeInTheDocument();
@@ -279,7 +287,7 @@ describe("App root agent-server availability guard", () => {
     window.localStorage.clear();
     __resetActiveStoreForTests();
 
-    renderApp(["/"]);
+    await renderApp(["/"]);
 
     await waitFor(() => {
       expect(
@@ -322,7 +330,7 @@ describe("App root agent-server availability guard", () => {
     );
     __resetActiveStoreForTests();
 
-    renderApp(["/"]);
+    await renderApp(["/"]);
 
     await waitFor(() => {
       expect(
@@ -375,7 +383,7 @@ describe("App root agent-server availability guard", () => {
       ),
     );
 
-    renderApp(["/"]);
+    await renderApp(["/"]);
 
     await waitFor(() => {
       expect(
@@ -431,7 +439,7 @@ describe("App root agent-server availability guard", () => {
       ),
     );
 
-    renderApp(["/"]);
+    await renderApp(["/"]);
 
     await waitFor(() => {
       expect(
@@ -462,7 +470,7 @@ describe("App root agent-server availability guard", () => {
     window.localStorage.setItem(ONBOARDING_COMPLETED_STORAGE_KEY, "1");
     __resetActiveStoreForTests();
 
-    renderApp(["/"]);
+    await renderApp(["/"]);
 
     await waitFor(() => {
       expect(
@@ -487,12 +495,90 @@ describe("App root agent-server availability guard", () => {
     window.localStorage.setItem(ONBOARDING_COMPLETED_STORAGE_KEY, "1");
     __resetActiveStoreForTests();
 
-    renderApp(["/"]);
+    await renderApp(["/"]);
 
     await waitFor(() => {
       expect(screen.getByTestId("api-key-entry-screen")).toBeInTheDocument();
     });
     expect(screen.queryByTestId("onboarding-modal")).not.toBeInTheDocument();
+  });
+
+  it("opens a ready DO session without the local API-key form when the backend carries a marsSessionId", async () => {
+    // A DigitalOcean MARS session is an ordinary `kind: "local"` backend with
+    // an intentionally empty guest key (the session's own agent-server key is
+    // set by the sandbox template, not us). On a page with no baked session
+    // key the auth gate must not treat it as an unkeyed local backend and show
+    // the full-screen local API-key form.
+    vi.stubEnv("VITE_AUTH_REQUIRED", "true");
+    vi.stubEnv("VITE_SESSION_API_KEY", "");
+    delete (window as unknown as Record<string, unknown>)
+      .__AGENT_CANVAS_SESSION_API_KEY__;
+    window.localStorage.clear();
+    window.localStorage.setItem(ONBOARDING_COMPLETED_STORAGE_KEY, "1");
+    window.localStorage.setItem(
+      "openhands-backends",
+      JSON.stringify([
+        {
+          id: "mars-session-1",
+          name: "DO session",
+          host: "http://127.0.0.1:8000",
+          apiKey: "",
+          kind: "local",
+          marsSessionId: "sess_1",
+          marsConfigId: "cfg_1",
+        },
+      ]),
+    );
+    window.localStorage.setItem(
+      "openhands-active-backend",
+      JSON.stringify({ backendId: "mars-session-1", orgId: null }),
+    );
+    __resetActiveStoreForTests();
+
+    renderApp(["/"]);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("app-outlet")).toBeInTheDocument();
+    });
+    expect(
+      screen.queryByTestId("api-key-entry-screen"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("still shows the API-key form for an ordinary keyless local backend", async () => {
+    // The marsSessionId exemption is scoped: an unrelated local backend with
+    // no key on a page with no baked key must still land on the local
+    // API-key form, not silently bypass the auth gate.
+    vi.stubEnv("VITE_AUTH_REQUIRED", "true");
+    vi.stubEnv("VITE_SESSION_API_KEY", "");
+    delete (window as unknown as Record<string, unknown>)
+      .__AGENT_CANVAS_SESSION_API_KEY__;
+    window.localStorage.clear();
+    window.localStorage.setItem(ONBOARDING_COMPLETED_STORAGE_KEY, "1");
+    window.localStorage.setItem(
+      "openhands-backends",
+      JSON.stringify([
+        {
+          id: "plain-local",
+          name: "Local server",
+          host: "http://127.0.0.1:8000",
+          apiKey: "",
+          kind: "local",
+        },
+      ]),
+    );
+    window.localStorage.setItem(
+      "openhands-active-backend",
+      JSON.stringify({ backendId: "plain-local", orgId: null }),
+    );
+    __resetActiveStoreForTests();
+
+    renderApp(["/"]);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("api-key-entry-screen")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("app-outlet")).not.toBeInTheDocument();
   });
 
   it("shows the manage-backends modal when the connected server reports an old version", async () => {
@@ -503,7 +589,7 @@ describe("App root agent-server availability guard", () => {
       ),
     );
 
-    renderApp(["/"]);
+    await renderApp(["/"]);
 
     await waitFor(() => {
       expect(
@@ -525,7 +611,7 @@ describe("App root agent-server availability guard", () => {
       ),
     );
 
-    renderApp(["/"]);
+    await renderApp(["/"]);
 
     await waitFor(() => {
       expect(
@@ -548,7 +634,7 @@ describe("App root agent-server availability guard", () => {
       }),
     );
 
-    renderApp(["/"]);
+    await renderApp(["/"]);
 
     await waitFor(() => {
       expect(
@@ -623,7 +709,7 @@ describe("App root agent-server availability guard", () => {
       ),
     );
 
-    renderApp(["/"]);
+    await renderApp(["/"]);
 
     await waitFor(() => {
       expect(
@@ -667,7 +753,7 @@ describe("App root agent-server availability guard", () => {
       ),
     );
 
-    renderApp(["/"]);
+    await renderApp(["/"]);
 
     await waitFor(() => {
       expect(
@@ -684,7 +770,7 @@ describe("App root agent-server availability guard", () => {
   it("renders the routed page when the agent server is reachable", async () => {
     window.localStorage.setItem(ONBOARDING_COMPLETED_STORAGE_KEY, "1");
 
-    renderApp(["/"]);
+    await renderApp(["/"]);
 
     await waitFor(() => {
       expect(screen.getByTestId("app-outlet")).toBeInTheDocument();
@@ -724,7 +810,7 @@ describe("App root agent-server availability guard", () => {
       ),
     );
 
-    renderApp(["/"]);
+    await renderApp(["/"]);
 
     await waitFor(() => {
       expect(
@@ -745,7 +831,7 @@ describe("App root agent-server availability guard", () => {
       .__AGENT_CANVAS_SESSION_API_KEY__;
     __resetActiveStoreForTests();
 
-    renderApp(["/"]);
+    await renderApp(["/"]);
 
     await waitFor(() => {
       expect(
@@ -794,7 +880,7 @@ describe("App root agent-server availability guard", () => {
     );
     __resetActiveStoreForTests();
 
-    renderApp(["/"]);
+    await renderApp(["/"]);
 
     await waitFor(() => {
       expect(assign).toHaveBeenCalledWith(
@@ -825,7 +911,7 @@ describe("App root agent-server availability guard", () => {
     );
 
     // Act
-    renderApp(["/"]);
+    await renderApp(["/"]);
 
     // Assert: main-app login, not the device-flow recovery modal.
     await waitFor(() => {
@@ -860,7 +946,7 @@ describe("App root agent-server availability guard", () => {
     );
 
     // Act
-    renderApp(["/"]);
+    await renderApp(["/"]);
 
     // Assert: the stale health verdict must not bounce a valid session to
     // /login (which would loop back via returnTo); the app renders instead.
@@ -919,7 +1005,7 @@ describe("App root agent-server availability guard", () => {
       ),
     );
 
-    renderApp(["/"]);
+    await renderApp(["/"]);
 
     // The first-run onboarding screen must NOT be mounted (no reopen),
     // and the routed app must render instead.

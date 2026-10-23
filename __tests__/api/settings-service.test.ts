@@ -394,13 +394,14 @@ describe("SettingsService", () => {
     expect(reloaded.workspace_file_discovery?.["/project"]).toEqual(options);
   });
 
-  it("round-trips DCK profile assignments through local app preferences", async () => {
+  it("round-trips DCK profile assignments and pinned automations together", async () => {
     const assignments = {
       '["org-1","/projects"]': {
         research: "deleted-profile",
         analytics: "profile-2",
       },
     };
+    const pinnedAutomations = ["automation-2", "automation-1"];
     let patchBody: unknown;
     server.use(
       http.patch("*/api/settings", async ({ request }) => {
@@ -415,6 +416,7 @@ describe("SettingsService", () => {
           misc_settings: {
             app_preferences: {
               dck_module_agent_profile_assignments: assignments,
+              home_pinned_automations: pinnedAutomations,
             },
           },
         }),
@@ -423,11 +425,13 @@ describe("SettingsService", () => {
 
     await SettingsService.saveSettings({
       dck_module_agent_profile_assignments: assignments,
+      home_pinned_automations: pinnedAutomations,
     });
     expect(patchBody).toEqual({
       misc_settings_diff: {
         app_preferences: {
           dck_module_agent_profile_assignments: assignments,
+          home_pinned_automations: pinnedAutomations,
         },
       },
     });
@@ -435,6 +439,7 @@ describe("SettingsService", () => {
     SettingsService.invalidateCache();
     const reloaded = await SettingsService.getSettings();
     expect(reloaded.dck_module_agent_profile_assignments).toEqual(assignments);
+    expect(reloaded.home_pinned_automations).toEqual(pinnedAutomations);
   });
 
   it("stores the title profile as a local app preference", async () => {

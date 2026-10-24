@@ -565,13 +565,13 @@ elif [ "${AGENT_CANVAS_ALLOW_LAN_SESSION_KEY:-false}" = "true" ]; then
   STATIC_SERVER_SESSION_KEY_ARGS+=(--allow-lan-session-key)
 fi
 # <<< docker-session-key-policy
-# --session-api-key is mutually exclusive with --auth-required (public mode),
-# so only pass it when the server uses it for local proxy authentication.
-STATIC_SERVER_KEY_FLAG=()
+# Pass the key in the child environment, not its process arguments. Clear any
+# inherited key in public mode so the server cannot accidentally inject it.
+STATIC_SERVER_KEY_ENV=()
 if [ "$PASS_SESSION_KEY" = "true" ]; then
-  STATIC_SERVER_KEY_FLAG=(--session-api-key "$EFFECTIVE_SESSION_KEY")
+  STATIC_SERVER_KEY_ENV=("SESSION_API_KEY=$EFFECTIVE_SESSION_KEY")
 fi
-node /opt/agent-canvas/static-server.mjs \
+env -u SESSION_API_KEY "${STATIC_SERVER_KEY_ENV[@]}" node /opt/agent-canvas/static-server.mjs \
   --port "$PORT" \
   --host "$STATIC_SERVER_BIND_HOST" \
   "${STATIC_SERVER_SESSION_KEY_ARGS[@]}" \
@@ -580,7 +580,6 @@ node /opt/agent-canvas/static-server.mjs \
   "${SERVER_SIDE_SESSION_AUTH_ARGS[@]}" \
   --dir /opt/agent-canvas/frontend \
   --base-path "$AGENT_CANVAS_BASE_PATH" \
-  "${STATIC_SERVER_KEY_FLAG[@]}" \
   --runtime-services-info "$RUNTIME_SERVICES_INFO" \
   --route "/api/automation=http://127.0.0.1:${AUTOMATION_PORT}" \
   --route "/api/webgen-provisioning=http://webgen-control.internal:8769" \

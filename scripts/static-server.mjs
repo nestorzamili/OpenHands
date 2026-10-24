@@ -215,6 +215,14 @@ export function parseArgs(argv = process.argv.slice(2), env = process.env) {
     }
   }
 
+  // Fallback: allow the session API key to be supplied via the
+  // SESSION_API_KEY environment variable instead of the command line, so
+  // launchers never have to expose it in `ps`/`/proc/<pid>/cmdline` on
+  // shared hosts. Only used in local mode (never with --auth-required).
+  if (!config.sessionApiKey && !config.authRequired && env.SESSION_API_KEY) {
+    config.sessionApiKey = env.SESSION_API_KEY;
+  }
+
   // Guard: --session-api-key and --auth-required are semantically
   // mutually exclusive. The former supplies a key for local or server-side
   // authentication; the latter forces the user to paste it (public mode).
@@ -294,11 +302,13 @@ OPTIONS:
   -d, --dir   <dir>            Directory to serve (default: build)
   -r, --route <prefix=url>     Proxy <prefix> (and subpaths) to <url>;
                                may be repeated. WebSockets supported.
-  --session-api-key <key>      Provide the session API key. By default it is
-                               injected into index.html for local mode; combine
-                               with --server-side-session-auth to keep it in the
-                               server process and add it only to loopback proxy
-                               requests.
+  --session-api-key <key>      Provide the session API key (legacy CLI option).
+                               By default it is injected into index.html for
+                               local mode; with --server-side-session-auth it
+                               stays in the server process and is attached only
+                               to loopback proxy requests. Launchers should use
+                               SESSION_API_KEY in the environment instead, so
+                               the key is not exposed in process arguments.
   --auth-required              Inject authRequired flag into index.html so the
                                pre-built frontend shows the API key entry screen
                                (public mode) without VITE_AUTH_REQUIRED baked in.

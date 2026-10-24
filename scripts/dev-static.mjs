@@ -450,7 +450,11 @@ function startAutomationBackend(config) {
 export function buildMarsWebEnv(role, config) {
   if (role === "static") return { MARS_WEB: "0" };
   return config.sessionApiKey
-    ? { MARS_WEB_KEY: config.sessionApiKey }
+    ? {
+        MARS_WEB_KEY: config.sessionApiKey,
+        ...(config.stateDir ? { MARS_STATE_DIR: config.stateDir } : {}),
+        ...(config.secretKey ? { OH_SECRET_KEY: config.secretKey } : {}),
+      }
     : { MARS_WEB: "0" };
 }
 
@@ -470,6 +474,11 @@ function startStaticServer(config) {
       frontendKind: "static",
     }),
   );
+  const keyPolicy = applySessionKeyPolicy({
+    host: config.bindHost,
+    sessionApiKey: config.sessionApiKey,
+    warn: (msg) => logService("static", msg, c.yellow),
+  });
   spawnService(
     "static",
     "node",
@@ -485,21 +494,7 @@ function startStaticServer(config) {
       ...(process.env.VITE_BASE_PATH
         ? ["--base-path", process.env.VITE_BASE_PATH]
         : []),
-      ...(() => {
-        const policy = applySessionKeyPolicy({
-          host: config.bindHost,
-          sessionApiKey: config.sessionApiKey,
-          warn: (msg) => logService("static", msg, c.yellow),
-        });
-        const flags = [];
-        if (policy.sessionApiKey) {
-          flags.push("--session-api-key", policy.sessionApiKey);
-        }
-        if (policy.authRequired) {
-          flags.push("--auth-required");
-        }
-        return flags;
-      })(),
+      ...(keyPolicy.authRequired ? ["--auth-required"] : []),
       "--runtime-services-info",
       runtimeServicesInfo,
       ...buildLocalServiceRouteArgs(config),
@@ -512,7 +507,11 @@ function startStaticServer(config) {
     {
       cwd: config.canvasPath,
       color: c.magenta,
-      env: buildMarsWebEnv("static", config),
+      // Clear an inherited key if policy forbids injecting it.
+      env: {
+        ...buildMarsWebEnv("static", config),
+        SESSION_API_KEY: keyPolicy.sessionApiKey || "",
+      },
     },
   );
 }

@@ -366,7 +366,7 @@ export function SidebarRailBody({
                       isConnected={activeBackendHealth?.isConnected ?? null}
                       isDegraded={activeBackendHealth?.isDegraded}
                       lastCheckedAt={activeBackendHealth?.lastCheckedAt}
-                      className="absolute -left-0.5 -top-0.5 z-[1] pointer-events-none"
+                      className="absolute -left-0.5 -top-0.5 z-1 pointer-events-none"
                     />
                     <Server width={ICON_SIZE} height={ICON_SIZE} />
                   </span>

@@ -34,6 +34,7 @@ import { getAgentServerWorkingDir } from "#/api/agent-server-config";
 import { I18nKey } from "#/i18n/declaration";
 import type { SkillInfo } from "#/types/settings";
 import { getSkillScope, isBuiltinSkill } from "#/utils/skill-scope";
+import { getSkillKey } from "#/utils/skill-key";
 import {
   extensionModuleCardGridClassName,
   extensionModuleCardGridContainerClassName,
@@ -321,9 +322,9 @@ function SkillsSettingsScreen() {
                       className={cn(extensionModuleCardGridContainerClassName)}
                     >
                       <div className={extensionModuleCardGridClassName}>
-                        {visibleSkills.map((skill, index) => (
+                        {visibleSkills.map((skill) => (
                           <SkillCard
-                            key={`${skill.name}:${skill.source ?? ""}:${index}`}
+                            key={getSkillKey(skill)}
                             skill={skill}
                             enabled={isEnabled(skill)}
                             onOpen={() => setSelectedSkill(skill)}

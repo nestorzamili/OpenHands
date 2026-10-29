@@ -27,6 +27,18 @@ const agentServerImage = `${config.images.agentServer}:${config.versions.agentSe
 const agentServerVersion = config.versions.agentServer;
 const automationVersion = config.versions.automation;
 const canvasBasePath = config.paths.canvasBasePath;
+const buildGitSha = execFileSync("git", ["rev-parse", "HEAD"], {
+  cwd: projectRoot,
+  encoding: "utf-8",
+}).trim();
+const buildGitRef = execFileSync(
+  "git",
+  ["rev-parse", "--abbrev-ref", "HEAD"],
+  {
+    cwd: projectRoot,
+    encoding: "utf-8",
+  },
+).trim();
 
 // Parse CLI: --tag <name> and everything after -- is passed to docker build
 let tag = "agent-canvas:local";
@@ -55,6 +67,10 @@ const cmd = [
   "--build-arg",
   `AUTOMATION_VERSION=${automationVersion}`,
   "--build-arg",
+  `CANVAS_BUILD_GIT_SHA=${buildGitSha}`,
+  "--build-arg",
+  `CANVAS_BUILD_GIT_REF=${buildGitRef}`,
+  "--build-arg",
   `VITE_BASE_PATH=${canvasBasePath}`,
   "-t",
   tag,
@@ -65,6 +81,8 @@ const cmd = [
 console.log(`Agent Server image      : ${agentServerImage}`);
 console.log(`Automation version      : ${automationVersion}`);
 console.log(`Canvas base path        : ${canvasBasePath}`);
+console.log(`Build revision          : ${buildGitSha}`);
+console.log(`Build ref               : ${buildGitRef}`);
 console.log(`Tag                     : ${tag}`);
 console.log(`\n$ ${cmd.join(" ")}\n`);
 

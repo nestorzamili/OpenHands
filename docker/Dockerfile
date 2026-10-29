@@ -78,8 +78,10 @@ FROM ${AGENT_SERVER_IMAGE} AS final
 ARG AUTOMATION_VERSION
 ARG AGENT_SERVER_VERSION
 ARG AGENT_SERVER_SDK_GIT_REF=""
-ARG OPENHANDS_BUILD_GIT_SHA=unknown
-ARG OPENHANDS_BUILD_GIT_REF=unknown
+# Agent Server exports OPENHANDS_BUILD_GIT_* for its own build metadata.
+# Keep Canvas metadata on distinct build arguments to avoid inheriting that SDK SHA.
+ARG CANVAS_BUILD_GIT_SHA=unknown
+ARG CANVAS_BUILD_GIT_REF=unknown
 ARG VITE_BASE_PATH="/canvas"
 ARG VITE_POSTHOG_API_KEY=""
 
@@ -88,10 +90,10 @@ LABEL org.opencontainers.image.title="agent-canvas"
 LABEL org.opencontainers.image.description="All-in-one agent-canvas: Agent Server + Automation + Frontend"
 LABEL org.opencontainers.image.source="https://github.com/OpenHands/OpenHands"
 LABEL org.opencontainers.image.version="${AGENT_CANVAS_VERSION}"
-LABEL org.opencontainers.image.revision="${OPENHANDS_BUILD_GIT_SHA}"
+LABEL org.opencontainers.image.revision="${CANVAS_BUILD_GIT_SHA}"
 
-ENV AGENT_CANVAS_BUILD_GIT_SHA=${OPENHANDS_BUILD_GIT_SHA}
-ENV AGENT_CANVAS_BUILD_GIT_REF=${OPENHANDS_BUILD_GIT_REF}
+ENV AGENT_CANVAS_BUILD_GIT_SHA=${CANVAS_BUILD_GIT_SHA}
+ENV AGENT_CANVAS_BUILD_GIT_REF=${CANVAS_BUILD_GIT_REF}
 ENV AGENT_CANVAS_BASE_PATH=${VITE_BASE_PATH}
 ENV VITE_POSTHOG_API_KEY=${VITE_POSTHOG_API_KEY}
 

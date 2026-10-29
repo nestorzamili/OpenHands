@@ -107,8 +107,8 @@ jobs:
             AGENT_SERVER_VERSION=${{ steps.config.outputs.agent_server_version }}
             AUTOMATION_VERSION=${{ steps.config.outputs.default_automation_version }}
             AGENT_CANVAS_VERSION=${{ steps.config.outputs.agent_canvas_version }}
-            OPENHANDS_BUILD_GIT_SHA=${{ env.RELEVANT_SHA }}
-            OPENHANDS_BUILD_GIT_REF=${{ env.RELEVANT_REF }}
+            CANVAS_BUILD_GIT_SHA=${{ env.RELEVANT_SHA }}
+            CANVAS_BUILD_GIT_REF=${{ env.RELEVANT_REF }}
             VITE_BASE_PATH=${{ env.DCK_BASE_PATH }}
             VITE_DEFAULT_BACKEND_NAME=Production
           cache-from: type=gha

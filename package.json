@@ -200,7 +200,12 @@
     "typed-rest-client": {
       "qs": "6.15.3"
     },
-    "proxy-addr": "2.0.8"
+    "proxy-addr": "2.0.8",
+    "app-builder-lib": {
+      "@electron/get": {
+        "global-agent": "4.1.3"
+      }
+    }
   },
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",

@@ -1,3 +1,7 @@
+import {
+  CONVERSATION_QUERY_KEYS,
+  DEFAULT_CONVERSATION_PAGE_SIZE,
+} from "./query-keys";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import AgentServerConversationService from "#/api/conversation-service/agent-server-conversation-service.api";
 import { useIsAuthed } from "./use-is-authed";
@@ -8,7 +12,7 @@ import { isAutomationsRoute } from "#/manifests/automation-interface";
 import { AppConversationPage } from "#/api/conversation-service/agent-server-conversation-service.types";
 
 export const usePaginatedConversations = (
-  limit: number = 20,
+  limit: number = DEFAULT_CONVERSATION_PAGE_SIZE,
   options: { enabled?: boolean } = {},
 ) => {
   const { data: userIsAuthenticated } = useIsAuthed();
@@ -23,14 +27,11 @@ export const usePaginatedConversations = (
     // maintains its own paginated cache. Switching backends naturally
     // produces a new query and a fresh fetch — without it the previous
     // backend's conversations stay visible for staleTime.
-    queryKey: [
-      "user",
-      "conversations",
-      "paginated",
+    queryKey: CONVERSATION_QUERY_KEYS.paginated(
       limit,
       active.backend.id,
       active.orgId,
-    ],
+    ),
     queryFn: async ({ pageParam }) => {
       const result = await AgentServerConversationService.searchConversations(
         limit,

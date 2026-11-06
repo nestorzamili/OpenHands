@@ -24,6 +24,11 @@ beforeAll(() => {
   mswServer.listen({ onUnhandledRequest: "bypass" });
 });
 
+afterAll(() => {
+  mswServer.close();
+  mswServer.listen({ onUnhandledRequest: "error" });
+});
+
 function originForPort(port: number) {
   return `http://${loopbackHost}:${port}`;
 }

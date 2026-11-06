@@ -5,7 +5,7 @@ of Agent Canvas. Read this index before driving the app, then open the matching
 feature file and run its recipe with `control-openhands`. The map is not a claim
 that every row passes today; the run's evidence ledger is.
 
-Maintenance baseline: main@dce9d017abe9ed3d362bc77e0cd3fff2e4931f22 (2026-11-03). The next maintenance pass starts from this commit; a pass proposes the next baseline in its PR, and merging that PR accepts it.
+Maintenance baseline: main@6d2d9df4af1337abf4ed967a7b396f46fed7559c (2026-11-05). The next maintenance pass starts from this commit; a pass proposes the next baseline in its PR, and merging that PR accepts it.
 
 ## Baseline preconditions
 
@@ -246,21 +246,22 @@ How to write and prove new entries: [../mapping.md](../mapping.md).
 | F14 | [Secrets](F14-secrets.md) | list, add, edit, rename, delete, agent access | `/settings/secrets` | LLM for agent access | 13 |
 | F15 | [Condenser, agent context and verification](F15-agent-behavior-settings.md) | condenser fields, agent context, confirmation mode and critic, their effect on runs | `/settings/condenser`, `/agent-context`, `/verification`, `/runtime` | LLM for the effects | 25 |
 | F16 | [Application settings](F16-application-settings.md) | language, theme, analytics, sound, checklist, title model, voice input, git identity | `/settings/app` | LLM for title and git checks | 21 |
-| F17 | [Customize hub and MCP servers](F17-mcp-servers.md) | catalog, install, test, edit, delete, custom servers, agent use | **Customize**, `/mcp` | `uvx`/`npx`; LLM | 33 |
+| F17 | [Customize hub and MCP servers](F17-mcp-servers.md) | catalog, install, test, edit, delete, custom servers, agent use | **Customize**, `/mcp` | `uvx`/`npx`; LLM | 34 |
 | F18 | [Skills catalog](F18-skills.md) | facets, search, enable/disable, add skill, Use skill, personal and project skills | `/skills` | `fixture skill`; LLM | 23 |
 | F19 | [Plugins and plugin launch](F19-plugins.md) | catalog, install, update, uninstall, enable, launch deep links | `/plugins`, `/launch` | LLM | 25 |
 | F20 | [Canvas apps](F20-canvas-apps.md) | install from path or git, enable, update, uninstall, extension pages | `/apps` | none | 24 |
-| F21 | [Automations dashboard and actions](F21-automations-dashboard.md) | cards and list, filters, sort, Run now, enable, export, import, delete, pin | `/automations` | LLM; automation service | 37 |
+| F21 | [Automations dashboard and actions](F21-automations-dashboard.md) | cards and list, filters, sort, Run now, enable, export, import, delete, pin | `/automations` | LLM; automation service | 43 |
 | F22 | [Creating automations](F22-automation-creation.md) | templates, setup dialog, custom automations, import | `/automations/templates`, `/automations/new/<id>` | LLM | 31 |
 | F23 | [Automation detail, runs and editing](F23-automation-detail.md) | detail page, runs, logs, edit dialog, triggers, debug | `/automations/<id>` | LLM; runs | 44 |
 | F24 | [Automation Git Sync](F24-git-sync.md) | configure, sync cycles, encryption, status | `/automations/git-sync` | `fixture git-repo` | 26 |
 | F25 | [Backends, Cloud and sharing](F25-backends-and-cloud.md) | add, edit, remove and switch backends, per-backend consent, Cloud login, shared pages | backend selector | a second stack; Cloud account (blocked) | 33 |
-| F26 | [Launcher modes, Docker, desktop and library](F26-runtime-variants.md) | launcher flags, partial stacks, LAN bind, Docker, Electron, embeddable library | a terminal | Docker/Electron where available | 35 |
+| F26 | [Launcher modes, Docker, desktop and library](F26-runtime-variants.md) | launcher flags, partial stacks, LAN bind, Docker, Electron, embeddable library | a terminal | Docker/Electron where available | 36 |
 | F27 | [Workspace tools](F27-workspace-tools.md) | terminal, browser, planner, task list, usage, `canvas_ui_control` | drawer tabs | LLM | 31 |
-| F28 | [Automation setup page](F28-automation-setup-page.md) | blank form, kind toggle, schedule presets, event fields, timeout, draft save and validation, draft Test, Create | **Add Automation → Create Automation**, `/automations/setup`, draft Resume, kebab Edit | automation service; no LLM | 16 |
-| F29 | [DCK modules and portal users](F29-dck-modules-and-users.md) | DCK module workspaces and portal-admin user management | `/modules/:moduleId`; `/settings/users` | DCK workspace; portal administrator | 2 |
+| F28 | [Automation setup page](F28-automation-setup-page.md) | blank form, kind toggle, schedule presets, event fields, timeout, draft save and validation, draft Test, Create | **Add Automation → Create Automation**, `/automations/setup`, draft Resume, kebab Edit | automation service; no LLM | 18 |
+| F29 | [ACP agent sessions](F29-acp-sessions.md) | an ACP (Codex) conversation: narration order, tool cards, edits and Changes, follow-up, model switch, Stop, reload and restart, usage | Home composer with an ACP profile active (F13) | approved Codex login (`CODEX_AUTH_JSON`); fixture repo | 11 |
+| F30 | [DCK modules and portal users](F30-dck-modules-and-users.md) | DCK module workspaces and portal-admin user management | `/modules/:moduleId`; `/settings/users` | DCK workspace; portal administrator | 2 |
 
-29 families, 817 sub-features. `control-openhands map ids` lists every ID with its file.
+30 families, 838 sub-features. `control-openhands map ids` lists every ID with its file.
 
 ### Neighbouring families
 
@@ -271,9 +272,11 @@ Several pages are shared. Each behavior has one owner; the others reference its 
 - LLM settings: profiles are F10, provider connections F11 (same page), routers F12, agent profiles F13.
 - Automations: dashboard F21, creation F22, detail and runs F23, Git Sync F24; the setup page's form, drafts and Test are F28 (F22 keeps the agent-assisted recipes, F23 owns edit mode).
 - Customize: MCP F17, skills F18, plugins F19, apps F20; the hub and its navigation are in F17.
+- DCK modules and portal users: the module-workspace pages and portal-admin user management are covered by F30.
 - Backends: adding and switching backends is F25; launcher flags that create them are F26.
-- DCK modules and portal users: the module-workspace pages and portal-admin user management are covered by F29.
+
 ## Not mapped
+
 Everything else a user can reach is mapped. These are left out on purpose:
 
 - `src/components/features/context-menu`: a shared menu primitive, not a feature of its own. Its behavior is checked through the menus that use it (F04, F07, F21, F27).

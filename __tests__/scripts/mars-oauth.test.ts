@@ -11,6 +11,9 @@ import {
   signInWithDigitalOcean,
 } from "../../scripts/mars-oauth.mjs";
 
+beforeAll(() => mswServer.close());
+afterAll(() => mswServer.listen({ onUnhandledFrame: "bypass" }));
+
 const STATE = "state-abc";
 
 beforeAll(() => mswServer.close());

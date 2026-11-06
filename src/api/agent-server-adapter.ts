@@ -75,7 +75,11 @@ import {
   LAUNCH_CHILD_CONVERSATION_CLIENT_TOOL,
   LAUNCH_CHILD_CONVERSATION_TOOL_NAME,
 } from "./launch-child-conversation-client-tool";
-import { AUTOMATION_FORM_UPDATE_CLIENT_TOOL } from "./automation-form-client-tool";
+import {
+  AUTOMATION_SETUP_SYSTEM_SUFFIX,
+  buildAutomationFormUpdateClientTool,
+} from "./automation-form-client-tool";
+import type { DeploymentCapabilities } from "#/manifests/types";
 import { REQUEST_SECRET_CLIENT_TOOL } from "./request-secret-client-tool";
 import { WEBGEN_LIFECYCLE_CLIENT_TOOL } from "./webgen-lifecycle-client-tool";
 import {
@@ -1065,6 +1069,12 @@ export interface StartConversationOptions {
   query?: string;
   automationSetup?: boolean;
   automationSetupTags?: Record<string, string>;
+  /**
+   * What the automation service reports it supports, so the setup assistant's
+   * form tool can name this deployment's event sources. Null when it could
+   * not be read; the tool then carries its generic description.
+   */
+  automationSetupCapabilities?: DeploymentCapabilities | null;
   conversationInstructions?: string;
   plugins?: PluginSpec[];
   conversationId?: string;
@@ -1146,6 +1156,10 @@ export function buildStartConversationRequest(
         !options.suppressRouterAtStart,
       options.profileHasRouter ?? false,
     ),
+    // Sent with the form tool below, which only OpenHands profiles get.
+    options.automationSetup && options.agentProfileKind === "openhands"
+      ? AUTOMATION_SETUP_SYSTEM_SUFFIX
+      : null,
   ]
     .filter((suffix): suffix is string => Boolean(suffix))
     .join("\n\n");
@@ -1200,7 +1214,11 @@ export function buildStartConversationRequest(
             REQUEST_SECRET_CLIENT_TOOL,
             WEBGEN_LIFECYCLE_CLIENT_TOOL,
             ...(options.automationSetup
-              ? [AUTOMATION_FORM_UPDATE_CLIENT_TOOL]
+              ? [
+                  buildAutomationFormUpdateClientTool(
+                    options.automationSetupCapabilities,
+                  ),
+                ]
               : []),
           ]
         : [],
@@ -1261,8 +1279,7 @@ export function buildStartConversationRequest(
 
   const toolModuleQualnames = {
     ...((conversationSettings.tool_module_qualnames as
-      | Record<string, string>
-      | undefined) ?? {}),
+      Record<string, string> | undefined) ?? {}),
   };
   delete toolModuleQualnames[LEGACY_CANVAS_UI_TOOL_NAME];
   delete toolModuleQualnames[CANVAS_UI_CLIENT_TOOL_NAME];
@@ -1596,6 +1613,7 @@ export async function buildStartConversationRequestWithEncryptedSettings(options
   query?: string;
   automationSetup?: boolean;
   automationSetupTags?: Record<string, string>;
+  automationSetupCapabilities?: DeploymentCapabilities | null;
   conversationInstructions?: string;
   plugins?: PluginSpec[];
   conversationId?: string;

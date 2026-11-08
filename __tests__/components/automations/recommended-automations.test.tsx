@@ -469,6 +469,43 @@ describe("recommended automations", () => {
     expect(badge.querySelector("img")).not.toBeInTheDocument();
   });
 
+  it("keeps the card selection and pill overflow controls as separate buttons", () => {
+    const onSelect = vi.fn();
+    render(
+      <RecommendedAutomationsSection
+        backendKind="local"
+        installedServers={[]}
+        onSelect={onSelect}
+      />,
+    );
+
+    const card = screen.getByTestId(
+      "recommended-automation-card-research-brief-writer",
+    );
+    const pillRow = screen.getByTestId(
+      "recommended-automation-pills-research-brief-writer",
+    );
+    const overflow = within(pillRow).getByTestId(
+      "recommended-automation-pills-research-brief-writer-overflow",
+    );
+
+    expect(card.tagName).toBe("BUTTON");
+    expect(card.contains(overflow)).toBe(false);
+
+    fireEvent.click(overflow);
+    expect(
+      screen.getByTestId(
+        "recommended-automation-pills-research-brief-writer-overflow-popover",
+      ),
+    ).toBeInTheDocument();
+    expect(onSelect).not.toHaveBeenCalled();
+
+    fireEvent.click(card);
+    expect(onSelect).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "research-brief-writer" }),
+    );
+  });
+
   it("renders missing MCP connect copy as a pill on the same row", () => {
     const offsetWidthDescriptor = Object.getOwnPropertyDescriptor(
       HTMLElement.prototype,

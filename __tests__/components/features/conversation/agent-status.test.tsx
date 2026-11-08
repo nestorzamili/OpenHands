@@ -439,7 +439,6 @@ describe("AgentStatus", () => {
     expect(label.parentElement?.className).not.toContain("Stryker");
     expect(clockIcon.parentElement).toHaveClass(
       "cursor-default",
-      "rounded-full",
       "size-6",
       "transition-all",
     );

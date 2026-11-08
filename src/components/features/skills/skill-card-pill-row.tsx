@@ -233,7 +233,7 @@ export function SkillCardPillRow({ pills, testId }: SkillCardPillRowProps) {
             onKeyDown={stopCardActivationForKeyboard}
             className={cn(
               extensionModuleCardPillClassName,
-              "cursor-pointer font-medium text-tertiary-alt hover:text-contrast",
+              "pointer-events-auto cursor-pointer font-medium text-tertiary-alt hover:text-contrast",
             )}
           >
             {t(I18nKey.SETTINGS$SKILLS_PILLS_MORE, { count: hiddenCount })}

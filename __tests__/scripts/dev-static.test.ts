@@ -59,7 +59,10 @@ describe("dev-static", () => {
         sessionApiKey: "shared-session-key",
         stateDir: "/tmp/agent-canvas-state",
       },
-      {},
+      {
+        AUTOMATION_DB_URL:
+          "postgresql+asyncpg://user:pass@localhost:5432/dck_agentic",
+      },
     );
 
     expect(env.AUTOMATION_CORS_ORIGINS).toBe(

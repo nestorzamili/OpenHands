@@ -22,7 +22,7 @@ import { server as mswServer } from "#/mocks/node";
 // Allow passthrough to those test-owned ephemeral loopback ports only here.
 beforeAll(() => {
   mswServer.close();
-  mswServer.listen({ onUnhandledRequest: "bypass" });
+  mswServer.listen({ onUnhandledFrame: "bypass" });
 });
 
 describe("static-server.mjs", () => {
@@ -842,7 +842,9 @@ describe("static-server.mjs", () => {
 
       try {
         const server = await startStaticServer({
-          ...parseArgs(["--host", "0.0.0.0"], { SESSION_API_KEY: "lan-secret" }),
+          ...parseArgs(["--host", "0.0.0.0"], {
+            SESSION_API_KEY: "lan-secret",
+          }),
           port: 0,
           dir: buildDir,
         });

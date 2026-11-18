@@ -16,7 +16,7 @@ import { server as mswServer } from "#/mocks/node";
 import { startPortForwardTunnel } from "../../scripts/tunnel-client.mjs";
 
 beforeAll(() => mswServer.close());
-afterAll(() => mswServer.listen({ onUnhandledRequest: "error" }));
+afterAll(() => mswServer.listen({ onUnhandledFrame: "error" }));
 
 const sessionId = "sess_abc123";
 const remotePort = 8000;

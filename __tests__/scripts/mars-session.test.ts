@@ -8,7 +8,7 @@ import { createMarsApiClient } from "../../scripts/mars-api.mjs";
 import { ensureSessionAwake } from "../../scripts/mars-session.mjs";
 
 beforeAll(() => mswServer.close());
-afterAll(() => mswServer.listen({ onUnhandledRequest: "error" }));
+afterAll(() => mswServer.listen({ onUnhandledFrame: "error" }));
 
 const sessionId = "sess_abc123";
 const accessToken = "test-token";

@@ -18,15 +18,14 @@ const ingressScript = path.join(repoRoot, "scripts", "ingress.mjs");
 const loopbackHost = "127.0.0.1";
 
 // This suite launches ingress/upstream servers on dynamically allocated ports.
-// Allow passthrough only in this test file so those local integration checks run.
+// Disable global Fetch interception so loopback integration traffic reaches the
+// test-owned servers and subprocesses directly.
 beforeAll(() => {
   mswServer.close();
-  mswServer.listen({ onUnhandledRequest: "bypass" });
 });
 
 afterAll(() => {
-  mswServer.close();
-  mswServer.listen({ onUnhandledRequest: "error" });
+  mswServer.listen({ onUnhandledFrame: "error" });
 });
 
 function originForPort(port: number) {
@@ -236,6 +235,9 @@ describe("ingress.mjs CLI", () => {
     });
 
     await waitForPort(port, child);
+    await expect
+      .poll(() => output, { timeout: 5_000 })
+      .toContain(port.toString());
     await stopChild(child);
 
     expect(output).toContain(port.toString());
@@ -266,6 +268,9 @@ describe("ingress.mjs CLI", () => {
     });
 
     await waitForPort(port, child);
+    await expect
+      .poll(() => output, { timeout: 5_000 })
+      .toContain("http://localhost:3000");
     await stopChild(child);
 
     expect(output).toContain("/api");

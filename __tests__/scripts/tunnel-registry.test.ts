@@ -9,7 +9,7 @@ import { createTunnelRegistry } from "../../scripts/tunnel-registry.mjs";
 import { startPortForwardTunnel } from "../../scripts/tunnel-client.mjs";
 
 beforeAll(() => mswServer.close());
-afterAll(() => mswServer.listen({ onUnhandledRequest: "error" }));
+afterAll(() => mswServer.listen({ onUnhandledFrame: "error" }));
 
 /** A stub ensureAwake that resolves immediately, for tests only exercising tunnel logic. */
 const noopEnsureAwake = async () => ({ status: "SESSION_STATUS_READY" });

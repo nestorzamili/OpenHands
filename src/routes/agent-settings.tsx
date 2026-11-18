@@ -48,6 +48,8 @@ import {
   getAcpProvider,
   getAcpProvidersForBackend,
   getAcpProviderSecrets,
+  acpEffortOf,
+  labelForAcpEffort,
   labelForAcpModel,
   type ACPModelOption,
   type ACPProviderConfig,
@@ -101,6 +103,7 @@ type AgentSettingsSnapshot = {
   commandText: string;
   acpModel: string;
   isCustomAcpModel: boolean;
+  acpEffort: string;
 };
 
 const TOOL_CONCURRENCY_FIELD_KEY = "tool_concurrency_limit";
@@ -117,11 +120,13 @@ const SYSTEM_PROMPT_MAX_LENGTH = 65536;
 const COMMAND_PLACEHOLDER_FALLBACK = "npx -y <package-name>";
 const ACP_CUSTOM_MODEL_KEY = "__custom_model__";
 const ACP_AGENT_DEFAULT_MODEL_KEY = "__agent_default_model__";
+const ACP_AGENT_DEFAULT_EFFORT_KEY = "__agent_default_effort__";
 const EMPTY_AGENT_SETTINGS_SNAPSHOT: AgentSettingsSnapshot = {
   agentType: "openhands",
   commandText: "",
   acpModel: "",
   isCustomAcpModel: false,
+  acpEffort: "",
 };
 
 function toStringArray(value: unknown): string[] {
@@ -194,6 +199,7 @@ export type AgentProfileFieldsDraft =
       secret_refs?: string[] | null;
       acp_server: string;
       acp_model: string | null;
+      acp_effort?: string | null;
       acp_command: string | null;
       acp_args: string[] | null;
     };
@@ -207,6 +213,10 @@ export interface AgentProfileFieldsInput {
   isDefaultProviderCommand: boolean;
   commandTokens: string[];
   acpModel: string;
+  /** Effort to save; empty is the agent's own. */
+  acpEffort?: string;
+  /** Effort the stored profile had, so clearing it can be sent explicitly. */
+  loadedAcpEffort?: string;
   toolConcurrencyField?: SettingsFieldSchema;
   toolConcurrency: string | boolean;
   mcpMode: ProfileScopeMode;
@@ -261,6 +271,8 @@ export function buildAgentProfileFields(
     isDefaultProviderCommand,
     commandTokens,
     acpModel,
+    acpEffort = "",
+    loadedAcpEffort = "",
     toolConcurrencyField,
     toolConcurrency,
     mcpMode,
@@ -298,6 +310,10 @@ export function buildAgentProfileFields(
       ...secretRefs,
       acp_server: selectedPreset,
       acp_model: acpModel.trim() || null,
+      // Only sent when set or being cleared: older agent-servers reject it.
+      ...(acpEffort || loadedAcpEffort
+        ? { acp_effort: acpEffort || null }
+        : {}),
       acp_command: isBuiltinDefault
         ? null
         : formatCommand(commandTokens) || null,
@@ -651,6 +667,7 @@ export function AgentSettingsScreen({
   const [agentType, setAgentType] = useState<AgentType>("openhands");
   const [commandText, setCommandText] = useState("");
   const [acpModel, setAcpModel] = useState("");
+  const [acpEffort, setAcpEffort] = useState("");
   const [isCustomAcpModel, setIsCustomAcpModel] = useState(false);
 
   // ACP credentials live alongside the agent spec, so the form owns the
@@ -727,19 +744,23 @@ export function AgentSettingsScreen({
       const nextAcpModel =
         normalizedSavedModel || getAcpPreferredDefaultModel(acpServer) || "";
       const nextIsCustomAcpModel = !!normalizedSavedModel && !provider;
+      const nextAcpEffort = acpEffortOf(agentSettingsOverride) ?? "";
       setAcpModel(nextAcpModel);
       setIsCustomAcpModel(nextIsCustomAcpModel);
+      setAcpEffort(nextAcpEffort);
       setLoadedSnapshot({
         agentType: "acp",
         commandText: renderedCommandText,
         acpModel: nextAcpModel,
         isCustomAcpModel: nextIsCustomAcpModel,
+        acpEffort: nextAcpEffort,
       });
     } else {
       setAgentType("openhands");
       setCommandText("");
       setAcpModel("");
       setIsCustomAcpModel(false);
+      setAcpEffort("");
       setLoadedSnapshot(EMPTY_AGENT_SETTINGS_SNAPSHOT);
     }
   }, [agentSettingsOverride]);
@@ -954,7 +975,8 @@ export function AgentSettingsScreen({
     (agentType === "acp"
       ? commandText !== loadedSnapshot.commandText ||
         acpModel !== loadedSnapshot.acpModel ||
-        isCustomAcpModel !== loadedSnapshot.isCustomAcpModel
+        isCustomAcpModel !== loadedSnapshot.isCustomAcpModel ||
+        acpEffort !== loadedSnapshot.acpEffort
       : toolConcurrency !== initialToolConcurrency ||
         systemPromptDirty ||
         behaviorDirty ||
@@ -1065,6 +1087,29 @@ export function AgentSettingsScreen({
   } else if (isCustomAcpModel || !selectedModelIsSuggestion) {
     selectedModelKey = ACP_CUSTOM_MODEL_KEY;
   }
+  const effortChoices =
+    selectedModelKey === ACP_CUSTOM_MODEL_KEY
+      ? []
+      : liveModels.effortsFor(
+          selectedModelKey === ACP_AGENT_DEFAULT_MODEL_KEY
+            ? null
+            : selectedModelKey,
+        );
+  // Before the agent reports its levels, keep the stored effort as is.
+  const effortToSave =
+    !Object.hasOwn(
+      liveModels.discovery?.efforts_by_model ?? {},
+      selectedModelKey === ACP_AGENT_DEFAULT_MODEL_KEY
+        ? (liveModels.defaultModelId ?? "")
+        : selectedModelKey,
+    ) || effortChoices.some(({ value }) => value === acpEffort)
+      ? acpEffort
+      : "";
+  const agentDefaultEffortLabel =
+    selectedModelKey === ACP_AGENT_DEFAULT_MODEL_KEY ||
+    selectedModelKey === liveModels.defaultModelId
+      ? labelForAcpEffort(liveModels.defaultEffort, effortChoices)
+      : null;
   const commandPlaceholder =
     formatCommand(acpProviders[0]?.default_command ?? []) ||
     COMMAND_PLACEHOLDER_FALLBACK;
@@ -1080,6 +1125,8 @@ export function AgentSettingsScreen({
       isDefaultProviderCommand,
       commandTokens,
       acpModel,
+      acpEffort: effortToSave,
+      loadedAcpEffort: loadedSnapshot.acpEffort,
       toolConcurrencyField,
       toolConcurrency,
       mcpMode,
@@ -1675,7 +1722,7 @@ export function AgentSettingsScreen({
             </Typography.Text>
             <textarea
               data-testid="agent-command-input"
-              className="bg-tertiary border border-[#717888] rounded-sm p-2 text-sm font-mono text-contrast placeholder:text-[#717888] min-h-15 resize-y focus:outline-none focus:border-contrast"
+              className="bg-tertiary border border-border-input dark:border-[#717888] rounded-sm p-2 text-sm font-mono text-contrast placeholder:text-text-dim dark:placeholder:text-[#717888] min-h-15 resize-y focus:outline-none focus:border-contrast dark:focus:border-contrast"
               value={commandText}
               placeholder={commandPlaceholder}
               onChange={(e) => {
@@ -1704,7 +1751,7 @@ export function AgentSettingsScreen({
                 setCommandText(nextCommandText);
               }}
             />
-            <Typography.Text className="text-xs text-[#717888]">
+            <Typography.Text className="text-xs text-text-dim dark:text-[#717888]">
               {t(I18nKey.SETTINGS$AGENT_COMMAND_HINT)}
             </Typography.Text>
           </div>
@@ -1713,7 +1760,7 @@ export function AgentSettingsScreen({
 
       {isAcp && selectedPreset !== ACP_CUSTOM_PRESET_KEY && (
         <>
-          <hr className="border-[#3D4046]" />
+          <hr className="border-divider dark:border-[#3D4046]" />
           <AcpCredentialsSection
             form={acpCredentialForm}
             providerKey={selectedPreset}
@@ -1721,7 +1768,7 @@ export function AgentSettingsScreen({
               liveModels.discovery?.error?.code === "ACPAuthRequired"
             }
           />
-          <hr className="border-[#3D4046]" />
+          <hr className="border-divider dark:border-[#3D4046]" />
         </>
       )}
 
@@ -1777,6 +1824,35 @@ export function AgentSettingsScreen({
               }}
             />
           )}
+          {effortChoices.length > 0 && (
+            <SettingsDropdownInput
+              testId="agent-effort-selector"
+              name="agent-effort"
+              label={t(I18nKey.SCHEMA$LLM$REASONING_EFFORT$LABEL)}
+              items={[
+                {
+                  key: ACP_AGENT_DEFAULT_EFFORT_KEY,
+                  label: agentDefaultEffortLabel
+                    ? t(I18nKey.SETTINGS$AGENT_MODEL_AGENT_DEFAULT_IS, {
+                        model: agentDefaultEffortLabel,
+                      })
+                    : t(I18nKey.SETTINGS$AGENT_MODEL_AGENT_DEFAULT),
+                },
+                ...effortChoices.map(({ value, label }) => ({
+                  key: value,
+                  label,
+                })),
+              ]}
+              selectedKey={effortToSave || ACP_AGENT_DEFAULT_EFFORT_KEY}
+              onSelectionChange={(key) => {
+                if (!key) return;
+                const effortKey = String(key);
+                setAcpEffort(
+                  effortKey === ACP_AGENT_DEFAULT_EFFORT_KEY ? "" : effortKey,
+                );
+              }}
+            />
+          )}
           {selectedModelKey === ACP_CUSTOM_MODEL_KEY && (
             <SettingsInput
               testId="agent-model-input"
@@ -1797,7 +1873,7 @@ export function AgentSettingsScreen({
           {liveModels.isDiscovering && selectedProvider && (
             <Typography.Text
               testId="agent-model-discovering"
-              className="text-xs text-[#717888]"
+              className="text-xs text-text-dim dark:text-[#717888]"
             >
               {t(I18nKey.SETTINGS$AGENT_MODEL_DISCOVERING, {
                 agent: selectedProvider.display_name,
@@ -1808,7 +1884,7 @@ export function AgentSettingsScreen({
             selectedProvider && (
               <Typography.Text
                 testId="agent-model-discovery-needs-auth"
-                className="text-xs text-[#717888]"
+                className="text-xs text-text-dim dark:text-[#717888]"
               >
                 {t(I18nKey.SETTINGS$AGENT_MODEL_DISCOVERY_NEEDS_AUTH, {
                   agent: selectedProvider.display_name,
@@ -1818,12 +1894,12 @@ export function AgentSettingsScreen({
           {modelListHint && selectedProvider && (
             <Typography.Text
               testId={modelListHint.testId}
-              className="text-xs text-[#717888]"
+              className="text-xs text-text-dim dark:text-[#717888]"
             >
               {t(modelListHint.key, { agent: selectedProvider.display_name })}
             </Typography.Text>
           )}
-          <Typography.Text className="text-xs text-[#717888]">
+          <Typography.Text className="text-xs text-text-dim dark:text-[#717888]">
             {t(I18nKey.SETTINGS$AGENT_MODEL_HINT)}
           </Typography.Text>
         </div>

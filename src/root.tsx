@@ -101,7 +101,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
     <html lang="en" suppressHydrationWarning>
       <head>
         <meta charSet="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta
+          name="viewport"
+          content="width=device-width, initial-scale=1, viewport-fit=cover"
+        />
         <Meta />
         <Links />
         <script
@@ -109,7 +112,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         />
       </head>
       <body data-agent-server-ui="" className="m-0">
-        <AgentServerUIRoot contentClassName="min-h-screen">
+        <AgentServerUIRoot contentClassName="h-dvh min-h-0">
           <ColorThemeApplier />
           {children}
           <Toaster toastOptions={TOAST_OPTIONS} />
@@ -162,9 +165,9 @@ function MissingAgentServerScreen() {
     return (
       <main
         data-testid="server-managed-backend-unavailable-screen"
-        className="flex min-h-screen items-center justify-center bg-base px-6 py-10 text-contrast"
+        className="flex min-h-screen items-center justify-center bg-canvas-base px-6 py-10 text-contrast"
       >
-        <div className="flex w-full max-w-lg flex-col gap-4 rounded-3xl border border-contrast/10 bg-base/80 p-8 shadow-2xl">
+        <div className="flex w-full max-w-lg flex-col gap-4 rounded-3xl border border-contrast/10 bg-canvas-base/80 p-8 shadow-2xl">
           <h1 className="text-xl font-semibold">
             {t(I18nKey.SETTINGS$AGENT_SERVER_UNAVAILABLE_STATUS_TITLE)}
           </h1>
@@ -256,6 +259,10 @@ export const links: LinksFunction = () => [
     rel: "icon",
     type: "image/svg+xml",
     href: buildAgentCanvasPath("/favicon.svg"),
+  },
+  {
+    rel: "manifest",
+    href: buildAgentCanvasPath("/site.webmanifest"),
   },
 ];
 

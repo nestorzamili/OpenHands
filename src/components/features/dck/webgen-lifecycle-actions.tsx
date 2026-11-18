@@ -23,6 +23,7 @@ import type { WebgenRuntimeStatus } from "#/dck/webgen-service";
 import {
   Dropdown,
   DropdownTrigger,
+  DropdownPopover,
   DropdownMenu,
   DropdownItem,
 } from "@heroui/react";
@@ -246,50 +247,52 @@ export function WebgenLifecycleActions({
 
   return (
     <div className="flex shrink-0 items-center justify-end">
-      <Dropdown placement="bottom-end" disableAnimation>
-        <DropdownTrigger>
-          <button
-            type="button"
-            disabled={busy}
-            data-testid="dck-lifecycle-menu"
-            aria-label={t(I18nKey.DCK$LIFECYCLE_ACTIONS)}
-            className="inline-flex size-11 items-center justify-center rounded text-text-secondary hover:bg-surface hover:text-contrast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {isSubmitting ? (
-              <Loader2 className="size-4 animate-spin" aria-hidden />
-            ) : (
-              <MoreVertical className="size-4" aria-hidden />
-            )}
-          </button>
-        </DropdownTrigger>
-        <DropdownMenu
+      <Dropdown>
+        <DropdownTrigger
+          type="button"
+          isDisabled={busy}
+          data-testid="dck-lifecycle-menu"
           aria-label={t(I18nKey.DCK$LIFECYCLE_ACTIONS)}
-          disabledKeys={actions
-            .filter(
-              (action) =>
-                busy ||
-                (lifecycleDisabled &&
-                  action.id !== "chat" &&
-                  action.id !== "environment"),
-            )
-            .map((action) => action.id)}
-          onAction={(key) => actions.find((action) => action.id === key)?.run()}
+          className="inline-flex size-11 items-center justify-center rounded text-text-secondary hover:bg-surface hover:text-contrast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {actions.map((action) => (
-            <DropdownItem
-              key={action.id}
-              data-testid={`dck-lifecycle-${action.id}`}
-              textValue={t(action.label)}
-              startContent={
-                <action.icon className="size-4 shrink-0" aria-hidden />
-              }
-              className={action.id === "delete" ? "text-danger" : undefined}
-              color={action.id === "delete" ? "danger" : "default"}
-            >
-              {t(action.label)}
-            </DropdownItem>
-          ))}
-        </DropdownMenu>
+          {isSubmitting ? (
+            <Loader2 className="size-4 animate-spin" aria-hidden />
+          ) : (
+            <MoreVertical className="size-4" aria-hidden />
+          )}
+        </DropdownTrigger>
+        <DropdownPopover placement="bottom end">
+          <DropdownMenu
+            aria-label={t(I18nKey.DCK$LIFECYCLE_ACTIONS)}
+            disabledKeys={actions
+              .filter(
+                (action) =>
+                  busy ||
+                  (lifecycleDisabled &&
+                    action.id !== "chat" &&
+                    action.id !== "environment"),
+              )
+              .map((action) => action.id)}
+            onAction={(key) =>
+              actions.find((action) => action.id === key)?.run()
+            }
+          >
+            {actions.map((action) => (
+              <DropdownItem
+                key={action.id}
+                id={action.id}
+                data-testid={`dck-lifecycle-${action.id}`}
+                textValue={t(action.label)}
+                variant={action.id === "delete" ? "danger" : "default"}
+              >
+                <span className="flex items-center gap-2">
+                  <action.icon className="size-4 shrink-0" aria-hidden />
+                  {t(action.label)}
+                </span>
+              </DropdownItem>
+            ))}
+          </DropdownMenu>
+        </DropdownPopover>
       </Dropdown>
 
       {showPublishDialog && (

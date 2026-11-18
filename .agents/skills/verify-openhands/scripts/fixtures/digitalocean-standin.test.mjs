@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, test } from "vitest";
 import { http, passthrough } from "msw";
-import { server as mswServer } from "#/mocks/node";
+import { server as mswServer } from "../../../../../src/mocks/node.ts";
 import WebSocket from "ws";
 import {
   CLOSE_GUEST_DIAL_FAILED,

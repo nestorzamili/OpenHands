@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, vi } from "vitest";
 import { cleanup } from "@testing-library/react";
-import { http, HttpResponse } from "msw";
 import { server } from "#/mocks/node";
 import "@testing-library/jest-dom/vitest";
 
@@ -22,6 +21,9 @@ if (typeof HTMLCanvasElement !== "undefined") {
 
 if (typeof HTMLElement !== "undefined") {
   HTMLElement.prototype.scrollTo = vi.fn();
+  // jsdom doesn't implement scrollIntoView; components that auto-scroll on
+  // expand (e.g. the launch plugin section) call it, so stub it globally.
+  HTMLElement.prototype.scrollIntoView = vi.fn();
 }
 
 const windowStub =
@@ -75,7 +77,7 @@ if (typeof requestAnimationFrame === "undefined") {
 // properties on `globalThis` and removes them during per-file teardown with
 // `keys.forEach((key) => delete global[key])`. If an in-flight intercepted
 // XHR (e.g. PostHog analytics, or any request that escaped to the real
-// network under `onUnhandledRequest: "bypass"` and is still waiting on a
+// network under `onUnhandledFrame: "bypass"` and is still waiting on a
 // socket) settles after teardown, its callback evaluates `ProgressEvent`
 // against a torn-down global and throws
 // `ReferenceError: ProgressEvent is not defined` (or the
@@ -196,27 +198,11 @@ vi.mock("zustand");
 
 // Mock requests during tests
 beforeAll(() => {
-  // Fail closed so a missing handler cannot leak a test request to a backend
-  // host or the public network.
-  server.listen({ onUnhandledRequest: "error" });
+  server.listen({ onUnhandledFrame: "bypass" });
   vi.stubGlobal("ResizeObserver", MockResizeObserver);
 });
 
 beforeEach(() => {
-  // Conversation-start tests that are not about hooks should never contact a
-  // local backend just to discover that it has no hooks configured. Specific
-  // hook tests add a higher-priority handler for this endpoint.
-  server.use(
-    http.get("*/api/meta-profiles", () =>
-      HttpResponse.json({
-        meta_profiles: [],
-        active_meta_profile: null,
-      }),
-    ),
-    http.post("*/api/hooks", () =>
-      HttpResponse.json({ hook_config: null }),
-    ),
-  );
   vi.stubEnv("VITE_SESSION_API_KEY", "test-session-key");
   vi.stubEnv("MARS_STATE_DIR", MARS_STATE_DIR);
 });

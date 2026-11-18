@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { cn } from "#/utils/utils";
+import { statusToneBadgeClassName } from "#/utils/status-tone-classes";
 import { DCK_STATUS_LABEL_KEYS, type DckProjectStatus } from "#/dck/modules";
 
 /**
@@ -9,12 +10,12 @@ import { DCK_STATUS_LABEL_KEYS, type DckProjectStatus } from "#/dck/modules";
  */
 const STATUS_CLASS: Record<DckProjectStatus, string> = {
   starting: "border-border bg-surface text-text-secondary",
-  running: "border-status-success/30 bg-status-success/10 text-status-success",
+  running: `border-success/40 ${statusToneBadgeClassName.success}`,
   stopped: "border-border bg-surface text-text-tertiary",
-  working: "border-status-success/30 bg-status-success/10 text-status-success",
+  working: `border-success/40 ${statusToneBadgeClassName.success}`,
   idle: "border-border bg-surface text-text-secondary",
   paused: "border-border bg-surface text-text-tertiary",
-  error: "border-status-error/30 bg-status-error/10 text-status-error",
+  error: `border-danger/40 ${statusToneBadgeClassName.danger}`,
   configured: "border-border bg-surface text-text-secondary",
   unknown: "border-border bg-surface text-text-tertiary",
 };

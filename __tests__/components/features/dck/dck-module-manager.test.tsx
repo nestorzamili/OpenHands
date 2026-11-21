@@ -82,32 +82,6 @@ vi.mock("#/components/features/dck/use-dck-conversations", () => ({
   }),
 }));
 
-vi.mock("#/hooks/query/use-project-skills", () => ({
-  useProjectSkills: () => ({
-    skills: [
-      {
-        name: "web-generator",
-        description: null,
-        triggers: ["scaffold"],
-        editable: true,
-      },
-      {
-        name: "research-brief",
-        description: null,
-        triggers: ["research"],
-        editable: true,
-      },
-    ],
-    editableSkills: [],
-    publicSkills: [],
-    isLoading: false,
-    isError: false,
-    isSaving: false,
-    saveSkill: vi.fn(),
-    refetch: vi.fn(),
-  }),
-}));
-
 function customConfig() {
   return JSON.stringify({
     modules: [

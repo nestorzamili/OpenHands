@@ -12,7 +12,7 @@ import { getDckWorkspaceRoot } from "#/dck/modules";
 import {
   getSkillFilePathParts,
   SKILLS_DIR_SEGMENT,
-} from "#/dck/skill-authoring";
+} from "#/utils/skill-file-path";
 import { resolveAbsoluteAgentServerPath } from "./agent-server-home";
 import { getActiveBackend } from "./backend-registry/active-store";
 import {

@@ -24,7 +24,6 @@ import {
   type SkillFilterState,
 } from "#/components/features/skills/skill-filter";
 import { SkillsToolbar } from "#/components/features/skills/skills-toolbar";
-import { CustomSkillAuthoring } from "#/components/features/skills/custom-skill-authoring";
 import { useSettings } from "#/hooks/query/use-settings";
 import { useActiveBackend } from "#/contexts/active-backend-context";
 import { useSkillCatalog } from "#/hooks/query/use-skill-catalog";
@@ -76,8 +75,6 @@ function SkillsSettingsScreen() {
     null,
   );
   const [showAddSkillModal, setShowAddSkillModal] = React.useState(false);
-  const [showSkillManager, setShowSkillManager] = React.useState(false);
-  const [authoringSkill, setAuthoringSkill] = React.useState<SkillInfo>();
   const [isFiltersModalOpen, setIsFiltersModalOpen] = React.useState(false);
 
   const isLoading = settingsLoading || skillsLoading || !settings;
@@ -102,8 +99,6 @@ function SkillsSettingsScreen() {
   const customOnly = filter.origins.size === 1 && filter.origins.has("custom");
 
   React.useEffect(() => {
-    setShowSkillManager(false);
-    setAuthoringSkill(undefined);
     setSelectedSkill(null);
   }, [backend.id, orgId]);
 
@@ -195,16 +190,6 @@ function SkillsSettingsScreen() {
               <p className="max-w-2xl text-xs text-tertiary-alt">
                 {t(I18nKey.SETTINGS$SKILLS_MODULE_PROFILE_NOTICE)}
               </p>
-              {backend.kind === "cloud" && (
-                <p
-                  data-testid="skills-cloud-authoring-notice"
-                  className="max-w-2xl text-xs text-tertiary-alt"
-                >
-                  {t(
-                    I18nKey.SETTINGS$SKILLS_CUSTOM_AUTHORING_UNSUPPORTED_CLOUD,
-                  )}
-                </p>
-              )}
             </div>
             <div className="flex flex-shrink-0 items-center gap-2">
               <button
@@ -226,17 +211,6 @@ function SkillsSettingsScreen() {
               >
                 {t(I18nKey.DCK$SKILL_CUSTOM_BADGE)}
               </button>
-              {backend.kind !== "cloud" ? (
-                <BrandButton
-                  type="button"
-                  variant="secondary"
-                  testId="skills-new-skill-button"
-                  className="whitespace-nowrap"
-                  onClick={() => setShowSkillManager(true)}
-                >
-                  {t(I18nKey.SETTINGS$SKILLS_CREATE_CUSTOM)}
-                </BrandButton>
-              ) : null}
               <BrandButton
                 type="button"
                 variant="secondary"
@@ -360,30 +334,11 @@ function SkillsSettingsScreen() {
             onToggle={(enabled) => setEnabled(selectedSkill.name, enabled)}
             onClose={() => setSelectedSkill(null)}
             isToggleDisabled={isUnavailable}
-            onEdit={
-              !isCloud && !isBuiltinSkill(selectedSkill)
-                ? () => {
-                    setSelectedSkill(null);
-                    setAuthoringSkill(selectedSkill);
-                    setShowSkillManager(true);
-                  }
-                : undefined
-            }
           />
         )}
 
         {showAddSkillModal && (
           <AddSkillModal onClose={() => setShowAddSkillModal(false)} />
-        )}
-
-        {showSkillManager && (
-          <CustomSkillAuthoring
-            selectedSkill={authoringSkill}
-            onClose={() => {
-              setShowSkillManager(false);
-              setAuthoringSkill(undefined);
-            }}
-          />
         )}
       </main>
     </div>

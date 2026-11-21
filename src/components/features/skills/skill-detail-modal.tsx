@@ -27,7 +27,6 @@ interface SkillDetailModalProps {
   onToggle: (enabled: boolean) => void;
   onClose: () => void;
   isToggleDisabled?: boolean;
-  onEdit?: () => void;
 }
 
 function ReadonlyTextArea({
@@ -62,7 +61,6 @@ export function SkillDetailModal({
   onToggle,
   onClose,
   isToggleDisabled = false,
-  onEdit,
 }: SkillDetailModalProps) {
   const { t } = useTranslation("openhands");
   const launchSkillInChat = useLaunchSkillInChat();
@@ -207,16 +205,6 @@ export function SkillDetailModal({
           data-testid="skill-detail-modal-actions"
           className="flex flex-shrink-0 justify-end gap-2 px-6 pb-6 pt-4"
         >
-          {onEdit ? (
-            <BrandButton
-              type="button"
-              variant="secondary"
-              onClick={onEdit}
-              testId="skill-detail-edit"
-            >
-              {t(I18nKey.DCK$SKILL_EDIT)}
-            </BrandButton>
-          ) : null}
           <BrandButton
             type="button"
             variant="secondary"
